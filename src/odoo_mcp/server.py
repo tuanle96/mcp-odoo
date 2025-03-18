@@ -208,6 +208,28 @@ class SearchHolidaysResponse(BaseModel):
     error: Optional[str] = Field(default=None, description="Error message, if any")
 
 
+class Task(BaseModel):
+    """Represents a task."""
+
+    id: int = Field(description="Task ID")
+    name: str = Field(description="Task name")
+    project_id: List[Union[int, str]] = Field(description="Project ID and name")
+    stage_id: List[Union[int, str]] = Field(description="Stage ID and name")
+    planned_hours: float = Field(description="Planned hours for the task")
+    effective_hours: float = Field(description="Effective hours spent on the task")
+    remaining_hours: float = Field(description="Remaining hours for the task")
+
+
+class SprintTasksResponse(BaseModel):
+    """Response for get_current_sprint_tasks"""
+
+    success: bool = Field(description="Indicates if the request was successful.")
+    tasks: Optional[List[Task]] = Field(
+        default=None, description="Current sprint tasks"
+    )
+    error: Optional[str] = Field(default=None, description="Error message if any.")
+
+
 # ----- MCP Tools -----
 
 
@@ -442,3 +464,40 @@ def search_holidays(
 
     except Exception as e:
         return SearchHolidaysResponse(success=False, error=str(e))
+
+
+@mcp.tool(description="Get the tasks of the current sprint for the calling user.")
+def get_current_sprint_tasks(ctx: Context) -> SprintTasksResponse:
+    """
+    Retrieves tasks for the current sprint and the user making the call.
+    """
+    odoo = ctx.request_context.lifespan_context.odoo
+    user_id = odoo.uid
+
+    if not user_id:
+        return SprintTasksResponse(success=False, error="User ID not found in context.")
+
+    try:
+        user_id_int = int(user_id)
+    except ValueError:
+        return SprintTasksResponse(success=False, error=f"Invalid user ID: {user_id}")
+    # Domain based on the provided example in sprint_tasks.txt
+    domain = [
+        "&",
+        "&",
+        ["project_id.name", "ilike", "EN CURSO"],
+        ["user_ids", "in", user_id_int],
+        "|",
+        "|",
+        ["stage_id", "=", 963],  # Sprint in progress
+        ["stage_id", "=", 962],  # Sprint Backlog
+        ["stage_id", "=", 966],  # Sprint blocked
+    ]
+
+    try:
+        tasks = odoo.search_read(model_name="project.task", domain=domain)
+        parsed_tasks = [Task(**task) for task in tasks]
+        return SprintTasksResponse(success=True, tasks=parsed_tasks)
+
+    except Exception as e:
+        return SprintTasksResponse(success=False, error=str(e))
