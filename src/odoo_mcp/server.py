@@ -230,6 +230,14 @@ class SprintTasksResponse(BaseModel):
     error: Optional[str] = Field(default=None, description="Error message if any.")
 
 
+class AddTimesheetEntryResponse(BaseModel):
+    """Response for add_timesheet_entry"""
+
+    success: bool = Field(description="Indicates if the request was successful.")
+    date: str = Field(description="The date for which the timesheet entry was added.")
+    error: Optional[str] = Field(default=None, description="Error message if any.")
+
+
 # ----- MCP Tools -----
 
 
@@ -501,3 +509,56 @@ def get_current_sprint_tasks(ctx: Context) -> SprintTasksResponse:
 
     except Exception as e:
         return SprintTasksResponse(success=False, error=str(e))
+
+
+@mcp.tool(description="Add a timesheet entry to a task.")
+def add_timesheet_entry(
+    ctx: Context, task_id: int, unit_amount: float, date: Optional[str] = None
+) -> AddTimesheetEntryResponse:
+    """
+    Adds a timesheet entry to a specified task.
+
+    Parameters:
+        task_id: The ID of the task to add time to.
+        unit_amount: Amount of time to add, in hours. Can be fractional.
+        date: Optional date in YYYY-MM-DD format. If not provided, defaults to the current day.
+
+    Returns:
+        AddTimesheetEntryResponse: Object containing success status, the date used, and error message if any.
+    """
+    odoo = ctx.request_context.lifespan_context.odoo
+    model = "account.analytic.line"
+    method = "adjust_grid"
+
+    # Use current date if date is not provided
+    if date is None:
+        date_dt = datetime.now()
+        date = date_dt.strftime("%Y-%m-%d")
+    else:
+        # Validate date format
+        try:
+            date_dt = datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            return AddTimesheetEntryResponse(
+                # Return empty string for date on error
+                success=False,
+                date="",
+                error="Invalid date format. Use YYYY-MM-DD.",
+            )
+
+    # Prepare arguments for adjust_grid method
+    args = [
+        [],
+        [["task_id", "=", task_id]],  # domain
+        "date",
+        f"{date}/{date}",
+        "unit_amount",
+        unit_amount,
+    ]
+
+    try:
+        odoo.execute_method(model, method, *args)
+        # Return the date used
+        return AddTimesheetEntryResponse(success=True, date=date)
+    except Exception as e:
+        return AddTimesheetEntryResponse(success=False, date=date, error=str(e))
