@@ -208,6 +208,36 @@ class SearchHolidaysResponse(BaseModel):
     error: Optional[str] = Field(default=None, description="Error message, if any")
 
 
+class Task(BaseModel):
+    """Represents a task."""
+
+    id: int = Field(description="Task ID")
+    name: str = Field(description="Task name")
+    project_id: List[Union[int, str]] = Field(description="Project ID and name")
+    stage_id: List[Union[int, str]] = Field(description="Stage ID and name")
+    planned_hours: float = Field(description="Planned hours for the task")
+    effective_hours: float = Field(description="Effective hours spent on the task")
+    remaining_hours: float = Field(description="Remaining hours for the task")
+
+
+class SprintTasksResponse(BaseModel):
+    """Response for get_current_sprint_tasks"""
+
+    success: bool = Field(description="Indicates if the request was successful.")
+    tasks: Optional[List[Task]] = Field(
+        default=None, description="Current sprint tasks"
+    )
+    error: Optional[str] = Field(default=None, description="Error message if any.")
+
+
+class AddTimesheetEntryResponse(BaseModel):
+    """Response for add_timesheet_entry"""
+
+    success: bool = Field(description="Indicates if the request was successful.")
+    date: str = Field(description="The date for which the timesheet entry was added.")
+    error: Optional[str] = Field(default=None, description="Error message if any.")
+
+
 # ----- MCP Tools -----
 
 
@@ -442,3 +472,93 @@ def search_holidays(
 
     except Exception as e:
         return SearchHolidaysResponse(success=False, error=str(e))
+
+
+@mcp.tool(description="Get the tasks of the current sprint for the calling user.")
+def get_current_sprint_tasks(ctx: Context) -> SprintTasksResponse:
+    """
+    Retrieves tasks for the current sprint and the user making the call.
+    """
+    odoo = ctx.request_context.lifespan_context.odoo
+    user_id = odoo.uid
+
+    if not user_id:
+        return SprintTasksResponse(success=False, error="User ID not found in context.")
+
+    try:
+        user_id_int = int(user_id)
+    except ValueError:
+        return SprintTasksResponse(success=False, error=f"Invalid user ID: {user_id}")
+    # Domain based on the provided example in sprint_tasks.txt
+    domain = [
+        "&",
+        "&",
+        ["project_id.name", "ilike", "EN CURSO"],
+        ["user_ids", "in", user_id_int],
+        "|",
+        "|",
+        ["stage_id", "=", 963],  # Sprint in progress
+        ["stage_id", "=", 962],  # Sprint Backlog
+        ["stage_id", "=", 966],  # Sprint blocked
+    ]
+
+    try:
+        tasks = odoo.search_read(model_name="project.task", domain=domain)
+        parsed_tasks = [Task(**task) for task in tasks]
+        return SprintTasksResponse(success=True, tasks=parsed_tasks)
+
+    except Exception as e:
+        return SprintTasksResponse(success=False, error=str(e))
+
+
+@mcp.tool(description="Add a timesheet entry to a task.")
+def add_timesheet_entry(
+    ctx: Context, task_id: int, unit_amount: float, date: Optional[str] = None
+) -> AddTimesheetEntryResponse:
+    """
+    Adds a timesheet entry to a specified task.
+
+    Parameters:
+        task_id: The ID of the task to add time to.
+        unit_amount: Amount of time to add, in hours. Can be fractional.
+        date: Optional date in YYYY-MM-DD format. If not provided, defaults to the current day.
+
+    Returns:
+        AddTimesheetEntryResponse: Object containing success status, the date used, and error message if any.
+    """
+    odoo = ctx.request_context.lifespan_context.odoo
+    model = "account.analytic.line"
+    method = "adjust_grid"
+
+    # Use current date if date is not provided
+    if date is None:
+        date_dt = datetime.now()
+        date = date_dt.strftime("%Y-%m-%d")
+    else:
+        # Validate date format
+        try:
+            date_dt = datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            return AddTimesheetEntryResponse(
+                # Return empty string for date on error
+                success=False,
+                date="",
+                error="Invalid date format. Use YYYY-MM-DD.",
+            )
+
+    # Prepare arguments for adjust_grid method
+    args = [
+        [],
+        [["task_id", "=", task_id]],  # domain
+        "date",
+        f"{date}/{date}",
+        "unit_amount",
+        unit_amount,
+    ]
+
+    try:
+        odoo.execute_method(model, method, *args)
+        # Return the date used
+        return AddTimesheetEntryResponse(success=True, date=date)
+    except Exception as e:
+        return AddTimesheetEntryResponse(success=False, date=date, error=str(e))
