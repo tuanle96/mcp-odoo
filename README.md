@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/tuanle96-mcp-odoo-badge.png)](https://mseep.ai/app/tuanle96-mcp-odoo)
+
 # Odoo MCP Server
 
 An MCP server implementation that integrates with Odoo ERP systems, enabling AI assistants to interact with Odoo data and functionality through the Model Context Protocol.
