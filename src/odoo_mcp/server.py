@@ -340,7 +340,7 @@ def execute_method(
                 args = normalized_args
 
                 # Log for debugging
-                print(f"Executing {method} with normalized domain: {domain_list}")
+                print(f"Executing {method} with normalized domain: {domain_list}", file=sys.stderr)
 
         result = odoo.execute_method(model, method, *args, **kwargs)
         return {"success": True, "result": result}
