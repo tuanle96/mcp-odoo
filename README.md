@@ -81,6 +81,48 @@ An MCP server implementation that integrates with Odoo ERP systems, enabling AI 
    * `ODOO_TIMEOUT`: Connection timeout in seconds (default: 30)
    * `ODOO_VERIFY_SSL`: Whether to verify SSL certificates (default: true)
    * `HTTP_PROXY`: Force the ODOO connection to use an HTTP proxy
+   * `ODOO_CUSTOM_INSTRUCTIONS`: Path to a text file containing custom instructions to append to all tool descriptions
+
+### Custom Instructions
+
+You can provide custom instructions that will be appended to all tool descriptions. This is useful for providing context-specific guidance or organizational conventions.
+
+1. Create a text file with your instructions (e.g., `odoo_instructions.txt`):
+
+```text
+When working with this Odoo instance:
+- Always use Spanish for field labels
+- The fiscal year starts in July
+- Contact the IT department before modifying res.users records
+```
+
+2. Set the environment variable to point to your file:
+
+```bash
+export ODOO_CUSTOM_INSTRUCTIONS="/path/to/odoo_instructions.txt"
+```
+
+3. Or add it to your Claude Desktop configuration:
+
+```json
+{
+  "mcpServers": {
+    "odoo": {
+      "command": "python",
+      "args": ["-m", "odoo_mcp"],
+      "env": {
+        "ODOO_URL": "https://your-odoo-instance.com",
+        "ODOO_DB": "your-database-name",
+        "ODOO_USERNAME": "your-username",
+        "ODOO_PASSWORD": "your-password-or-api-key",
+        "ODOO_CUSTOM_INSTRUCTIONS": "/path/to/odoo_instructions.txt"
+      }
+    }
+  }
+}
+```
+
+The instructions will be automatically included in all tool descriptions, helping the AI assistant follow your specific guidelines.
 
 ### Usage with Claude Desktop
 

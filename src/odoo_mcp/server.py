@@ -5,6 +5,7 @@ Provides MCP tools and resources for interacting with Odoo ERP systems
 """
 
 import json
+import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -14,6 +15,12 @@ from mcp.server.fastmcp import Context, FastMCP
 from pydantic import BaseModel, Field
 
 from .odoo_client import OdooClient, get_odoo_client
+
+# Load custom instructions from environment variable
+CUSTOM_INSTRUCTIONS = ""
+if "ODOO_CUSTOM_INSTRUCTIONS" in os.environ:
+    with open(os.environ["ODOO_CUSTOM_INSTRUCTIONS"]) as f:
+        CUSTOM_INSTRUCTIONS = f.read()
 
 
 @dataclass
@@ -211,7 +218,7 @@ class SearchHolidaysResponse(BaseModel):
 # ----- MCP Tools -----
 
 
-@mcp.tool(description="Execute a custom method on an Odoo model")
+@mcp.tool()
 def execute_method(
     ctx: Context,
     model: str,
@@ -219,8 +226,7 @@ def execute_method(
     args: List = None,
     kwargs: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """
-    Execute a custom method on an Odoo model
+    f"""Execute a custom method on an Odoo model
 
     Parameters:
         model: The model name (e.g., 'res.partner')
@@ -233,6 +239,8 @@ def execute_method(
         - success: Boolean indicating success
         - result: Result of the method (if success)
         - error: Error message (if failure)
+
+    {CUSTOM_INSTRUCTIONS}
     """
     odoo = ctx.request_context.lifespan_context.odoo
     try:
@@ -348,14 +356,13 @@ def execute_method(
         return {"success": False, "error": str(e)}
 
 
-@mcp.tool(description="Search for employees by name")
+@mcp.tool()
 def search_employee(
     ctx: Context,
     name: str,
     limit: int = 20,
 ) -> SearchEmployeeResponse:
-    """
-    Search for employees by name using Odoo's name_search method.
+    f"""Search for employees by name using Odoo's name_search method
 
     Parameters:
         name: The name (or part of the name) to search for.
@@ -363,6 +370,8 @@ def search_employee(
 
     Returns:
         SearchEmployeeResponse containing results or error information.
+
+    {CUSTOM_INSTRUCTIONS}
     """
     odoo = ctx.request_context.lifespan_context.odoo
     model = "hr.employee"
@@ -381,15 +390,14 @@ def search_employee(
         return SearchEmployeeResponse(success=False, error=str(e))
 
 
-@mcp.tool(description="Search for holidays within a date range")
+@mcp.tool()
 def search_holidays(
     ctx: Context,
     start_date: str,
     end_date: str,
     employee_id: Optional[int] = None,
 ) -> SearchHolidaysResponse:
-    """
-    Searches for holidays within a specified date range.
+    f"""Search for holidays within a specified date range
 
     Parameters:
         start_date: Start date in YYYY-MM-DD format.
@@ -397,7 +405,9 @@ def search_holidays(
         employee_id: Optional employee ID to filter holidays.
 
     Returns:
-        SearchHolidaysResponse:  Object containing the search results.
+        SearchHolidaysResponse: Object containing the search results.
+
+    {CUSTOM_INSTRUCTIONS}
     """
     odoo = ctx.request_context.lifespan_context.odoo
 
