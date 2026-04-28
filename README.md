@@ -1,249 +1,205 @@
-# Odoo MCP Server
+# Odoo MCP
 
-An MCP server implementation that integrates with Odoo ERP systems, enabling AI assistants to interact with Odoo data and functionality through the Model Context Protocol.
+<p align="center">
+  <strong>A precise MCP bridge for Odoo.</strong><br>
+  Give AI agents a safe, typed, and testable way to read, inspect, diagnose, and operate Odoo.
+</p>
 
-## Features
+<p align="center">
+  <a href="https://pypi.org/project/odoo-mcp/"><img alt="PyPI" src="https://img.shields.io/pypi/v/odoo-mcp.svg"></a>
+  <a href="https://pypi.org/project/odoo-mcp/"><img alt="Python" src="https://img.shields.io/pypi/pyversions/odoo-mcp.svg"></a>
+  <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-black.svg"></a>
+</p>
 
-* **Odoo Integration**: Generic method execution plus resource-based model and record access
-* **Odoo Transports**: XML-RPC for Odoo 16-18/backward compatibility, plus Odoo 19 External JSON-2 via `/json/2/<model>/<method>`
-* **MCP Transports**: `stdio` by default, plus opt-in Streamable HTTP or SSE for remote MCP clients
-* **Agent-Friendly Tools**: Safe read-only tools plus diagnostic/report tools for JSON-2 migration, model relationships, upgrade risk, and fit/gap analysis
-* **Flexible Configuration**: Support for config files and environment variables
-* **Resource Pattern System**: URI-based access to Odoo data structures
-* **Error Handling**: Clear error messages for common Odoo API issues
-* **Stateless Operations**: Clean request/response cycle for reliable integration
+Odoo MCP turns an Odoo database into a Model Context Protocol server. It is built for local agents, IDEs, and automation tools that need real Odoo context without hand-rolled scripts or unsafe direct write access.
 
-## Tools
+It speaks XML-RPC for Odoo 16-18 and External JSON-2 for Odoo 19. It exposes a compact MCP surface with read tools, diagnostics, schema discovery, migration helpers, local addon scanning, and a gated write workflow.
 
-The current MCP tool surface has 12 tools: 7 execution/read tools and 5 diagnostic/report tools. Diagnostic/report tools are preview-only unless explicitly documented otherwise; they do not execute candidate Odoo model methods.
+## Highlights
 
-* **execute_method**
-  * Execute a custom method on an Odoo model
-  * Inputs:
-    * `model` (string): The model name (e.g., 'res.partner')
-    * `method` (string): Method name to execute
-    * `args` (optional array): Positional arguments
-    * `kwargs` (optional object): Keyword arguments
-  * Returns: Dictionary with the method result and success indicator
+| Capability | What it gives you |
+| --- | --- |
+| 21 MCP tools | Read records, inspect schema, build domains, scan addons, diagnose calls, and validate writes. |
+| 5 agent prompts | Reusable workflows for failed calls, fit/gap workshops, JSON-2 migration, safe writes, and module audits. |
+| Odoo 16-19 coverage | XML-RPC by default, JSON-2 opt-in for Odoo 19. |
+| Streamable HTTP | Local HTTP/SSE support for clients that do not use stdio. |
+| Safe writes | Direct `create`, `write`, and `unlink` are blocked; approved writes require live metadata, a same-session token, explicit confirmation, and an env gate. |
+| Real smoke tests | Docker Compose validation boots disposable Odoo 16.0, 17.0, 18.0, and 19.0 stacks. |
 
-* **list_models**
-  * List Odoo model technical names and display names
-  * Inputs:
-    * `query` (optional string): Filter by technical model name or display name
-    * `limit` (optional number): Maximum number of models to return, capped for safety
-  * Returns: Object containing count and matching models
+## Install
 
-* **get_model_fields**
-  * Read field metadata for one model
-  * Inputs:
-    * `model` (string): Odoo technical model name, for example `res.partner`
-    * `field_names` (optional array): Field names to include
-  * Returns: Object containing field definitions
+```bash
+pip install odoo-mcp
+```
 
-* **search_records**
-  * Search and read records through bounded read-only `search_read`
-  * Inputs:
-    * `model` (string): Odoo technical model name
-    * `domain` (optional array/object/string): Odoo search domain
-    * `fields` (optional array): Field names to read
-    * `limit` (optional number): Maximum records to read, capped at 100
-    * `offset` (optional number): Search offset
-    * `order` (optional string): Odoo order expression
-  * Returns: Object containing count and matching records
+For local development:
 
-* **read_record**
-  * Read one record by model and ID
-  * Inputs:
-    * `model` (string): Odoo technical model name
-    * `record_id` (number): Record ID
-    * `fields` (optional array): Field names to read
-  * Returns: Object containing the record or a not-found error
+```bash
+git clone https://github.com/tuanle96/mcp-odoo.git
+cd mcp-odoo
+uv sync --extra dev
+```
 
-* **search_employee**
-  * Search for employees by name
-  * Inputs:
-    * `name` (string): The name (or part of the name) to search for
-    * `limit` (optional number): The maximum number of results to return (default 20)
-  * Returns: Object containing success indicator, list of matching employee names and IDs, and any error message
+## Configure
 
-* **search_holidays**
-  * Searches for holidays within a specified date range
-  * Inputs:
-    * `start_date` (string): Start date in YYYY-MM-DD format
-    * `end_date` (string): End date in YYYY-MM-DD format
-    * `employee_id` (optional number): Optional employee ID to filter holidays
-  * Returns: Object containing success indicator, list of holidays found, and any error message
+Set connection values in the environment:
 
-* **diagnose_odoo_call**
-  * Diagnose an Odoo model call without executing it
-  * Flags read-only, destructive, and unknown-risk methods; highlights JSON-2 named-argument issues; redacts Odoo error `debug` details by default
-  * Inputs:
-    * `model` (string): Odoo technical model name
-    * `method` (string): Odoo method name
-    * `args` (optional array): XML-RPC-style positional arguments to diagnose
-    * `kwargs` (optional object): Keyword arguments to diagnose
-    * `observed_error` (optional string/object): Error text or Odoo-shaped error object
-  * Returns: Structured diagnosis, suggested payload, issues, and next actions
+```bash
+export ODOO_URL="https://your-odoo-instance.com"
+export ODOO_DB="your-database"
+export ODOO_USERNAME="your-user"
+export ODOO_PASSWORD="your-password-or-api-key"
+export ODOO_TRANSPORT="xmlrpc"
+```
 
-* **inspect_model_relationships**
-  * Inspect relationship and required-field metadata for one model
-  * Uses caller-provided metadata or bounded read-only `fields_get` metadata
-  * Inputs:
-    * `model` (string): Odoo technical model name
-    * `fields_metadata` (optional object): Pre-fetched `fields_get` metadata
-    * `use_live_metadata` (optional boolean): Whether to call bounded live `fields_get`
-  * Returns: Grouped `many2one`, `one2many`, `many2many`, required fields, and create/write hints
+For Odoo 19 JSON-2:
 
-* **generate_json2_payload**
-  * Build a JSON-2 endpoint, headers, and named JSON body from XML-RPC-style args or kwargs without network I/O
-  * Includes destructive-method warnings, optional `X-Odoo-Database` guidance, and per-call transaction notes
-  * Inputs:
-    * `model` (string): Odoo technical model name
-    * `method` (string): Odoo method name
-    * `args` (optional array): XML-RPC-style positional arguments to map
-    * `kwargs` (optional object): Named JSON arguments
-    * `base_url` (optional string): Odoo base URL for preview output
-    * `database` (optional string): Database name for `X-Odoo-Database`
-  * Returns: JSON-2 path/URL, headers, named body, warnings, and transaction note
+```bash
+export ODOO_TRANSPORT="json2"
+export ODOO_API_KEY="your-odoo-api-key"
+export ODOO_JSON2_DATABASE_HEADER="1"
+```
 
-* **upgrade_risk_report**
-  * Report migration risks for Odoo version upgrades, deprecated XML-RPC/JSON-RPC usage, JSON-2 named-argument changes, transaction behavior, and destructive methods
-  * Inputs:
-    * `source_version` / `target_version` (optional strings): Odoo versions
-    * `modules`, `methods`, `source_findings`, `observed_errors` (optional arrays): Input evidence
-  * Returns: Risk summary, transport risk, destructive methods, and next actions
+`ODOO_JSON2_DATABASE_HEADER=1` sends `X-Odoo-Database` on JSON-2 calls. Set it to `0` only when host or dbfilter routing already selects the intended database.
 
-* **fit_gap_report**
-  * Classify requirements as `standard`, `configuration`, `studio`, `custom_module`, `avoid`, or `unknown`
-  * Inputs:
-    * `requirements` (array): Requirements to classify
-    * `available_models`, `available_fields`, `installed_modules`, `business_context` (optional): Evidence for classification
-  * Returns: Classification items, evidence, and safe next discovery calls
-
-## Resources
-
-The current MCP resource surface has 4 resource URI patterns:
-
-* **odoo://models**
-  * Lists all available models in the Odoo system
-  * Returns: JSON array of model information
-
-* **odoo://model/{model_name}**
-  * Get information about a specific model including fields
-  * Example: `odoo://model/res.partner`
-  * Returns: JSON object with model metadata and field definitions
-
-* **odoo://record/{model_name}/{record_id}**
-  * Get a specific record by ID
-  * Example: `odoo://record/res.partner/1`
-  * Returns: JSON object with record data
-
-* **odoo://search/{model_name}/{domain}**
-  * Search for records that match a domain
-  * Example: `odoo://search/res.partner/[["is_company","=",true]]`
-  * Returns: JSON array of matching records (limited to 10 by default)
-
-## Configuration
-
-### Odoo Connection Setup
-
-1. Create a configuration file named `odoo_config.json`:
+You can also use `odoo_config.json`:
 
 ```json
 {
   "url": "https://your-odoo-instance.com",
-  "db": "your-database-name",
-  "username": "your-username",
+  "db": "your-database",
+  "username": "your-user",
   "password": "your-password-or-api-key"
 }
 ```
 
-2. Alternatively, use environment variables:
-   * `ODOO_URL`: Your Odoo server URL
-   * `ODOO_DB`: Database name
-   * `ODOO_USERNAME`: Login username
-   * `ODOO_PASSWORD`: Password or API key
-   * `ODOO_TRANSPORT`: `xmlrpc` (default) or `json2`
-   * `ODOO_API_KEY`: Odoo API key used as the JSON-2 bearer token; if omitted with `ODOO_TRANSPORT=json2`, `ODOO_PASSWORD` is treated as the API key
-   * `ODOO_JSON2_DATABASE_HEADER`: `1`/`true` (default) to send `X-Odoo-Database` on JSON-2 requests, or `0`/`false` to rely on host/dbfilter routing
-   * `ODOO_TIMEOUT`: Connection timeout in seconds (default: 30)
-   * `ODOO_VERIFY_SSL`: Whether to verify SSL certificates (default: true)
-   * `HTTP_PROXY`: Force the ODOO connection to use an HTTP proxy
+## Run
 
-### MCP Transport Setup
-
-The server defaults to `stdio`, which is the most widely supported local MCP transport:
+Start the MCP server over stdio:
 
 ```bash
 odoo-mcp
+```
+
+or:
+
+```bash
 python -m odoo_mcp
 ```
 
-For clients that support MCP over Streamable HTTP:
+Start Streamable HTTP for local clients:
 
 ```bash
 odoo-mcp --transport streamable-http --host 127.0.0.1 --port 8000 --path /mcp
 ```
 
-Equivalent environment variables:
+Non-local HTTP binds are rejected unless you pass `--allow-remote-http` or set `MCP_ALLOW_REMOTE_HTTP=1`. This server does not include built-in HTTP authentication. Put remote HTTP deployments behind your own authentication, TLS, and network policy.
+
+Check runtime posture without starting the server loop:
 
 ```bash
-export MCP_TRANSPORT=streamable-http
-export MCP_HTTP_HOST=127.0.0.1
-export MCP_HTTP_PORT=8000
-export MCP_HTTP_PATH=/mcp
-export MCP_LOG_LEVEL=INFO
+odoo-mcp --health
 ```
 
-The default HTTP bind host is `127.0.0.1`. Keep it local unless you put the server behind your own authentication, TLS, and network policy. Odoo credentials and API keys are sensitive.
+## MCP Tools
 
-### Usage with Claude Desktop
+| Tool | Purpose |
+| --- | --- |
+| `execute_method` | Execute a reviewed model method. Direct `create`, `write`, and `unlink` are blocked. Unknown side-effect methods require `ODOO_MCP_ALLOW_UNKNOWN_METHODS=1`. |
+| `list_models` | List Odoo model technical names and labels. |
+| `get_model_fields` | Read field metadata for one model. |
+| `search_records` | Run bounded read-only `search_read`. |
+| `read_record` | Read one record by model and ID. |
+| `search_employee` | Search employees by name. |
+| `search_holidays` | Search leave records by date range. |
+| `diagnose_odoo_call` | Diagnose a model call without executing it. |
+| `inspect_model_relationships` | Group relationship fields, required fields, and create/write hints. |
+| `generate_json2_payload` | Convert XML-RPC-shaped input into JSON-2 endpoint, headers, and named body. |
+| `upgrade_risk_report` | Surface transport, method, and migration risks across Odoo versions. |
+| `fit_gap_report` | Classify requirements into standard, configuration, Studio, custom module, avoid, or unknown. |
+| `get_odoo_profile` | Read server version, user context, transport, database, and installed module summary. |
+| `schema_catalog` | Build a bounded model catalog with optional field metadata. |
+| `preview_write` | Produce a non-executing approval payload for `create`, `write`, or `unlink`. |
+| `validate_write` | Validate a write payload against trusted live `fields_get` metadata. |
+| `execute_approved_write` | Execute only a same-session, live-validated, confirmed write when `ODOO_MCP_ENABLE_WRITES=1`. |
+| `scan_addons_source` | Scan local addon source without importing addon code. |
+| `build_domain` | Build and validate an Odoo domain from structured conditions. |
+| `business_pack_report` | Report expected modules, models, and discovery calls for sales, CRM, inventory, accounting, or HR. |
+| `health_check` | Report non-secret MCP runtime posture. |
 
-On macOS, Claude Desktop reads MCP server configuration from:
+## Resources
+
+| URI | Description |
+| --- | --- |
+| `odoo://models` | List available models. |
+| `odoo://model/{model_name}` | Read model metadata and fields. |
+| `odoo://record/{model_name}/{record_id}` | Read one record. |
+| `odoo://search/{model_name}/{domain}` | Search records with a bounded domain. |
+
+## Prompts
+
+| Prompt | Use it for |
+| --- | --- |
+| `diagnose_failed_odoo_call` | Root-cause a failing Odoo call before retrying. |
+| `fit_gap_workshop` | Turn raw requirements into Odoo fit/gap buckets. |
+| `json2_migration_plan` | Plan XML-RPC or JSON-RPC migration to External JSON-2. |
+| `safe_write_review` | Review a proposed `create`, `write`, or `unlink`. |
+| `custom_module_audit` | Audit local addon source with scan, risk, and business evidence. |
+
+## Safe Write Model
+
+Writes are intentionally boring.
+
+1. `preview_write` creates a canonical, non-executing payload.
+2. `validate_write` checks model metadata, required fields, readonly fields, relation hints, record IDs, and payload shape.
+3. `execute_approved_write` runs only when all gates pass:
+   - the approval came from `validate_write` in the same server process,
+   - validation used trusted, non-empty live Odoo `fields_get` metadata,
+   - the token has not expired or been consumed,
+   - `confirm=true` is passed,
+   - `ODOO_MCP_ENABLE_WRITES=1` is set.
+
+Odoo access rules, record rules, and server-side constraints still decide the final result.
+
+## Client Setup
+
+Claude Desktop on macOS reads MCP configuration from:
 
 ```text
 ~/Library/Application Support/Claude/claude_desktop_config.json
 ```
 
-Claude Desktop may not inherit the same shell `PATH` you use in Terminal, so prefer an absolute Python path. Find it with:
-
-```bash
-which python3
-```
-
-Then add this to `claude_desktop_config.json`, replacing `/opt/homebrew/bin/python3` with your actual path if different:
+Use an absolute Python path because GUI apps may not inherit your shell `PATH`:
 
 ```json
 {
   "mcpServers": {
     "odoo": {
       "command": "/opt/homebrew/bin/python3",
-      "args": [
-        "-m",
-        "odoo_mcp"
-      ],
+      "args": ["-m", "odoo_mcp"],
       "env": {
         "ODOO_URL": "https://your-odoo-instance.com",
-        "ODOO_DB": "your-database-name",
-        "ODOO_USERNAME": "your-username",
-        "ODOO_PASSWORD": "your-password-or-api-key"
+        "ODOO_DB": "your-database",
+        "ODOO_USERNAME": "your-user",
+        "ODOO_PASSWORD": "your-password-or-api-key",
+        "ODOO_TRANSPORT": "xmlrpc"
       }
     }
   }
 }
 ```
 
-If you install into a virtual environment, point `command` at that environment's Python binary, for example `/path/to/venv/bin/python`.
+More examples are in [docs/client-configs.md](./docs/client-configs.md).
 
-### Docker
+## Docker
 
-Build the local image first:
+Build the image:
 
 ```bash
 docker build -t mcp/odoo:latest -f Dockerfile .
 ```
 
-Then configure Claude Desktop to run the container over stdio:
+Run over stdio from an MCP client:
 
 ```json
 {
@@ -254,41 +210,20 @@ Then configure Claude Desktop to run the container over stdio:
         "run",
         "-i",
         "--rm",
-        "-e",
-        "ODOO_URL",
-        "-e",
-        "ODOO_DB",
-        "-e",
-        "ODOO_USERNAME",
-        "-e",
-        "ODOO_PASSWORD",
-        "-e",
-        "ODOO_TRANSPORT",
-        "-e",
-        "ODOO_API_KEY",
-        "-e",
-        "ODOO_TIMEOUT",
-        "-e",
-        "ODOO_VERIFY_SSL",
+        "-e", "ODOO_URL",
+        "-e", "ODOO_DB",
+        "-e", "ODOO_USERNAME",
+        "-e", "ODOO_PASSWORD",
+        "-e", "ODOO_TRANSPORT",
+        "-e", "ODOO_API_KEY",
         "mcp/odoo:latest"
-      ],
-      "env": {
-        "ODOO_URL": "https://your-odoo-instance.com",
-        "ODOO_DB": "your-database-name",
-        "ODOO_USERNAME": "your-username",
-        "ODOO_PASSWORD": "your-password-or-api-key",
-        "ODOO_TRANSPORT": "xmlrpc",
-        "ODOO_TIMEOUT": "30",
-        "ODOO_VERIFY_SSL": "1"
-      }
+      ]
     }
   }
 }
 ```
 
-The container entrypoint is `odoo-mcp`; it starts the MCP server over stdio using the installed package entry point.
-
-To run the same image over Streamable HTTP for a local MCP client:
+Run Streamable HTTP locally:
 
 ```bash
 docker run --rm \
@@ -302,95 +237,43 @@ docker run --rm \
   mcp/odoo:latest \
   --transport streamable-http \
   --host 0.0.0.0 \
-  --port 8000
+  --port 8000 \
+  --allow-remote-http
 ```
 
-## Odoo API Compatibility
+## Test
 
-This package keeps XML-RPC as the default transport for backward compatibility. As of the Odoo 19.0 documentation checked on 2026-04-28, Odoo marks XML-RPC and JSON-RPC endpoints (`/xmlrpc`, `/xmlrpc/2`, and `/jsonrpc`) as deprecated and scheduled for removal in Odoo 20 (fall 2026), with the External JSON-2 API as the replacement: https://www.odoo.com/documentation/19.0/developer/reference/external_api.html
-
-For Odoo 19, enable JSON-2 explicitly:
+Run the normal quality gates:
 
 ```bash
-export ODOO_TRANSPORT=json2
-export ODOO_API_KEY="your-odoo-api-key"
+uv run python -m ruff check .
+uv run python -m mypy src
+uv run python -m pytest
 ```
 
-JSON-2 uses bearer authentication and named JSON arguments. The client maps common ORM positional calls (`search`, `search_count`, `search_read`, `read`, `write`, `unlink`, `create`, `name_search`, and `fields_get`) to JSON-2 named arguments so the existing MCP tools keep working. For arbitrary custom methods with positional-only XML-RPC style arguments, pass `kwargs` that match the Odoo method signature or keep `ODOO_TRANSPORT=xmlrpc`.
-
-Odoo JSON-2 does not accept a database name in the request body the way XML-RPC does. For multi-database deployments, this server sends the selected database through `X-Odoo-Database` by default. Set `ODOO_JSON2_DATABASE_HEADER=0` only when the Odoo host/dbfilter routing already resolves the intended database.
-
-JSON-2 uses named JSON arguments and each call runs in its own transaction. The diagnostic/report tools surface this difference so agents do not assume XML-RPC-style positional arguments or multi-call transaction boundaries.
-
-When Odoo returns a structured JSON-2 error, the server preserves Odoo-shaped fields such as `name`, `message`, `arguments`, `context`, and `debug`. The `debug` field is redacted by default and is returned only when the caller explicitly opts in.
-
-## Release Verification
-
-Before publishing a compatibility release, verify at least:
+Run real Odoo smoke tests:
 
 ```bash
-python -m pytest
-python -m build
-python -m twine check dist/*
-python -c "from importlib.metadata import version; assert version('odoo-mcp') == '0.0.4'"
-docker build -t mcp/odoo:latest -f Dockerfile .
-uv run --python 3.12 --with-editable . scripts/odoo_compose_smoke.py --versions 16.0 17.0 18.0 19.0 --timeout 360 --inspector-smoke
+uv run --python 3.12 --with-editable . scripts/odoo_compose_smoke.py \
+  --versions 16.0 17.0 18.0 19.0 \
+  --timeout 360 \
+  --inspector-smoke
 ```
 
-The Docker Compose smoke test boots disposable Postgres and official `odoo:<version>` containers, initializes a fresh Odoo database, checks HTTP and XML-RPC readiness, then starts this MCP server and validates `list_tools`, `list_resources`, `list_resource_templates`, `read_resource`, `execute_method`, the typed read-only tools, and the diagnostic/report tools against live Odoo data. For Odoo 19.0 it also generates a disposable API key inside the container and validates direct JSON-2, MCP stdio JSON-2, MCP Streamable HTTP JSON-2, and MCP Inspector `tools/list`.
+The smoke harness boots disposable Docker Compose stacks, validates direct Odoo access, validates MCP stdio, and for Odoo 19 also validates JSON-2 and Streamable HTTP.
 
-The GitHub release workflow must keep PyPI upload gated behind successful test, build, and MCP Inspector smoke jobs. For live runtime validation, connect the server to a test Odoo database and confirm the 12 tools and 4 resource URI patterns listed above initialize and can read/search non-sensitive test records.
+## Compatibility
 
-## Installation
+XML-RPC remains the default transport for broad compatibility. Odoo 19 supports External JSON-2 through `ODOO_TRANSPORT=json2`. Odoo has documented XML-RPC and JSON-RPC deprecation for Odoo 20, so new integrations should plan for JSON-2.
 
-### Python Package
+## Contributing
 
-```bash
-pip install odoo-mcp
-```
+Issues, pull requests, and compatibility reports are welcome. Start with [CONTRIBUTING.md](./CONTRIBUTING.md), include your Odoo version, transport, client type, and the verification you ran.
 
-### Running the Server
+## Security
 
-```bash
-# Using the installed package
-odoo-mcp
-
-# Using the MCP development tools
-mcp dev odoo_mcp/server.py
-
-# With additional dependencies
-mcp dev odoo_mcp/server.py --with pandas --with numpy
-
-# Mount local code for development
-mcp dev odoo_mcp/server.py --with-editable .
-```
-
-## Build
-
-Docker build:
-
-```bash
-docker build -t mcp/odoo:latest -f Dockerfile .
-```
-
-## Parameter Formatting Guidelines
-
-When using the MCP tools for Odoo, pay attention to these parameter formatting guidelines:
-
-1. **Domain Parameter**:
-   * The following domain formats are supported:
-     * List format: `[["field", "operator", value], ...]`
-     * Object format: `{"conditions": [{"field": "...", "operator": "...", "value": "..."}]}`
-     * JSON string of either format
-   * Examples:
-     * List format: `[["is_company", "=", true]]`
-     * Object format: `{"conditions": [{"field": "date_order", "operator": ">=", "value": "2025-03-01"}]}`
-     * Multiple conditions: `[["date_order", ">=", "2025-03-01"], ["date_order", "<=", "2025-03-31"]]`
-
-2. **Fields Parameter**:
-   * Should be an array of field names: `["name", "email", "phone"]`
-   * The server will try to parse string inputs as JSON
+Do not publish logs that contain Odoo credentials, API keys, database names from private environments, or full Odoo debug traces. Report vulnerabilities through [SECURITY.md](./SECURITY.md).
 
 ## License
 
-This MCP server is licensed under the MIT License.
+MIT. See [LICENSE](./LICENSE).

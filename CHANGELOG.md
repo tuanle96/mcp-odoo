@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+## [0.1.0] - 2026-04-28
+
+### Added
+- Added MCP safety annotations and structured output schemas across the tool surface.
+- Added Odoo profile and schema catalog tools for bounded live environment discovery.
+- Added safe write workflow tools: `preview_write`, `validate_write`, and fail-closed `execute_approved_write`.
+- Hardened safe writes so execution requires a same-process `validate_write` approval record, `confirm=true`, and `ODOO_MCP_ENABLE_WRITES=1`.
+- Blocked direct `create`/`write`/`unlink` through `execute_method` and blocked unknown side-effect methods unless explicitly trusted with `ODOO_MCP_ALLOW_UNKNOWN_METHODS=1`.
+- Restricted explicit addon source scans to configured `ODOO_ADDONS_PATHS` roots.
+- Added local addon source scanning, structured domain building, business pack reporting, runtime health, and 5 MCP prompts for agent workflows.
+
+### Changed
+- Reworked project documentation for a polished open-source GitHub presentation, including a concise README, client configuration guide, architecture notes, testing guide, contributing guide, security policy, support guide, code of conduct, package metadata URLs, and sdist documentation inclusion.
+- Hardened HTTP runtime startup so non-local binds require `--allow-remote-http` or `MCP_ALLOW_REMOTE_HTTP=1`.
+- Expanded the Docker Compose smoke harness to require 21 tools, 5 prompts, and live checks for the new agent workflow tools.
+
 ## [0.0.4] - 2026-04-28
 
 ### Added

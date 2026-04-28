@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "odoo-mcp"
-version = "0.0.4"
+version = "0.1.0"
 description = "MCP Server for Odoo Integration"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -27,7 +27,11 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/tuanle96/mcp-odoo"
+Source = "https://github.com/tuanle96/mcp-odoo"
+Documentation = "https://github.com/tuanle96/mcp-odoo#readme"
+Changelog = "https://github.com/tuanle96/mcp-odoo/blob/main/CHANGELOG.md"
 Issues = "https://github.com/tuanle96/mcp-odoo/issues"
+Security = "https://github.com/tuanle96/mcp-odoo/security"
 
 [project.optional-dependencies]
 dev = [

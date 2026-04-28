@@ -12,6 +12,10 @@ class FakeCommonProxy:
         self.calls.append(("authenticate", db, username, password, context))
         return 42
 
+    def version(self):
+        self.calls.append(("version",))
+        return {"server_version": "19.0"}
+
 
 class FakeObjectProxy:
     def __init__(self, calls):
@@ -217,6 +221,52 @@ def test_get_model_info_passes_fields_as_keyword_argument(
     assert payload[6] == {"fields": ["name", "model"]}
 
 
+def test_profile_helpers_read_version_context_and_installed_modules(
+    monkeypatch, odoo_client_module
+):
+    calls = []
+
+    class ProfileObjectProxy:
+        def execute_kw(self, *args):
+            calls.append(("execute_kw", args))
+            model = args[3]
+            method = args[4]
+            if model == "res.users" and method == "context_get":
+                return {"lang": "en_US"}
+            if model == "ir.module.module" and method == "search_read":
+                return [{"name": "base", "shortdesc": "Base", "state": "installed"}]
+            raise AssertionError(f"unexpected call: {model}.{method}")
+
+    def fake_server_proxy(endpoint, transport):
+        calls.append(("ServerProxy", endpoint, type(transport).__name__))
+        if endpoint.endswith("/xmlrpc/2/common"):
+            return FakeCommonProxy(calls)
+        if endpoint.endswith("/xmlrpc/2/object"):
+            return ProfileObjectProxy()
+        raise AssertionError(f"unexpected endpoint: {endpoint}")
+
+    monkeypatch.setattr(
+        odoo_client_module.xmlrpc.client, "ServerProxy", fake_server_proxy
+    )
+    client = odoo_client_module.OdooClient(
+        url="https://odoo.example.test",
+        db="demo-db",
+        username="demo-user",
+        password="demo-password",
+        timeout=3,
+        verify_ssl=True,
+    )
+
+    profile = client.get_profile(module_limit=5)
+
+    assert profile["server_version"] == {"server_version": "19.0"}
+    assert profile["user_context"] == {"lang": "en_US"}
+    assert profile["installed_modules"] == [
+        {"name": "base", "shortdesc": "Base", "state": "installed"}
+    ]
+    assert profile["installed_module_count"] == 1
+
+
 def test_json2_initialization_validates_bearer_without_xmlrpc(
     monkeypatch, odoo_client_module
 ):
@@ -388,3 +438,17 @@ def test_json2_http_error_preserves_odoo_error_shape_and_redacts_debug_by_defaul
         "context": {"model": "res.partner"},
         "debug": "[redacted]",
     }
+
+
+def test_json2_get_server_version_uses_web_version_endpoint(
+    monkeypatch, odoo_client_module
+):
+    client, calls = build_json2_client(
+        monkeypatch,
+        odoo_client_module,
+        responses=[{"lang": "en_US"}, {"server_version": "19.0"}],
+    )
+
+    assert client.get_server_version() == {"server_version": "19.0"}
+    assert calls[-1]["url"] == "https://odoo.example.test/web/version"
+    assert calls[-1]["body"] == {}

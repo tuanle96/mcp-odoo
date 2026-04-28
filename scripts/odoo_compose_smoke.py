@@ -304,6 +304,7 @@ def mcp_env(
             "ODOO_TRANSPORT": transport,
             "ODOO_TIMEOUT": "30",
             "ODOO_VERIFY_SSL": "1",
+            "ODOO_ADDONS_PATHS": str(ROOT / "src"),
             "PYTHONPATH": str(ROOT / "src"),
         }
     )
@@ -326,6 +327,15 @@ def assert_tool_surface(tool_names: set[str]) -> None:
         "generate_json2_payload",
         "upgrade_risk_report",
         "fit_gap_report",
+        "get_odoo_profile",
+        "schema_catalog",
+        "preview_write",
+        "validate_write",
+        "execute_approved_write",
+        "scan_addons_source",
+        "build_domain",
+        "business_pack_report",
+        "health_check",
     }
     if not expected_tools <= tool_names:
         raise AssertionError(f"Missing MCP tools: {expected_tools - tool_names}")
@@ -392,6 +402,20 @@ async def mcp_stdio_smoke(
                     f"Missing MCP resource templates: {expected_templates - template_uris}"
                 )
 
+            prompts = await session.list_prompts()
+            prompt_names = {prompt.name for prompt in prompts.prompts}
+            expected_prompts = {
+                "diagnose_failed_odoo_call",
+                "fit_gap_workshop",
+                "json2_migration_plan",
+                "safe_write_review",
+                "custom_module_audit",
+            }
+            if not expected_prompts <= prompt_names:
+                raise AssertionError(
+                    f"Missing MCP prompts: {expected_prompts - prompt_names}"
+                )
+
             models_resource = await session.read_resource(AnyUrl("odoo://models"))
             if not models_resource.contents:
                 raise AssertionError("odoo://models returned no content")
@@ -411,6 +435,26 @@ async def mcp_stdio_smoke(
             payload_result = payload.get("result")
             if not isinstance(payload_result, list):
                 raise AssertionError("MCP execute_method did not return list result")
+
+            profile = decode_tool_json(
+                await session.call_tool(
+                    "get_odoo_profile",
+                    arguments={"include_modules": False, "module_limit": 10},
+                ),
+                "get_odoo_profile",
+            )
+            if not profile.get("success"):
+                raise AssertionError(f"MCP get_odoo_profile failed: {profile}")
+
+            catalog = decode_tool_json(
+                await session.call_tool(
+                    "schema_catalog",
+                    arguments={"query": "partner", "limit": 5},
+                ),
+                "schema_catalog",
+            )
+            if not catalog.get("success") or catalog.get("count", 0) < 1:
+                raise AssertionError(f"MCP schema_catalog failed: {catalog}")
 
             json2_preview = decode_tool_json(
                 await session.call_tool(
@@ -432,6 +476,20 @@ async def mcp_stdio_smoke(
                 != target.database
             ):
                 raise AssertionError(f"Missing JSON-2 database header: {json2_preview}")
+
+            domain = decode_tool_json(
+                await session.call_tool(
+                    "build_domain",
+                    arguments={
+                        "conditions": [
+                            {"field": "id", "operator": ">", "value": 0}
+                        ]
+                    },
+                ),
+                "build_domain",
+            )
+            if domain.get("domain") != [["id", ">", 0]]:
+                raise AssertionError(f"Bad domain builder result: {domain}")
 
             diagnosis = decode_tool_json(
                 await session.call_tool(
@@ -456,6 +514,53 @@ async def mcp_stdio_smoke(
             )
             if "many2one" not in relationships.get("relationships", {}):
                 raise AssertionError(f"Missing relationship groups: {relationships}")
+
+            preview = decode_tool_json(
+                await session.call_tool(
+                    "preview_write",
+                    arguments={
+                        "model": "res.partner",
+                        "operation": "write",
+                        "record_ids": [1],
+                        "values": {"name": "Smoke Preview"},
+                    },
+                ),
+                "preview_write",
+            )
+            if not preview.get("success"):
+                raise AssertionError(f"write preview failed: {preview}")
+
+            validation = decode_tool_json(
+                await session.call_tool(
+                    "validate_write",
+                    arguments={
+                        "model": "res.partner",
+                        "operation": "write",
+                        "record_ids": [1],
+                        "values": {"name": "Smoke Preview"},
+                    },
+                ),
+                "validate_write",
+            )
+            if not validation.get("success"):
+                raise AssertionError(f"write validation failed: {validation}")
+
+            blocked_write = decode_tool_json(
+                await session.call_tool(
+                    "execute_approved_write",
+                    arguments={
+                        "approval": validation["approval"],
+                        "confirm": True,
+                    },
+                ),
+                "execute_approved_write",
+            )
+            if blocked_write.get("success") or "disabled" not in str(
+                blocked_write.get("error")
+            ):
+                raise AssertionError(
+                    f"approved write did not fail closed while disabled: {blocked_write}"
+                )
 
             upgrade = decode_tool_json(
                 await session.call_tool(
@@ -493,13 +598,42 @@ async def mcp_stdio_smoke(
                 "unknown",
             }:
                 raise AssertionError(f"Bad fit/gap classifications: {fit_gap}")
+
+            pack = decode_tool_json(
+                await session.call_tool(
+                    "business_pack_report",
+                    arguments={"pack": "sales"},
+                ),
+                "business_pack_report",
+            )
+            if not pack.get("success"):
+                raise AssertionError(f"business_pack_report failed: {pack}")
+
+            source_scan = decode_tool_json(
+                await session.call_tool(
+                    "scan_addons_source",
+                    arguments={"addons_paths": [str(ROOT / "src")], "max_files": 20},
+                ),
+                "scan_addons_source",
+            )
+            if not source_scan.get("success"):
+                raise AssertionError(f"scan_addons_source failed: {source_scan}")
+
+            health = decode_tool_json(
+                await session.call_tool("health_check", arguments={}),
+                "health_check",
+            )
+            if health.get("server", {}).get("tool_count") != 21:
+                raise AssertionError(f"health_check did not report 21 tools: {health}")
             return {
                 "transport": transport,
                 "tools": sorted(tool_names),
                 "resource_count": len(resource_uris),
                 "resource_template_count": len(template_uris),
+                "prompt_count": len(prompt_names),
                 "mcp_partner_sample_count": len(payload_result),
                 "diagnostic_tools_smoke": True,
+                "agent_tools_smoke": True,
             }
 
 

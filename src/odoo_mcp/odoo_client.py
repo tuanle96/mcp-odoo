@@ -297,6 +297,83 @@ class OdooClient:
         """
         return self._execute(model, method, *args, **kwargs)
 
+    def get_server_version(self) -> dict[str, Any]:
+        """Return Odoo server version metadata using the safest available route."""
+        try:
+            if self.transport == "xmlrpc" and self._common is not None:
+                version_info = self._common.version()
+                return cast(dict[str, Any], version_info)
+            return self._http_get_json("/web/version")
+        except Exception as e:
+            print(f"Error retrieving server version: {str(e)}", file=sys.stderr)
+            return {"error": str(e)}
+
+    def get_user_context(self) -> dict[str, Any]:
+        """Return the current user's Odoo context."""
+        try:
+            context = self._execute("res.users", "context_get")
+            return cast(dict[str, Any], context)
+        except Exception as e:
+            print(f"Error retrieving user context: {str(e)}", file=sys.stderr)
+            return {"error": str(e)}
+
+    def get_installed_modules(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Return installed module names and labels with a bounded limit."""
+        try:
+            result = self._execute(
+                "ir.module.module",
+                "search_read",
+                [["state", "=", "installed"]],
+                fields=["name", "shortdesc", "state"],
+                limit=limit,
+                order="name ASC",
+            )
+            return cast(list[dict[str, Any]], result)
+        except Exception as e:
+            print(f"Error retrieving installed modules: {str(e)}", file=sys.stderr)
+            return []
+
+    def get_profile(self, module_limit: int = 100) -> dict[str, Any]:
+        """Return a bounded profile of the connected Odoo environment."""
+        modules = self.get_installed_modules(limit=module_limit)
+        return {
+            "url": self.url,
+            "hostname": self.hostname,
+            "database": self.db,
+            "username": self.username,
+            "transport": self.transport,
+            "timeout": self.timeout,
+            "verify_ssl": self.verify_ssl,
+            "json2_database_header": self.json2_database_header,
+            "server_version": self.get_server_version(),
+            "user_context": self.get_user_context(),
+            "installed_modules": modules,
+            "installed_module_count": len(modules),
+        }
+
+    def _http_get_json(self, path: str) -> dict[str, Any]:
+        """Read a JSON HTTP endpoint from the Odoo base URL."""
+        request = urllib.request.Request(
+            f"{self.url}{path}",
+            method="GET",
+            headers={"Accept": "application/json"},
+        )
+        context = (
+            ssl._create_unverified_context()
+            if self.url.startswith("https://") and not self.verify_ssl
+            else None
+        )
+        with urllib.request.urlopen(
+            request,
+            timeout=self.timeout,
+            context=context,
+        ) as response:
+            body = response.read().decode("utf-8")
+        payload = json.loads(body)
+        if not isinstance(payload, dict):
+            raise ValueError(f"{path} did not return a JSON object")
+        return payload
+
     def get_models(self) -> dict[str, Any]:
         """
         Get a list of all available models in the system
