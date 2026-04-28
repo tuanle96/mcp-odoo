@@ -50,8 +50,8 @@ jobs:
           from importlib.metadata import version
 
           package_version = version("odoo-mcp")
-          if package_version != "0.0.4":
-              raise SystemExit(f"Expected odoo-mcp 0.0.4, got {package_version}")
+          if package_version != "0.1.0":
+              raise SystemExit(f"Expected odoo-mcp 0.1.0, got {package_version}")
           print(f"odoo-mcp {package_version}")
           PY
       - name: Check distribution
