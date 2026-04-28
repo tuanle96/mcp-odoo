@@ -35,6 +35,13 @@ READ_ONLY_METHODS = {
 DESTRUCTIVE_METHODS = {"create", "write", "unlink"}
 MODEL_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*$")
 ODOO20_RPC_REMOVAL = "Odoo 20 fall 2026"
+SIDE_EFFECT_METHOD_PATTERNS = (
+    re.compile(r"^action_"),
+    re.compile(r"^button_"),
+    re.compile(r"(^|_)send($|_)"),
+    re.compile(r"(^|_)post($|_)"),
+    re.compile(r"(^|_)validate($|_)"),
+)
 
 
 def normalize_args(args: list[Any] | tuple[Any, ...] | None) -> list[Any]:
@@ -60,6 +67,14 @@ def classify_method_safety(method: str) -> dict[str, Any]:
             "safety": "read_only",
             "destructive_method": False,
             "confidence": "high" if method in READ_ONLY_METHODS else "medium",
+        }
+    if method == "message_post" or any(
+        pattern.search(method) for pattern in SIDE_EFFECT_METHOD_PATTERNS
+    ):
+        return {
+            "safety": "side_effect",
+            "destructive_method": False,
+            "confidence": "medium",
         }
     return {
         "safety": "unknown",
@@ -197,10 +212,15 @@ def generate_json2_payload_report(
                 "message": f"{model}.{method} may modify or delete Odoo data.",
             }
         )
-    elif safety["safety"] == "unknown":
+    elif safety["safety"] in {"side_effect", "unknown"}:
+        code = (
+            "side_effect_method"
+            if safety["safety"] == "side_effect"
+            else "unknown_side_effects"
+        )
         warnings.append(
             {
-                "code": "unknown_side_effects",
+                "code": code,
                 "message": (
                     f"{model}.{method} is not a known read-only ORM method; "
                     "review server-side implementation before executing it."
@@ -213,10 +233,14 @@ def generate_json2_payload_report(
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
-    headers["X-Odoo-Database"] = database if include_database_header and database else None
+    headers["X-Odoo-Database"] = (
+        database if include_database_header and database else None
+    )
 
     return {
-        "success": not any(w["code"] == "json2_positional_unsupported" for w in warnings),
+        "success": not any(
+            w["code"] == "json2_positional_unsupported" for w in warnings
+        ),
         "tool": "generate_json2_payload",
         "model": model,
         "method": method,
@@ -274,9 +298,11 @@ def diagnose_odoo_call_report(
         issues.append(
             {
                 "code": warning["code"],
-                "severity": "error"
-                if warning["code"] == "json2_positional_unsupported"
-                else "warning",
+                "severity": (
+                    "error"
+                    if warning["code"] == "json2_positional_unsupported"
+                    else "warning"
+                ),
                 "message": warning["message"],
             }
         )
@@ -284,7 +310,11 @@ def diagnose_odoo_call_report(
     safety = classify_method_safety(method)
     json2_ready = not any(issue["code"].startswith("json2_") for issue in issues)
     compatibility = _transport_compatibility(transport, json2_ready)
-    if target_version and _major_version(target_version) >= 20 and transport == "xmlrpc":
+    if (
+        target_version
+        and _major_version(target_version) >= 20
+        and transport == "xmlrpc"
+    ):
         issues.append(
             {
                 "code": "deprecated_rpc_transport",
@@ -472,7 +502,11 @@ def upgrade_risk_report(
         safety = classify_method_safety(method)
         if safety["destructive_method"]:
             destructive_methods.append(
-                {"model": model, "method": method, "source": method_fact.get("source", "input")}
+                {
+                    "model": model,
+                    "method": method,
+                    "source": method_fact.get("source", "input"),
+                }
             )
             risks.append(
                 {
@@ -511,7 +545,9 @@ def upgrade_risk_report(
                 "severity": str(finding.get("severity", "warning")),
                 "evidence": str(finding.get("evidence", finding)),
                 "recommendation": str(
-                    finding.get("recommendation", "Review this source finding before upgrade.")
+                    finding.get(
+                        "recommendation", "Review this source finding before upgrade."
+                    )
                 ),
             }
         )
@@ -526,7 +562,10 @@ def upgrade_risk_report(
         "tool": "upgrade_risk_report",
         "source_version": source_version,
         "target_version": target_version,
-        "summary": {"risk": risk, "blocked": any(r["severity"] == "error" for r in risks)},
+        "summary": {
+            "risk": risk,
+            "blocked": any(r["severity"] == "error" for r in risks),
+        },
         "risks": risks,
         "transport": {
             "xmlrpc_jsonrpc_deprecation": ODOO20_RPC_REMOVAL,
@@ -588,9 +627,11 @@ def fit_gap_report(
         "metadata_used": {
             "fields_get": bool(available_fields),
             "modules": bool(installed_modules),
-            "source": "input"
-            if available_models or available_fields or installed_modules
-            else "none",
+            "source": (
+                "input"
+                if available_models or available_fields or installed_modules
+                else "none"
+            ),
         },
         "assumptions": [
             "Classification is heuristic unless backed by provided model/module evidence.",
@@ -624,7 +665,7 @@ def _diagnostic_next_actions(
     actions: list[str] = []
     if safety["destructive_method"]:
         actions.append("Inspect required fields and access rules before executing.")
-    if safety["safety"] == "unknown":
+    if safety["safety"] in {"side_effect", "unknown"}:
         actions.append("Inspect custom method source before executing.")
     if not json2_ready:
         actions.append("Pass keyword arguments that match the Odoo method signature.")
@@ -650,29 +691,62 @@ def _classify_requirement(
     text = requirement.lower()
     model_text = " ".join(available_models).lower()
     module_text = " ".join(
-        str(module.get("name", module.get("module", "")))
-        if isinstance(module, dict)
-        else str(module)
+        (
+            str(module.get("name", module.get("module", "")))
+            if isinstance(module, dict)
+            else str(module)
+        )
         for module in installed_modules
     ).lower()
     evidence: list[str] = []
 
-    if any(term in text for term in ["bypass access", "direct database", "modify core"]):
-        return "avoid", "medium", ["Requirement suggests bypassing Odoo safety boundaries."]
-    if any(term in text for term in ["studio", "custom field", "new field", "form view"]):
+    if any(
+        term in text for term in ["bypass access", "direct database", "modify core"]
+    ):
+        return (
+            "avoid",
+            "medium",
+            ["Requirement suggests bypassing Odoo safety boundaries."],
+        )
+    if any(
+        term in text for term in ["studio", "custom field", "new field", "form view"]
+    ):
         return "studio", "medium", ["Looks like field/view customization."]
-    if any(term in text for term in ["custom", "integration", "api", "workflow", "complex"]):
+    if any(
+        term in text for term in ["custom", "integration", "api", "workflow", "complex"]
+    ):
         return "custom_module", "medium", ["Likely requires Python/business logic."]
-    if any(term in text for term in ["configure", "sequence", "email template", "tax", "approval"]):
-        return "configuration", "medium", ["Likely solvable through Odoo configuration."]
-    standard_terms = ["contact", "partner", "invoice", "sale", "purchase", "inventory", "crm"]
+    if any(
+        term in text
+        for term in ["configure", "sequence", "email template", "tax", "approval"]
+    ):
+        return (
+            "configuration",
+            "medium",
+            ["Likely solvable through Odoo configuration."],
+        )
+    standard_terms = [
+        "contact",
+        "partner",
+        "invoice",
+        "sale",
+        "purchase",
+        "inventory",
+        "crm",
+    ]
     if any(term in text for term in standard_terms):
         if model_text or module_text:
-            evidence.append("Provided model/module evidence suggests standard Odoo coverage.")
+            evidence.append(
+                "Provided model/module evidence suggests standard Odoo coverage."
+            )
         else:
             evidence.append("Matches common standard Odoo app terminology.")
         return "standard", "medium", evidence
-    return "unknown", "low", ["Not enough model/module evidence to classify confidently."]
+    return (
+        "unknown",
+        "low",
+        ["Not enough model/module evidence to classify confidently."],
+    )
 
 
 def _rollup_bucket(classification: str) -> str:
@@ -691,7 +765,9 @@ def _recommended_fit_gap_calls(
     calls = [
         {
             "tool": "list_models",
-            "arguments": {"query": requirement.split()[0] if requirement.split() else None},
+            "arguments": {
+                "query": requirement.split()[0] if requirement.split() else None
+            },
         }
     ]
     if classification in {"studio", "custom_module", "unknown"}:

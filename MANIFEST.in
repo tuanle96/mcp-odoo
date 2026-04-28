@@ -3,4 +3,7 @@ include CODE_OF_CONDUCT.md
 include CONTRIBUTING.md
 include SECURITY.md
 include SUPPORT.md
+include docker-compose.integration.yml
 recursive-include docs *.md
+recursive-include scripts *.py
+recursive-include tests/fixtures *

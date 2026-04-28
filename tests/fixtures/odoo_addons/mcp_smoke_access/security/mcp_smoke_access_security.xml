@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="group_mcp_packaged_rule_auditor" model="res.groups">
+        <field name="name">MCP Packaged Rule Auditor</field>
+    </record>
+
+    <record id="access_mcp_packaged_rule_auditor_res_users_read" model="ir.model.access">
+        <field name="name">mcp_packaged_rule_auditor_res_users_read</field>
+        <field name="model_id" ref="base.model_res_users"/>
+        <field name="group_id" ref="group_mcp_packaged_rule_auditor"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="False"/>
+        <field name="perm_create" eval="False"/>
+        <field name="perm_unlink" eval="False"/>
+    </record>
+
+    <record id="rule_mcp_packaged_partner_visibility" model="ir.rule">
+        <field name="name">MCP packaged partner visibility</field>
+        <field name="model_id" ref="base.model_res_partner"/>
+        <field name="domain_force">['&amp;', ('active', '=', True), '|', ('ref', '=', 'MCP-PACKAGED-RULE-VISIBLE'), ('user_id', '=', user.id)]</field>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="False"/>
+        <field name="perm_create" eval="False"/>
+        <field name="perm_unlink" eval="False"/>
+    </record>
+</odoo>

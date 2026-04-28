@@ -52,7 +52,14 @@ def test_diagnose_odoo_call_marks_write_create_unlink_as_destructive_without_exe
 
 
 def test_diagnose_odoo_call_marks_common_read_methods_as_read_only():
-    for method in ["search", "search_count", "search_read", "read", "fields_get", "name_search"]:
+    for method in [
+        "search",
+        "search_count",
+        "search_read",
+        "read",
+        "fields_get",
+        "name_search",
+    ]:
         report = diagnostics.diagnose_odoo_call_report(
             model="res.partner",
             method=method,
@@ -61,6 +68,18 @@ def test_diagnose_odoo_call_marks_common_read_methods_as_read_only():
 
         assert report["classification"]["safety"] == "read_only"
         assert report["classification"]["destructive_method"] is False
+
+
+def test_diagnose_odoo_call_marks_common_side_effect_methods():
+    for method in ["message_post", "action_confirm", "button_validate", "send_mail"]:
+        report = diagnostics.diagnose_odoo_call_report(
+            model="sale.order",
+            method=method,
+            args=[],
+        )
+
+        assert report["classification"]["safety"] == "side_effect"
+        assert any(issue["code"] == "side_effect_method" for issue in report["issues"])
 
 
 def test_diagnose_odoo_call_warns_unknown_positional_json2_method_without_execution():
@@ -72,7 +91,9 @@ def test_diagnose_odoo_call_warns_unknown_positional_json2_method_without_execut
 
     assert report["success"] is False
     assert report["classification"]["json2_ready"] is False
-    assert any(issue["code"] == "json2_positional_unsupported" for issue in report["issues"])
+    assert any(
+        issue["code"] == "json2_positional_unsupported" for issue in report["issues"]
+    )
 
 
 def test_odoo_error_redacts_debug_by_default_and_allows_explicit_debug():

@@ -19,12 +19,12 @@ It speaks XML-RPC for Odoo 16-18 and External JSON-2 for Odoo 19. It exposes a c
 
 | Capability | What it gives you |
 | --- | --- |
-| 21 MCP tools | Read records, inspect schema, build domains, scan addons, diagnose calls, and validate writes. |
+| 22 MCP tools | Read records, inspect schema, build domains, scan addons, diagnose calls, access rules, and validate writes. |
 | 5 agent prompts | Reusable workflows for failed calls, fit/gap workshops, JSON-2 migration, safe writes, and module audits. |
 | Odoo 16-19 coverage | XML-RPC by default, JSON-2 opt-in for Odoo 19. |
 | Streamable HTTP | Local HTTP/SSE support for clients that do not use stdio. |
 | Safe writes | Direct `create`, `write`, and `unlink` are blocked; approved writes require live metadata, a same-session token, explicit confirmation, and an env gate. |
-| Real smoke tests | Docker Compose validation boots disposable Odoo 16.0, 17.0, 18.0, and 19.0 stacks. |
+| Real smoke tests | Docker Compose validation boots disposable Odoo 16.0, 17.0, 18.0, and 19.0 stacks, including restricted users, custom record rules, and packaged addon XML install/update. |
 
 ## Install
 
@@ -105,7 +105,7 @@ odoo-mcp --health
 
 | Tool | Purpose |
 | --- | --- |
-| `execute_method` | Execute a reviewed model method. Direct `create`, `write`, and `unlink` are blocked. Unknown side-effect methods require `ODOO_MCP_ALLOW_UNKNOWN_METHODS=1`. |
+| `execute_method` | Execute a reviewed model method. Direct `create`, `write`, and `unlink` are blocked. Side-effect methods require an exact allowlist or `ODOO_MCP_ALLOW_UNKNOWN_METHODS=1`. |
 | `list_models` | List Odoo model technical names and labels. |
 | `get_model_fields` | Read field metadata for one model. |
 | `search_records` | Run bounded read-only `search_read`. |
@@ -113,6 +113,7 @@ odoo-mcp --health
 | `search_employee` | Search employees by name. |
 | `search_holidays` | Search leave records by date range. |
 | `diagnose_odoo_call` | Diagnose a model call without executing it. |
+| `diagnose_access` | Diagnose ACL and record-rule visibility for the current Odoo credential. |
 | `inspect_model_relationships` | Group relationship fields, required fields, and create/write hints. |
 | `generate_json2_payload` | Convert XML-RPC-shaped input into JSON-2 endpoint, headers, and named body. |
 | `upgrade_risk_report` | Surface transport, method, and migration risks across Odoo versions. |
@@ -160,6 +161,17 @@ Writes are intentionally boring.
    - `ODOO_MCP_ENABLE_WRITES=1` is set.
 
 Odoo access rules, record rules, and server-side constraints still decide the final result.
+
+Reviewed side-effect methods such as `sale.order.action_confirm` can be enabled
+one by one:
+
+```bash
+export ODOO_MCP_ALLOWED_SIDE_EFFECT_METHODS="sale.order.action_confirm,res.partner.message_post"
+```
+
+`ODOO_MCP_ALLOW_UNKNOWN_METHODS=1` is still supported for trusted deployments,
+but `health_check` reports it as broad mode. Prefer exact allowlist entries when
+you only need a small number of reviewed methods.
 
 ## Client Setup
 

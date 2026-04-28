@@ -20,11 +20,11 @@ flowchart LR
 | Module | Responsibility |
 | --- | --- |
 | `src/odoo_mcp/__main__.py` | CLI entry point, transport selection, HTTP bind safety, non-secret health output. |
-| `src/odoo_mcp/server.py` | MCP server, tools, resources, prompts, safe write gates, runtime annotations. |
+| `src/odoo_mcp/server.py` | MCP server, tools, resources, prompts, access diagnosis, safe write gates, runtime annotations. |
 | `src/odoo_mcp/odoo_client.py` | Odoo connection, XML-RPC calls, JSON-2 calls, profile helpers. |
 | `src/odoo_mcp/diagnostics.py` | Pure diagnostic helpers for Odoo call analysis, JSON-2 payloads, migration risk, fit/gap reports. |
 | `src/odoo_mcp/agent_tools.py` | Pure agent helpers for safe writes, domain building, addon scanning, and business pack reports. |
-| `scripts/odoo_compose_smoke.py` | Real Docker Compose smoke validation against disposable Odoo stacks. |
+| `scripts/odoo_compose_smoke.py` | Real Docker Compose smoke validation against disposable Odoo stacks, restricted users, custom record rules, and packaged addon XML install/update. |
 
 ## Transport model
 
@@ -49,7 +49,9 @@ JSON-2 uses bearer authentication and named JSON arguments. XML-RPC carries the 
 
 The server separates read, diagnosis, preview, validation, and execution.
 
-Read and diagnostic tools do not execute candidate write methods. `execute_method` blocks direct `create`, `write`, and `unlink`. Unknown side-effect methods are blocked unless the deployment explicitly opts into reviewed custom methods with `ODOO_MCP_ALLOW_UNKNOWN_METHODS=1`.
+Read and diagnostic tools do not execute candidate write methods. `diagnose_access` reads ACL, record-rule, current-user, and optional count metadata using only the current Odoo credential; it does not use sudo or impersonation.
+
+`execute_method` blocks direct `create`, `write`, and `unlink`. Common side-effect method names such as `message_post`, `action_*`, `button_*`, `*_send*`, `*_post*`, and `*_validate*` are blocked unless the deployment explicitly allowlists exact methods with `ODOO_MCP_ALLOWED_SIDE_EFFECT_METHODS=model.method`. The older broad escape hatch, `ODOO_MCP_ALLOW_UNKNOWN_METHODS=1`, remains available for trusted deployments and is reported as broad mode by `health_check`.
 
 The standard write path is:
 
@@ -67,6 +69,16 @@ flowchart LR
 ## Local addon scanning
 
 `scan_addons_source` scans files from configured `ODOO_ADDONS_PATHS` roots without importing addon code. Explicit paths must live inside those configured roots. This keeps source inspection deterministic and avoids executing arbitrary addon imports.
+
+The Python scanner uses static AST checks for custom model classes, overridden `create`/`write`/`unlink`, sudo usage, computed-field `@api.depends` coverage, and whether CRUD overrides clearly return the `super()` result.
+
+## Smoke harness
+
+The Docker Compose smoke harness mounts `tests/fixtures/odoo_addons` into each
+disposable Odoo container as `/mnt/extra-addons`. It installs and updates the
+`mcp_smoke_access` addon with Odoo's module CLI, then diagnoses the addon's
+XML-defined partner record rule through MCP as a dedicated fixture credential
+without sudo or impersonation.
 
 ## Runtime state
 

@@ -65,6 +65,7 @@ def test_server_registers_expected_tools_and_resources_without_lifespan():
         "search_employee",
         "search_holidays",
         "diagnose_odoo_call",
+        "diagnose_access",
         "inspect_model_relationships",
         "generate_json2_payload",
         "upgrade_risk_report",
@@ -80,7 +81,7 @@ def test_server_registers_expected_tools_and_resources_without_lifespan():
         "health_check",
     }
     assert expected_tools <= tools
-    assert len(tools) == 21
+    assert len(tools) == 22
     assert "odoo://models" in resources
     assert {
         "odoo://model/{model_name}",
@@ -107,6 +108,7 @@ def test_tools_expose_safety_annotations_and_output_schemas():
 
     assert tools["list_models"]["annotations"]["readOnlyHint"] is True
     assert tools["list_models"]["annotations"]["destructiveHint"] is False
+    assert tools["diagnose_access"]["annotations"]["readOnlyHint"] is True
     assert tools["preview_write"]["annotations"]["destructiveHint"] is False
     assert tools["execute_approved_write"]["annotations"]["destructiveHint"] is True
     assert tools["execute_method"]["annotations"]["destructiveHint"] is True
@@ -219,7 +221,10 @@ def test_lifespan_is_lazy_and_preview_tools_call_tool_succeed_when_client_raises
     upgrade = call_tool_json(
         server,
         "upgrade_risk_report",
-        {"target_version": "20.0", "methods": [{"model": "res.partner", "method": "write"}]},
+        {
+            "target_version": "20.0",
+            "methods": [{"model": "res.partner", "method": "write"}],
+        },
     )
     assert upgrade["transport"]["xmlrpc_jsonrpc_deprecation"] == "Odoo 20 fall 2026"
 
@@ -244,9 +249,12 @@ def test_report_tools_do_not_execute_candidate_methods():
 
     assert server.diagnose_odoo_call("res.partner", "write")["success"] is True
     assert server.generate_json2_payload("res.partner", "write")["success"] is True
-    assert server.upgrade_risk_report(
-        methods=[{"model": "res.partner", "method": "write"}]
-    )["success"] is True
+    assert (
+        server.upgrade_risk_report(
+            methods=[{"model": "res.partner", "method": "write"}]
+        )["success"]
+        is True
+    )
     assert server.fit_gap_report(["Track contacts"])["success"] is True
     relationships = server.inspect_model_relationships(
         FakeCtx(ExplodingClient()),
@@ -303,7 +311,21 @@ def test_new_tools_return_stable_top_level_response_keys():
         "diagnose_odoo_call",
         {"model": "res.partner", "method": "search_read", "args": [[]]},
     )
-    assert {"success", "tool", "classification", "issues", "suggested_payload"} <= diagnosis.keys()
+    assert {
+        "success",
+        "tool",
+        "classification",
+        "issues",
+        "suggested_payload",
+    } <= diagnosis.keys()
+
+    access = server.diagnose_access(
+        FakeCtx(AccessDiagnosticClient()),
+        "res.partner",
+        "read",
+        expected_count=1,
+    )
+    assert {"success", "tool", "diagnosis", "access", "rules"} <= access.keys()
 
     upgrade = call_tool_json(server, "upgrade_risk_report", {"target_version": "20.0"})
     assert {"success", "tool", "summary", "risks", "transport"} <= upgrade.keys()
@@ -366,9 +388,7 @@ def test_safe_write_preview_validate_and_execute_gates(monkeypatch):
     assert validation["success"] is True
     assert validation["approval"]["token"] == preview["approval"]["token"]
 
-    blocked = server.execute_approved_write(
-        ctx, validation["approval"], confirm=True
-    )
+    blocked = server.execute_approved_write(ctx, validation["approval"], confirm=True)
     assert blocked["success"] is False
     assert "disabled" in blocked["error"]
 
@@ -418,6 +438,7 @@ def test_execute_method_blocks_direct_writes_and_unknown_methods(monkeypatch):
     )
     assert blocked_unknown["success"] is False
     assert "blocked by default" in blocked_unknown["error"]
+    assert blocked_unknown["classification"]["safety"] == "side_effect"
 
 
 def test_execute_method_can_opt_into_unknown_methods(monkeypatch):
@@ -442,6 +463,39 @@ def test_execute_method_can_opt_into_unknown_methods(monkeypatch):
     assert calls == [(("sale.order", "action_confirm", [7]), {})]
 
 
+def test_execute_method_allows_exact_side_effect_allowlist(monkeypatch):
+    server = importlib.import_module("odoo_mcp.server")
+    calls = []
+
+    class FakeClient:
+        def execute_method(self, *args, **kwargs):
+            calls.append((args, kwargs))
+            return {"ok": True}
+
+    monkeypatch.delenv("ODOO_MCP_ALLOW_UNKNOWN_METHODS", raising=False)
+    monkeypatch.setenv(
+        "ODOO_MCP_ALLOWED_SIDE_EFFECT_METHODS", "sale.order.action_confirm"
+    )
+
+    allowed = server.execute_method(
+        FakeCtx(FakeClient()),
+        "sale.order",
+        "action_confirm",
+        args=[[7]],
+    )
+    blocked = server.execute_method(
+        FakeCtx(FakeClient()),
+        "res.partner",
+        "message_post",
+        args=[[7]],
+    )
+
+    assert allowed["success"] is True
+    assert calls == [(("sale.order", "action_confirm", [7]), {})]
+    assert blocked["success"] is False
+    assert "Unreviewed side-effect" in blocked["error"]
+
+
 def test_validate_write_only_registers_live_metadata_approvals(monkeypatch):
     server = importlib.import_module("odoo_mcp.server")
 
@@ -464,9 +518,7 @@ def test_validate_write_only_registers_live_metadata_approvals(monkeypatch):
     assert ctx.request_context.lifespan_context.write_approvals == {}
 
     monkeypatch.setenv("ODOO_MCP_ENABLE_WRITES", "1")
-    blocked = server.execute_approved_write(
-        ctx, shape_only["approval"], confirm=True
-    )
+    blocked = server.execute_approved_write(ctx, shape_only["approval"], confirm=True)
     assert blocked["success"] is False
     assert "validated" in blocked["error"]
 
@@ -538,9 +590,7 @@ def test_execute_approved_write_runs_only_after_all_gates(monkeypatch):
 
     assert validation["approval_status"]["stored"] is True
     monkeypatch.setenv("ODOO_MCP_ENABLE_WRITES", "1")
-    result = server.execute_approved_write(
-        ctx, validation["approval"], confirm=True
-    )
+    result = server.execute_approved_write(ctx, validation["approval"], confirm=True)
 
     assert result["success"] is True
     assert calls == [
@@ -612,11 +662,26 @@ def test_domain_builder_and_addon_scanner(tmp_path: Path, monkeypatch):
         encoding="utf-8",
     )
     (addon / "models.py").write_text(
-        "from odoo import models\n"
+        "from odoo import api, fields, models\n"
         "class X(models.Model):\n"
         "    _name = 'x.demo'\n"
+        "    amount = fields.Float(compute='_compute_amount')\n"
+        "    total = fields.Float(compute='_compute_total')\n"
+        "    def _compute_amount(self):\n"
+        "        for record in self:\n"
+        "            record.amount = record.qty * record.price\n"
+        "    @api.depends('qty', 'price')\n"
+        "    def _compute_total(self):\n"
+        "        for record in self:\n"
+        "            record.total = record.qty * record.price\n"
+        "    def create(self, vals):\n"
+        "        return {'id': 1}\n"
         "    def write(self, vals):\n"
-        "        return super().write(vals)\n",
+        "        result = super().write(vals)\n"
+        "        return result\n"
+        "    def unlink(self):\n"
+        "        super().unlink()\n"
+        "        return True\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("ODOO_ADDONS_PATHS", str(tmp_path))
@@ -628,7 +693,12 @@ def test_domain_builder_and_addon_scanner(tmp_path: Path, monkeypatch):
 
     assert scan["success"] is True
     assert scan["summary"]["modules"] == 1
-    assert any(item["code"] == "custom_method" for item in scan["source_findings"])
+    codes = {item["code"] for item in scan["source_findings"]}
+    assert "custom_method" in codes
+    assert "computed_method_missing_depends" in codes
+    assert "computed_depends_missing_fields" not in codes
+    assert "crud_override_missing_super" in codes
+    assert "crud_override_super_not_returned" in codes
 
     blocked_scan = call_tool_json(
         server,
@@ -666,7 +736,8 @@ def test_profile_health_and_prompts_are_available():
 
     health = call_tool_json(server, "health_check", {})
     assert health["success"] is True
-    assert health["server"]["tool_count"] == 21
+    assert health["server"]["tool_count"] == 22
+    assert health["runtime"]["broad_unknown_method_mode"]["enabled"] is False
 
     prompt = asyncio.run(
         server.mcp.get_prompt(
@@ -675,3 +746,158 @@ def test_profile_health_and_prompts_are_available():
         )
     )
     assert "execute_approved_write" in prompt.messages[0].content.text
+
+
+class AccessDiagnosticClient:
+    uid = 7
+
+    def __init__(self, *, fail_acl=False, fail_rules=False, count=1):
+        self.fail_acl = fail_acl
+        self.fail_rules = fail_rules
+        self.count = count
+
+    def get_user_context(self):
+        return {"lang": "en_US", "uid": 7}
+
+    def execute_method(self, model, method, *args, **kwargs):
+        if model == "ir.model" and method == "search_read":
+            return [{"id": 11, "name": "Contact", "model": "res.partner"}]
+        if model == "res.users" and method == "fields_get":
+            return {
+                "id": {"type": "integer"},
+                "name": {"type": "char"},
+                "groups_id": {"type": "many2many", "relation": "res.groups"},
+                "company_id": {"type": "many2one", "relation": "res.company"},
+                "company_ids": {"type": "many2many", "relation": "res.company"},
+            }
+        if model == "res.users" and method == "read":
+            return [{"id": 7, "name": "Demo", "groups_id": [3, 9]}]
+        if model == "ir.model.access" and method == "search_read":
+            if self.fail_acl:
+                raise ValueError("Access denied reading ir.model.access")
+            return [
+                {
+                    "id": 21,
+                    "name": "partner user",
+                    "model_id": [11, "Contact"],
+                    "group_id": [3, "Sales / User"],
+                    "perm_read": True,
+                    "perm_write": False,
+                    "perm_create": False,
+                    "perm_unlink": False,
+                }
+            ]
+        if model == "ir.rule" and method == "search_read":
+            if self.fail_rules:
+                raise ValueError("Access denied reading ir.rule")
+            return [
+                {
+                    "id": 31,
+                    "name": "own contacts",
+                    "model_id": [11, "Contact"],
+                    "domain_force": "[('user_id', '=', user.id)]",
+                    "groups": [3],
+                    "active": True,
+                    "perm_read": True,
+                    "perm_write": True,
+                    "perm_create": True,
+                    "perm_unlink": True,
+                }
+            ]
+        if model == "res.partner" and method == "search_count":
+            return self.count
+        raise AssertionError(f"unexpected call: {model}.{method}")
+
+
+def test_diagnose_access_reports_acl_rules_and_count_mismatch():
+    server = importlib.import_module("odoo_mcp.server")
+
+    report = server.diagnose_access(
+        FakeCtx(AccessDiagnosticClient(count=1)),
+        "res.partner",
+        "read",
+        expected_count=2,
+    )
+
+    codes = {item["code"] for item in report["diagnosis"]["codes"]}
+    assert report["success"] is True
+    assert report["permission_field"] == "perm_read"
+    assert report["actual_count"] == 1
+    assert report["access"]["granting_count"] == 1
+    assert report["rules"]["group_bound"][0]["name"] == "own contacts"
+    assert "record_rule_filter_likely" in codes
+
+
+def test_diagnose_access_uses_odoo19_group_ids_field():
+    server = importlib.import_module("odoo_mcp.server")
+
+    class Odoo19AccessDiagnosticClient(AccessDiagnosticClient):
+        def execute_method(self, model, method, *args, **kwargs):
+            if model == "res.users" and method == "fields_get":
+                return {
+                    "id": {"type": "integer"},
+                    "name": {"type": "char"},
+                    "group_ids": {"type": "many2many", "relation": "res.groups"},
+                    "all_group_ids": {"type": "many2many", "relation": "res.groups"},
+                    "company_id": {"type": "many2one", "relation": "res.company"},
+                    "company_ids": {"type": "many2many", "relation": "res.company"},
+                }
+            if model == "res.users" and method == "read":
+                return [
+                    {
+                        "id": 7,
+                        "name": "Demo",
+                        "group_ids": [3],
+                        "all_group_ids": [3, 9],
+                    }
+                ]
+            return super().execute_method(model, method, *args, **kwargs)
+
+    report = server.diagnose_access(
+        FakeCtx(Odoo19AccessDiagnosticClient(count=1)),
+        "res.partner",
+        "read",
+        expected_count=1,
+    )
+
+    assert report["success"] is True
+    assert report["metadata_errors"] == []
+    assert report["current_user"]["group_field"] == "group_ids"
+    assert report["current_user"]["all_group_field"] == "all_group_ids"
+    assert report["current_user"]["direct_group_ids"] == [3]
+    assert report["current_user"]["group_ids"] == [3, 9]
+    assert report["access"]["granting_count"] == 1
+
+
+def test_diagnose_access_reports_missing_permission_metadata():
+    server = importlib.import_module("odoo_mcp.server")
+
+    report = server.diagnose_access(
+        FakeCtx(AccessDiagnosticClient(fail_acl=True)),
+        "res.partner",
+        "write",
+        expected_count=1,
+    )
+
+    codes = {item["code"] for item in report["diagnosis"]["codes"]}
+    assert report["success"] is True
+    assert report["permission_field"] == "perm_write"
+    assert report["metadata_errors"][0]["stage"] == "ir.model.access"
+    assert "metadata_access_unavailable" in codes
+
+
+def test_diagnose_access_survives_record_rule_read_failure():
+    server = importlib.import_module("odoo_mcp.server")
+
+    report = server.diagnose_access(
+        FakeCtx(AccessDiagnosticClient(fail_rules=True)),
+        "res.partner",
+        "read",
+        expected_count=1,
+    )
+
+    codes = {item["code"] for item in report["diagnosis"]["codes"]}
+    assert report["success"] is True
+    assert report["access"]["granting_count"] == 1
+    assert report["metadata_errors"][0]["stage"] == "ir.rule"
+    assert "metadata_access_unavailable" in codes

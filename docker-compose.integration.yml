@@ -20,5 +20,7 @@ services:
       HOST: db
       USER: odoo
       PASSWORD: odoo
+    volumes:
+      - ./tests/fixtures/odoo_addons:/mnt/extra-addons:ro
     ports:
       - "${ODOO_PORT:-18069}:8069"

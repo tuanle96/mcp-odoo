@@ -33,6 +33,7 @@ from .diagnostics import (
     fit_gap_report as build_fit_gap_report,
     generate_json2_payload_report,
     inspect_model_relationships_report,
+    sanitize_odoo_error,
     upgrade_risk_report as build_upgrade_risk_report,
 )
 from .odoo_client import OdooClient, get_odoo_client
@@ -278,7 +279,9 @@ def validate_model_name(model_name: str) -> None:
 def validate_method_name(method_name: str) -> None:
     """Reject obviously unsafe method names before forwarding to Odoo."""
     if not METHOD_NAME_RE.fullmatch(method_name):
-        raise ValueError("Invalid method name. Use Odoo method names like 'search_read'.")
+        raise ValueError(
+            "Invalid method name. Use Odoo method names like 'search_read'."
+        )
 
 
 def clamp_limit(limit: int, maximum: int = MAX_SEARCH_LIMIT) -> int:
@@ -362,9 +365,21 @@ def writes_enabled() -> bool:
     return truthy_env("ODOO_MCP_ENABLE_WRITES")
 
 
+def allowed_side_effect_methods() -> List[str]:
+    """Return exact model.method names configured for reviewed side effects."""
+    raw_value = os.environ.get("ODOO_MCP_ALLOWED_SIDE_EFFECT_METHODS", "")
+    return [item.strip() for item in raw_value.split(",") if item.strip()]
+
+
+def side_effect_method_allowed(model: str, method: str) -> bool:
+    """Check exact side-effect allowlist entries."""
+    return f"{model}.{method}" in set(allowed_side_effect_methods())
+
+
 def runtime_security_report() -> Dict[str, Any]:
     """Expose MCP runtime safety posture without including secrets."""
     security = getattr(mcp.settings, "transport_security", None)
+    broad_unknown_enabled = truthy_env("ODOO_MCP_ALLOW_UNKNOWN_METHODS")
     return {
         "transport": os.environ.get("MCP_TRANSPORT", "stdio"),
         "host": getattr(mcp.settings, "host", None),
@@ -372,15 +387,22 @@ def runtime_security_report() -> Dict[str, Any]:
         "streamable_http_path": getattr(mcp.settings, "streamable_http_path", None),
         "remote_http_allowed": truthy_env("MCP_ALLOW_REMOTE_HTTP"),
         "write_execution_enabled": writes_enabled(),
-        "unknown_execute_method_enabled": truthy_env(
-            "ODOO_MCP_ALLOW_UNKNOWN_METHODS"
-        ),
+        "unknown_execute_method_enabled": broad_unknown_enabled,
+        "allowed_side_effect_methods": allowed_side_effect_methods(),
+        "broad_unknown_method_mode": {
+            "enabled": broad_unknown_enabled,
+            "risk": ("broad" if broad_unknown_enabled else "off"),
+            "recommendation": (
+                "Prefer ODOO_MCP_ALLOWED_SIDE_EFFECT_METHODS exact entries over "
+                "ODOO_MCP_ALLOW_UNKNOWN_METHODS=1."
+            ),
+        },
         "allowed_hosts": getattr(security, "allowed_hosts", None),
         "allowed_origins": getattr(security, "allowed_origins", None),
         "notes": [
             "HTTP transports are local-only by default in the CLI entry point.",
             "execute_approved_write requires ODOO_MCP_ENABLE_WRITES and confirm=true.",
-            "execute_method blocks standard destructive methods and unknown side-effect methods by default.",
+            "execute_method blocks standard destructive methods and unreviewed side-effect methods by default.",
         ],
     }
 
@@ -467,7 +489,9 @@ def restrict_addons_paths(addons_paths: Optional[List[str]]) -> Optional[List[st
     restricted_paths: List[str] = []
     for raw_path in addons_paths:
         candidate = Path(raw_path).expanduser().resolve(strict=False)
-        if not any(candidate == root or _is_relative_to(candidate, root) for root in roots):
+        if not any(
+            candidate == root or _is_relative_to(candidate, root) for root in roots
+        ):
             raise ValueError(
                 f"{candidate} is outside configured ODOO_ADDONS_PATHS roots."
             )
@@ -481,6 +505,167 @@ def _is_relative_to(path: Path, root: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def access_permission_field(operation: str) -> str:
+    """Map an Odoo operation or method name to the closest ACL permission flag."""
+    normalized = operation.strip().lower()
+    if normalized in {"create"}:
+        return "perm_create"
+    if normalized in {"write"}:
+        return "perm_write"
+    if normalized in {"unlink", "delete"}:
+        return "perm_unlink"
+    if normalized in {"read", "search", "search_read", "search_count", "name_search"}:
+        return "perm_read"
+    safety = classify_method_safety(normalized)
+    if safety["safety"] in {"side_effect", "unknown"}:
+        return "perm_write"
+    return "perm_read"
+
+
+def _safe_odoo_read(
+    label: str, callback: Callable[[], Any]
+) -> tuple[Any, Dict[str, Any] | None]:
+    """Run a read-only Odoo metadata call and normalize failure shape."""
+    try:
+        return callback(), None
+    except Exception as exc:
+        return None, {
+            "stage": label,
+            "error": sanitize_odoo_error(str(exc)),
+        }
+
+
+def _m2o_id(value: Any) -> int | None:
+    if isinstance(value, list) and value and isinstance(value[0], int):
+        return int(value[0])
+    if isinstance(value, tuple) and value and isinstance(value[0], int):
+        return int(value[0])
+    if isinstance(value, int):
+        return value
+    return None
+
+
+def _m2m_ids(value: Any) -> set[int]:
+    if not isinstance(value, list):
+        return set()
+    result: set[int] = set()
+    for item in value:
+        if isinstance(item, int):
+            result.add(item)
+        elif isinstance(item, (list, tuple)) and item and isinstance(item[0], int):
+            result.add(int(item[0]))
+    return result
+
+
+def _field_names(metadata: Any) -> set[str]:
+    if not isinstance(metadata, dict):
+        return set()
+    return {str(name) for name in metadata.keys()}
+
+
+def _available_user_read_fields(available_fields: set[str]) -> list[str]:
+    base_candidates = ["id", "name", "company_id", "company_ids"]
+    group_candidates = ["groups_id", "group_ids", "all_group_ids"]
+    if not available_fields:
+        return base_candidates
+    return [
+        field_name
+        for field_name in base_candidates + group_candidates
+        if field_name in available_fields
+    ]
+
+
+def _group_field_names(record: Dict[str, Any]) -> tuple[str | None, str | None]:
+    direct_group_field = None
+    for field_name in ("groups_id", "group_ids"):
+        if field_name in record:
+            direct_group_field = field_name
+            break
+    all_group_field = "all_group_ids" if "all_group_ids" in record else None
+    return direct_group_field, all_group_field
+
+
+def _acl_row_applies(row: Dict[str, Any], user_group_ids: set[int] | None) -> bool:
+    group_id = _m2o_id(row.get("group_id"))
+    if group_id is None:
+        return True
+    return user_group_ids is not None and group_id in user_group_ids
+
+
+def _rule_applies(row: Dict[str, Any], user_group_ids: set[int] | None) -> bool:
+    group_ids = _m2m_ids(row.get("groups"))
+    if not group_ids:
+        return True
+    return user_group_ids is not None and bool(group_ids & user_group_ids)
+
+
+def _record_id_domain(record_ids: Optional[List[int]]) -> List[Any]:
+    ids = [int(record_id) for record_id in record_ids or [] if int(record_id) > 0]
+    return [["id", "in", ids]] if ids else []
+
+
+def _access_diagnosis_codes(
+    *,
+    metadata_errors: list[Dict[str, Any]],
+    acl_rows: list[Dict[str, Any]],
+    granting_acl_rows: list[Dict[str, Any]],
+    active_rules: list[Dict[str, Any]],
+    applicable_rules: list[Dict[str, Any]],
+    actual_count: int | None,
+    expected_count: int | None,
+    record_ids: list[int],
+) -> list[Dict[str, str]]:
+    codes: list[Dict[str, str]] = []
+    if metadata_errors:
+        codes.append(
+            {
+                "code": "metadata_access_unavailable",
+                "severity": "warning",
+                "message": "Some ACL, rule, user, or count metadata could not be read.",
+            }
+        )
+    if acl_rows and not granting_acl_rows:
+        codes.append(
+            {
+                "code": "acl_denied_likely",
+                "severity": "warning",
+                "message": "No readable ACL row appears to grant the requested operation.",
+            }
+        )
+
+    mismatch = False
+    if expected_count is not None and actual_count is not None:
+        mismatch = actual_count < expected_count
+    if record_ids and actual_count is not None:
+        mismatch = mismatch or actual_count < len(record_ids)
+    if mismatch:
+        if applicable_rules or active_rules:
+            codes.append(
+                {
+                    "code": "record_rule_filter_likely",
+                    "severity": "warning",
+                    "message": "Visible record count is lower than expected and active record rules exist.",
+                }
+            )
+        else:
+            codes.append(
+                {
+                    "code": "domain_or_rule_filter_likely",
+                    "severity": "warning",
+                    "message": "Visible record count is lower than expected; inspect domain and access context.",
+                }
+            )
+    if not codes:
+        codes.append(
+            {
+                "code": "no_access_issue_detected",
+                "severity": "info",
+                "message": "No obvious ACL or record-rule mismatch was detected from readable metadata.",
+            }
+        )
+    return codes
 
 
 # ----- MCP Tools -----
@@ -599,7 +784,291 @@ def inspect_model_relationships(
             include_computed=include_computed,
         )
     except Exception as e:
-        return {"success": False, "tool": "inspect_model_relationships", "error": str(e)}
+        return {
+            "success": False,
+            "tool": "inspect_model_relationships",
+            "error": str(e),
+        }
+
+
+@mcp.tool(
+    description="Diagnose ACL and record-rule visibility for an Odoo model",
+    annotations=READ_ONLY_TOOL,
+    structured_output=True,
+)
+def diagnose_access(
+    ctx: Context,
+    model: str,
+    operation: str = "read",
+    domain: Optional[Any] = None,
+    record_ids: Optional[List[int]] = None,
+    expected_count: Optional[int] = None,
+    include_rules: bool = True,
+    limit: int = 50,
+) -> Dict[str, Any]:
+    """
+    Inspect readable ACL/rule metadata for the current Odoo credential.
+
+    This tool never uses sudo, never impersonates another user, and only performs
+    read-only metadata/count calls.
+    """
+    try:
+        validate_model_name(model)
+        limit = clamp_limit(limit, maximum=500)
+        if expected_count is not None and expected_count < 0:
+            raise ValueError("expected_count must be greater than or equal to 0")
+        normalized_record_ids = [
+            int(record_id) for record_id in record_ids or [] if int(record_id) > 0
+        ]
+        permission_field = access_permission_field(operation)
+        normalized_domain = normalize_domain_input(domain)
+        count_domain = (
+            _record_id_domain(normalized_record_ids)
+            if normalized_record_ids
+            else normalized_domain
+        )
+
+        odoo = ctx.request_context.lifespan_context.odoo
+        metadata_errors: list[Dict[str, Any]] = []
+
+        model_rows, error = _safe_odoo_read(
+            "ir.model",
+            lambda: odoo.execute_method(
+                "ir.model",
+                "search_read",
+                [["model", "=", model]],
+                fields=["id", "name", "model"],
+                limit=1,
+            ),
+        )
+        if error:
+            metadata_errors.append(error)
+            model_rows = []
+        model_record = (
+            model_rows[0] if isinstance(model_rows, list) and model_rows else None
+        )
+        model_id = (
+            int(model_record["id"])
+            if isinstance(model_record, dict) and model_record.get("id")
+            else None
+        )
+        if model_id is None:
+            metadata_errors.append(
+                {
+                    "stage": "ir.model",
+                    "error": {"message": f"Model metadata not found for {model}."},
+                }
+            )
+
+        user_context, error = _safe_odoo_read(
+            "res.users.context_get",
+            lambda: (
+                odoo.get_user_context()
+                if hasattr(odoo, "get_user_context")
+                else odoo.execute_method("res.users", "context_get")
+            ),
+        )
+        if error:
+            metadata_errors.append(error)
+            user_context = {}
+        if isinstance(user_context, dict) and user_context.get("error"):
+            metadata_errors.append(
+                {
+                    "stage": "res.users.context_get",
+                    "error": sanitize_odoo_error(str(user_context["error"])),
+                }
+            )
+            user_context = {}
+
+        uid = getattr(odoo, "uid", None)
+        if uid is None and isinstance(user_context, dict):
+            uid = user_context.get("uid")
+        current_user: Dict[str, Any] = {
+            "uid": uid,
+            "context": user_context if isinstance(user_context, dict) else {},
+            "record": None,
+            "group_ids": None,
+            "direct_group_ids": None,
+            "group_field": None,
+            "all_group_field": None,
+        }
+        user_group_ids: set[int] | None = None
+        if isinstance(uid, int) and uid > 0:
+            user_fields, error = _safe_odoo_read(
+                "res.users.fields_get",
+                lambda: odoo.execute_method(
+                    "res.users",
+                    "fields_get",
+                    [],
+                    attributes=["type", "relation", "string"],
+                ),
+            )
+            if error:
+                metadata_errors.append(error)
+            available_user_fields = _field_names(user_fields)
+            user_rows, error = _safe_odoo_read(
+                "res.users.read",
+                lambda: odoo.execute_method(
+                    "res.users",
+                    "read",
+                    [uid],
+                    fields=_available_user_read_fields(available_user_fields),
+                ),
+            )
+            if error:
+                metadata_errors.append(error)
+            elif isinstance(user_rows, list) and user_rows:
+                current_user["record"] = user_rows[0]
+                direct_group_field, all_group_field = _group_field_names(user_rows[0])
+                current_user["group_field"] = direct_group_field
+                current_user["all_group_field"] = all_group_field
+                direct_group_ids = (
+                    _m2m_ids(user_rows[0].get(direct_group_field))
+                    if direct_group_field
+                    else set()
+                )
+                all_group_ids = (
+                    _m2m_ids(user_rows[0].get(all_group_field))
+                    if all_group_field
+                    else set()
+                )
+                user_group_ids = all_group_ids or direct_group_ids
+                current_user["group_ids"] = sorted(user_group_ids)
+                current_user["direct_group_ids"] = sorted(direct_group_ids)
+
+        acl_rows: list[Dict[str, Any]] = []
+        if model_id is not None:
+            acl_rows_raw, error = _safe_odoo_read(
+                "ir.model.access",
+                lambda: odoo.execute_method(
+                    "ir.model.access",
+                    "search_read",
+                    [["model_id", "=", model_id]],
+                    fields=[
+                        "id",
+                        "name",
+                        "model_id",
+                        "group_id",
+                        "perm_read",
+                        "perm_write",
+                        "perm_create",
+                        "perm_unlink",
+                    ],
+                    limit=limit,
+                ),
+            )
+            if error:
+                metadata_errors.append(error)
+            elif isinstance(acl_rows_raw, list):
+                acl_rows = [row for row in acl_rows_raw if isinstance(row, dict)]
+
+        active_rules: list[Dict[str, Any]] = []
+        global_rules: list[Dict[str, Any]] = []
+        group_bound_rules: list[Dict[str, Any]] = []
+        applicable_rules: list[Dict[str, Any]] = []
+        if include_rules and model_id is not None:
+            rules_raw, error = _safe_odoo_read(
+                "ir.rule",
+                lambda: odoo.execute_method(
+                    "ir.rule",
+                    "search_read",
+                    [["model_id", "=", model_id]],
+                    fields=[
+                        "id",
+                        "name",
+                        "model_id",
+                        "domain_force",
+                        "groups",
+                        "active",
+                        "perm_read",
+                        "perm_write",
+                        "perm_create",
+                        "perm_unlink",
+                    ],
+                    limit=limit,
+                ),
+            )
+            if error:
+                metadata_errors.append(error)
+            elif isinstance(rules_raw, list):
+                for rule in rules_raw:
+                    if not isinstance(rule, dict):
+                        continue
+                    if not rule.get("active", True) or not rule.get(
+                        permission_field, True
+                    ):
+                        continue
+                    active_rules.append(rule)
+                    if _m2m_ids(rule.get("groups")):
+                        group_bound_rules.append(rule)
+                    else:
+                        global_rules.append(rule)
+                    if _rule_applies(rule, user_group_ids):
+                        applicable_rules.append(rule)
+
+        actual_count: int | None = None
+        if expected_count is not None or normalized_record_ids:
+            count_value, error = _safe_odoo_read(
+                f"{model}.search_count",
+                lambda: odoo.execute_method(model, "search_count", count_domain),
+            )
+            if error:
+                metadata_errors.append(error)
+            elif isinstance(count_value, int):
+                actual_count = count_value
+
+        granting_acl_rows = [
+            row
+            for row in acl_rows
+            if bool(row.get(permission_field)) and _acl_row_applies(row, user_group_ids)
+        ]
+        diagnosis_codes = _access_diagnosis_codes(
+            metadata_errors=metadata_errors,
+            acl_rows=acl_rows,
+            granting_acl_rows=granting_acl_rows,
+            active_rules=active_rules,
+            applicable_rules=applicable_rules,
+            actual_count=actual_count,
+            expected_count=expected_count,
+            record_ids=normalized_record_ids,
+        )
+        return {
+            "success": True,
+            "tool": "diagnose_access",
+            "model": model,
+            "operation": operation,
+            "permission_field": permission_field,
+            "domain": normalized_domain,
+            "record_ids": normalized_record_ids,
+            "expected_count": expected_count,
+            "actual_count": actual_count,
+            "model_metadata": {"record": model_record},
+            "current_user": current_user,
+            "access": {
+                "rows": acl_rows,
+                "granting_rows": granting_acl_rows,
+                "granting_count": len(granting_acl_rows),
+            },
+            "rules": {
+                "included": include_rules,
+                "active": active_rules,
+                "global": global_rules,
+                "group_bound": group_bound_rules,
+                "applicable": applicable_rules,
+            },
+            "diagnosis": {"codes": diagnosis_codes},
+            "metadata_errors": metadata_errors,
+            "metadata_used": {
+                "live_odoo": True,
+                "acl": bool(acl_rows),
+                "rules": include_rules,
+                "current_user": current_user["record"] is not None,
+                "sudo": False,
+                "impersonation": False,
+            },
+        }
+    except Exception as e:
+        return {"success": False, "tool": "diagnose_access", "error": str(e)}
 
 
 @mcp.tool(
@@ -696,9 +1165,7 @@ def get_odoo_profile(
                 "transport": getattr(odoo, "transport", None),
                 "timeout": getattr(odoo, "timeout", None),
                 "verify_ssl": getattr(odoo, "verify_ssl", None),
-                "json2_database_header": getattr(
-                    odoo, "json2_database_header", None
-                ),
+                "json2_database_header": getattr(odoo, "json2_database_header", None),
                 "server_version": odoo.get_server_version(),
                 "user_context": odoo.get_user_context(),
                 "installed_modules": [],
@@ -785,7 +1252,9 @@ def schema_catalog(
             if include_fields:
                 fields = odoo.get_model_fields(model_name)
                 record["fields"] = fields if "error" not in fields else {}
-                record["field_error"] = fields.get("error") if "error" in fields else None
+                record["field_error"] = (
+                    fields.get("error") if "error" in fields else None
+                )
             records.append(record)
 
         report = {
@@ -852,8 +1321,8 @@ def validate_write(
         metadata_source = "input" if fields_metadata is not None else "none"
         if fields_metadata is None and use_live_metadata:
             metadata_source = "server"
-            fields_metadata = ctx.request_context.lifespan_context.odoo.get_model_fields(
-                model
+            fields_metadata = (
+                ctx.request_context.lifespan_context.odoo.get_model_fields(model)
             )
             if "error" in fields_metadata:
                 return {
@@ -978,9 +1447,7 @@ def execute_approved_write(
         else:
             args = [record_ids]
 
-        result = app_context.odoo.execute_method(
-            model, operation, *args, **kwargs
-        )
+        result = app_context.odoo.execute_method(model, operation, *args, **kwargs)
         app_context.write_approvals.pop(str(approval.get("token", "")), None)
         return {
             "success": True,
@@ -1130,16 +1597,21 @@ def execute_method(
                     "preview_write -> validate_write -> execute_approved_write."
                 ),
             }
-        if safety["safety"] == "unknown" and not truthy_env(
-            "ODOO_MCP_ALLOW_UNKNOWN_METHODS"
+        review_required = safety["safety"] in {"side_effect", "unknown"}
+        if (
+            review_required
+            and not side_effect_method_allowed(model, method)
+            and not truthy_env("ODOO_MCP_ALLOW_UNKNOWN_METHODS")
         ):
             return {
                 "success": False,
                 "error": (
-                    "Unknown side-effect methods are blocked by default. Review "
-                    "custom source and set ODOO_MCP_ALLOW_UNKNOWN_METHODS=1 only "
-                    "for trusted deployments."
+                    "Unreviewed side-effect methods are blocked by default. Review "
+                    "custom source and allow exact methods through "
+                    "ODOO_MCP_ALLOWED_SIDE_EFFECT_METHODS=model.method, or set "
+                    "ODOO_MCP_ALLOW_UNKNOWN_METHODS=1 only for trusted deployments."
                 ),
+                "classification": safety,
             }
         args = args or []
         kwargs = kwargs or {}
@@ -1429,8 +1901,9 @@ def prompt_diagnose_failed_odoo_call(
         f"Model: {model}\n"
         f"Method: {method}\n"
         f"Observed error: {error or '<not provided>'}\n\n"
-        "Use diagnose_odoo_call, inspect_model_relationships, and get_model_fields "
-        "before execute_method. Preserve Odoo error details, but do not expose secrets."
+        "Use diagnose_odoo_call, diagnose_access, inspect_model_relationships, "
+        "and get_model_fields before execute_method. Preserve Odoo error details, "
+        "but do not expose secrets."
     )
 
 
@@ -1491,6 +1964,7 @@ def prompt_custom_module_audit(addons_path: str) -> str:
         "Audit local Odoo addon source without importing addon modules.\n"
         f"Addons path: {addons_path}\n\n"
         "Use scan_addons_source, upgrade_risk_report, and business_pack_report. "
-        "Prioritize manifest dependencies, overridden create/write/unlink methods, "
-        "sudo usage, automated actions, custom views, and security CSV files."
+        "Prioritize manifest dependencies, computed field dependencies, overridden "
+        "create/write/unlink methods, sudo usage, automated actions, custom views, "
+        "and security CSV files."
     )

@@ -54,7 +54,12 @@ BUSINESS_PACKS: dict[str, dict[str, Any]] = {
     },
     "accounting": {
         "modules": ["account"],
-        "models": ["account.move", "account.move.line", "account.journal", "res.partner"],
+        "models": [
+            "account.move",
+            "account.move.line",
+            "account.journal",
+            "res.partner",
+        ],
         "safe_reports": ["open_invoices", "journal_health", "partner_balances"],
     },
     "hr": {
@@ -211,7 +216,10 @@ def validate_write_report(
                 )
             elif field_type == "many2one":
                 field_hints.append(
-                    {"field": field_name, "hint": "many2one values should be record IDs."}
+                    {
+                        "field": field_name,
+                        "hint": "many2one values should be record IDs.",
+                    }
                 )
             elif field_type in {"many2many", "one2many"}:
                 field_hints.append(
@@ -382,7 +390,10 @@ def scan_addons_source_report(
                 break
             if not file_path.is_file() or file_path.is_symlink():
                 continue
-            if file_path.suffix not in {".py", ".xml", ".csv"} and file_path.name != "__manifest__.py":
+            if (
+                file_path.suffix not in {".py", ".xml", ".csv"}
+                and file_path.name != "__manifest__.py"
+            ):
                 continue
             try:
                 if file_path.stat().st_size > max_file_bytes:
@@ -504,9 +515,11 @@ def _read_manifest(file_path: Path) -> dict[str, Any] | None:
         "name": str(parsed.get("name", module_dir.name)),
         "module": module_dir.name,
         "version": str(parsed.get("version", "")),
-        "depends": list(parsed.get("depends", []))
-        if isinstance(parsed.get("depends", []), list)
-        else [],
+        "depends": (
+            list(parsed.get("depends", []))
+            if isinstance(parsed.get("depends", []), list)
+            else []
+        ),
         "installable": parsed.get("installable", True),
         "path": str(file_path),
         "custom": not str(module_dir.name).startswith(("base", "web", "mail")),
@@ -531,7 +544,10 @@ def _scan_python_file(file_path: Path) -> list[dict[str, Any]]:
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef):
             inherit_names = [_expr_name(base) for base in node.bases]
-            if any(name.endswith(("models.Model", "Model", "TransientModel")) for name in inherit_names):
+            if any(
+                name.endswith(("models.Model", "Model", "TransientModel"))
+                for name in inherit_names
+            ):
                 findings.append(
                     {
                         "code": "custom_model_class",
@@ -540,14 +556,19 @@ def _scan_python_file(file_path: Path) -> list[dict[str, Any]]:
                         "recommendation": "Review model fields, constraints, computes, and overrides.",
                     }
                 )
+                findings.extend(_scan_model_class(file_path, node))
         elif isinstance(node, ast.FunctionDef):
-            if node.name in {"create", "write", "unlink"} or node.name.startswith("action_"):
+            if node.name in {"create", "write", "unlink"} or node.name.startswith(
+                "action_"
+            ):
                 findings.append(
                     {
                         "code": "custom_method",
-                        "severity": "warning"
-                        if node.name in {"create", "write", "unlink"}
-                        else "info",
+                        "severity": (
+                            "warning"
+                            if node.name in {"create", "write", "unlink"}
+                            else "info"
+                        ),
                         "evidence": f"{file_path}:{node.lineno} def {node.name}",
                         "recommendation": "Review side effects and JSON-2 named-argument compatibility.",
                     }
@@ -562,6 +583,213 @@ def _scan_python_file(file_path: Path) -> list[dict[str, Any]]:
             }
         )
     return findings
+
+
+def _scan_model_class(file_path: Path, node: ast.ClassDef) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    computed_fields = _computed_fields_by_method(node)
+    functions = {
+        item.name: item for item in node.body if isinstance(item, ast.FunctionDef)
+    }
+    for method_name, field_names in computed_fields.items():
+        method_node = functions.get(method_name)
+        field_list = ", ".join(sorted(field_names))
+        if method_node is None:
+            findings.append(
+                {
+                    "code": "computed_method_missing",
+                    "severity": "warning",
+                    "evidence": f"{file_path}:{node.lineno} compute={method_name!r}",
+                    "recommendation": (
+                        f"Define {method_name} or update computed fields: {field_list}."
+                    ),
+                }
+            )
+            continue
+
+        depends = _api_depends_arguments(method_node)
+        if not depends:
+            findings.append(
+                {
+                    "code": "computed_method_missing_depends",
+                    "severity": "warning",
+                    "evidence": f"{file_path}:{method_node.lineno} def {method_name}",
+                    "recommendation": (
+                        f"Add @api.depends(...) for computed fields: {field_list}."
+                    ),
+                }
+            )
+            continue
+
+        read_fields = _record_field_reads(method_node)
+        declared_roots = {dependency.split(".", 1)[0] for dependency in depends}
+        ignored = set(field_names) | {"env", "id", "ids", "display_name"}
+        missing = sorted(read_fields - declared_roots - ignored)
+        if missing:
+            findings.append(
+                {
+                    "code": "computed_depends_missing_fields",
+                    "severity": "warning",
+                    "evidence": f"{file_path}:{method_node.lineno} def {method_name}",
+                    "recommendation": (
+                        "Review @api.depends for fields read in the compute method: "
+                        + ", ".join(missing)
+                        + "."
+                    ),
+                }
+            )
+
+    for method_node in functions.values():
+        if method_node.name not in WRITE_OPERATIONS:
+            continue
+        super_call = _super_method_call(method_node, method_node.name)
+        if super_call is None:
+            findings.append(
+                {
+                    "code": "crud_override_missing_super",
+                    "severity": "warning",
+                    "evidence": f"{file_path}:{method_node.lineno} def {method_node.name}",
+                    "recommendation": (
+                        f"Call super().{method_node.name}(...) unless this override "
+                        "intentionally replaces the full ORM chain."
+                    ),
+                }
+            )
+        elif not _super_call_returned(method_node, method_node.name):
+            findings.append(
+                {
+                    "code": "crud_override_super_not_returned",
+                    "severity": "warning",
+                    "evidence": f"{file_path}:{method_node.lineno} def {method_node.name}",
+                    "recommendation": (
+                        f"Return the result from super().{method_node.name}(...) "
+                        "or document why the ORM return contract is intentionally changed."
+                    ),
+                }
+            )
+    return findings
+
+
+def _computed_fields_by_method(node: ast.ClassDef) -> dict[str, set[str]]:
+    computed_fields: dict[str, set[str]] = {}
+    for statement in node.body:
+        targets: list[ast.expr] = []
+        value: ast.expr | None = None
+        if isinstance(statement, ast.Assign):
+            targets = list(statement.targets)
+            value = statement.value
+        elif isinstance(statement, ast.AnnAssign):
+            targets = [statement.target]
+            value = statement.value
+        if value is None:
+            continue
+        compute_method = _field_compute_method(value)
+        if compute_method is None:
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name):
+                computed_fields.setdefault(compute_method, set()).add(target.id)
+    return computed_fields
+
+
+def _field_compute_method(expr: ast.expr) -> str | None:
+    if not isinstance(expr, ast.Call):
+        return None
+    if not _expr_name(expr.func).startswith("fields."):
+        return None
+    for keyword in expr.keywords:
+        if keyword.arg == "compute":
+            if isinstance(keyword.value, ast.Constant) and isinstance(
+                keyword.value.value, str
+            ):
+                return keyword.value.value
+            return "<dynamic-compute>"
+    return None
+
+
+def _api_depends_arguments(node: ast.FunctionDef) -> set[str]:
+    depends: set[str] = set()
+    for decorator in node.decorator_list:
+        if not isinstance(decorator, ast.Call):
+            continue
+        if _expr_name(decorator.func) != "api.depends":
+            continue
+        for arg in decorator.args:
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                depends.add(arg.value)
+    return depends
+
+
+def _record_field_reads(node: ast.FunctionDef) -> set[str]:
+    record_names = {"self"}
+    for child in ast.walk(node):
+        if (
+            isinstance(child, ast.For)
+            and isinstance(child.target, ast.Name)
+            and isinstance(child.iter, ast.Name)
+            and child.iter.id == "self"
+        ):
+            record_names.add(child.target.id)
+
+    reads: set[str] = set()
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Attribute) or not isinstance(child.ctx, ast.Load):
+            continue
+        if isinstance(child.value, ast.Name) and child.value.id in record_names:
+            reads.add(child.attr)
+    return reads
+
+
+def _super_method_call(node: ast.FunctionDef, method_name: str) -> ast.Call | None:
+    for child in ast.walk(node):
+        if isinstance(child, ast.Call) and _is_super_method_call(child, method_name):
+            return child
+    return None
+
+
+def _super_call_returned(node: ast.FunctionDef, method_name: str) -> bool:
+    assigned_super_vars: set[str] = set()
+    for child in ast.walk(node):
+        if isinstance(child, ast.Assign) and _contains_super_method_call(
+            child.value, method_name
+        ):
+            for target in child.targets:
+                if isinstance(target, ast.Name):
+                    assigned_super_vars.add(target.id)
+        elif isinstance(child, ast.AnnAssign) and _contains_super_method_call(
+            child.value, method_name
+        ):
+            if isinstance(child.target, ast.Name):
+                assigned_super_vars.add(child.target.id)
+
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Return) or child.value is None:
+            continue
+        if _contains_super_method_call(child.value, method_name):
+            return True
+        if isinstance(child.value, ast.Name) and child.value.id in assigned_super_vars:
+            return True
+    return False
+
+
+def _contains_super_method_call(expr: ast.AST | None, method_name: str) -> bool:
+    if expr is None:
+        return False
+    return any(_is_super_method_call(child, method_name) for child in ast.walk(expr))
+
+
+def _is_super_method_call(node: ast.AST, method_name: str) -> bool:
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    if not isinstance(func, ast.Attribute) or func.attr != method_name:
+        return False
+    value = func.value
+    return (
+        isinstance(value, ast.Call)
+        and isinstance(value.func, ast.Name)
+        and value.func.id == "super"
+    )
 
 
 def _scan_xml_file(file_path: Path) -> list[dict[str, Any]]:

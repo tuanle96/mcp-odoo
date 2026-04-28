@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## [0.2.0] - 2026-04-28
+
+### Added
+- Added `diagnose_access` to inspect readable ACL, record-rule, current-user, and count evidence for the current Odoo credential without sudo or impersonation.
+- Added exact side-effect method allowlisting with `ODOO_MCP_ALLOWED_SIDE_EFFECT_METHODS`.
+- Added static addon scanner findings for computed-field `@api.depends` coverage and CRUD override `super()` return contracts.
+- Added Docker Compose smoke coverage for a packaged custom addon XML install/update lifecycle and its XML-defined record rule.
+
+### Changed
+- Classified common Odoo side-effect methods such as `message_post`, `action_*`, `button_*`, `*_send*`, `*_post*`, and `*_validate*` separately from unknown methods.
+- Updated smoke expectations from 21 to 22 MCP tools.
+
 ## [0.1.0] - 2026-04-28
 
 ### Added

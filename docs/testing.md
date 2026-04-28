@@ -54,9 +54,12 @@ The current smoke checks validate:
 - disposable Odoo database bootstrap,
 - direct XML-RPC read access,
 - direct JSON-2 access for Odoo 19,
+- packaged custom addon XML install and update from `tests/fixtures/odoo_addons`,
+- bespoke complex record-rule diagnosis and packaged XML record-rule diagnosis,
 - MCP stdio tool/resource/prompt listing,
 - MCP read calls through XML-RPC,
 - MCP read calls through JSON-2 for Odoo 19,
+- `diagnose_access` as restricted users over XML-RPC, plus JSON-2 for Odoo 19,
 - Streamable HTTP MCP calls for Odoo 19,
 - MCP Inspector `tools/list` over stdio and HTTP,
 - teardown of Compose containers, networks, and volumes.
@@ -65,7 +68,7 @@ The current smoke checks validate:
 
 The smoke harness expects:
 
-- 21 tools,
+- 22 tools,
 - 5 prompts,
 - 1 direct resource,
 - 3 resource templates,
