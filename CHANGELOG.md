@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.4] - 2026-04-28
+
+### Added
+- Added a Docker Compose integration smoke harness that boots disposable Odoo 16.0, 17.0, 18.0, and 19.0 stacks and validates live HTTP, XML-RPC, and MCP stdio behavior.
+- Added Odoo 19 External JSON-2 transport support behind `ODOO_TRANSPORT=json2`, with bearer API-key authentication through `ODOO_API_KEY`.
+- Added Odoo 19 JSON-2 smoke validation that generates a disposable API key and verifies both direct `/json/2` calls and MCP stdio calls.
+- Added opt-in MCP Streamable HTTP and SSE runtime support through `--transport`, `--host`, `--port`, and `--path`.
+- Added read-only typed tools: `list_models`, `get_model_fields`, `search_records`, and `read_record`.
+- Added diagnostic/report tools for agent workflows: `diagnose_odoo_call`, `inspect_model_relationships`, `generate_json2_payload`, `upgrade_risk_report`, and `fit_gap_report`.
+- Added `ODOO_JSON2_DATABASE_HEADER` support so JSON-2 calls send `X-Odoo-Database` by default and can opt out for host/dbfilter-routed deployments.
+- Added MCP Inspector smoke validation for `tools/list` over stdio and Streamable HTTP.
+- Added generic client configuration examples for stdio, Docker stdio, and Streamable HTTP.
+
+### Changed
+- Documented the current compatibility posture for the planned 0.0.4 release: XML-RPC remains the default transport, while Odoo's External JSON-2 API is available for Odoo 19.
+- Documented JSON-2 named argument mapping, per-call transaction behavior, Odoo-shaped error preservation, and debug redaction defaults.
+- Updated README setup guidance for Claude Desktop on macOS, including the expected config file location and the recommendation to use an absolute Python path.
+- Updated Docker usage guidance to build and run the local `mcp/odoo:latest` image with the current Odoo environment variables.
+- Clarified the current MCP surface as 12 tools and 4 resource URI patterns, matching the implemented server.
+- Updated release workflow intent so PyPI publishing stays behind tests, build, and MCP Inspector runtime smoke validation.
+
+### Notes
+- Odoo's current 19.0 documentation source says XML-RPC and JSON-RPC endpoints are deprecated and scheduled for removal in Odoo 20 (fall 2026), with External JSON-2 as the replacement.
+- JSON-2 is explicit opt-in. XML-RPC carries the database name per request; JSON-2 uses bearer auth and this server sends `X-Odoo-Database` by default for multi-database deployments.
+
 ## [0.0.3] - 2025-03-18
 
 ### Fixed
@@ -23,4 +48,4 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Initial release with basic Odoo XML-RPC client support
 - MCP Server integration for Odoo
-- Command-line interface for quick setup and testing 
+- Command-line interface for quick setup and testing

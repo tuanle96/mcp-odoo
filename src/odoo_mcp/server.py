@@ -5,22 +5,43 @@ Provides MCP tools and resources for interacting with Odoo ERP systems
 """
 
 import json
+import re
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any, AsyncIterator, Dict, List, Optional, Union, cast
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Union
 
 from mcp.server.fastmcp import Context, FastMCP
 from pydantic import BaseModel, Field
 
+from .diagnostics import (
+    diagnose_odoo_call_report,
+    fit_gap_report as build_fit_gap_report,
+    generate_json2_payload_report,
+    inspect_model_relationships_report,
+    upgrade_risk_report as build_upgrade_risk_report,
+)
 from .odoo_client import OdooClient, get_odoo_client
+
+MODEL_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*$")
+MAX_SEARCH_LIMIT = 100
 
 
 @dataclass
 class AppContext:
-    """Application context for the MCP server"""
+    """Application context with lazy Odoo client access."""
 
-    odoo: OdooClient
+    odoo_factory: Callable[[], OdooClient] = field(
+        default_factory=lambda: get_odoo_client
+    )
+    _odoo: OdooClient | None = None
+
+    @property
+    def odoo(self) -> OdooClient:
+        """Resolve the Odoo client only when a live Odoo tool needs it."""
+        if self._odoo is None:
+            self._odoo = self.odoo_factory()
+        return self._odoo
 
 
 @asynccontextmanager
@@ -28,20 +49,13 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
     """
     Application lifespan for initialization and cleanup
     """
-    # Initialize Odoo client on startup
-    odoo_client = get_odoo_client()
-
-    try:
-        yield AppContext(odoo=odoo_client)
-    finally:
-        # No cleanup needed for Odoo client
-        pass
+    yield AppContext()
 
 
 # Create MCP server
 mcp = FastMCP(
     "Odoo MCP Server",
-    description="MCP Server for interacting with Odoo ERP systems",
+    instructions="MCP Server for interacting with Odoo ERP systems",
     dependencies=["requests"],
     lifespan=app_lifespan,
 )
@@ -208,7 +222,251 @@ class SearchHolidaysResponse(BaseModel):
     error: Optional[str] = Field(default=None, description="Error message, if any")
 
 
+def validate_model_name(model_name: str) -> None:
+    """Reject obviously unsafe model names before forwarding to Odoo."""
+    if not MODEL_NAME_RE.fullmatch(model_name):
+        raise ValueError(
+            "Invalid model name. Use Odoo technical model names like 'res.partner'."
+        )
+
+
+def clamp_limit(limit: int, maximum: int = MAX_SEARCH_LIMIT) -> int:
+    """Keep read-only tools bounded for agent safety."""
+    if limit < 1:
+        raise ValueError("limit must be greater than 0")
+    return min(limit, maximum)
+
+
+def normalize_domain_input(domain: Any) -> List[Any]:
+    """Normalize common MCP/JSON domain shapes to an Odoo domain list."""
+    if domain is None:
+        return []
+    if isinstance(domain, SearchDomain):
+        return domain.to_domain_list()
+
+    domain_value = domain
+    if isinstance(domain_value, str):
+        try:
+            domain_value = json.loads(domain_value)
+        except json.JSONDecodeError:
+            try:
+                import ast
+
+                domain_value = ast.literal_eval(domain_value)
+            except (SyntaxError, ValueError):
+                return []
+
+    if isinstance(domain_value, dict):
+        conditions = domain_value.get("conditions")
+        if isinstance(conditions, list):
+            return [
+                [cond["field"], cond["operator"], cond["value"]]
+                for cond in conditions
+                if isinstance(cond, dict)
+                and all(k in cond for k in ["field", "operator", "value"])
+            ]
+        return []
+
+    if not isinstance(domain_value, list):
+        return []
+
+    if len(domain_value) == 1 and isinstance(domain_value[0], list) and domain_value[0]:
+        domain_value = domain_value[0]
+
+    if not domain_value:
+        return []
+    if (
+        len(domain_value) == 3
+        and isinstance(domain_value[0], str)
+        and domain_value[0] not in ["&", "|", "!"]
+        and isinstance(domain_value[1], str)
+    ):
+        domain_list = [domain_value]
+    else:
+        domain_list = domain_value
+
+    valid_conditions: List[Any] = []
+    for cond in domain_list:
+        if isinstance(cond, str) and cond in ["&", "|", "!"]:
+            valid_conditions.append(cond)
+            continue
+        if (
+            isinstance(cond, list)
+            and len(cond) == 3
+            and isinstance(cond[0], str)
+            and isinstance(cond[1], str)
+        ):
+            valid_conditions.append(cond)
+
+    return valid_conditions
+
+
 # ----- MCP Tools -----
+
+
+@mcp.tool(description="Diagnose an Odoo model call without executing it")
+def diagnose_odoo_call(
+    model: str,
+    method: str,
+    args: Optional[List[Any]] = None,
+    kwargs: Optional[Dict[str, Any]] = None,
+    transport: str = "auto",
+    target_version: Optional[str] = None,
+    observed_error: Optional[Any] = None,
+    include_debug: bool = False,
+    metadata: Optional[Dict[str, Any]] = None,
+    use_live_metadata: bool = False,
+) -> Dict[str, Any]:
+    """
+    Diagnose model/method/payload issues without executing the candidate call.
+    """
+    report = diagnose_odoo_call_report(
+        model=model,
+        method=method,
+        args=args,
+        kwargs=kwargs,
+        transport=transport,
+        target_version=target_version,
+        observed_error=observed_error,
+        include_debug=include_debug,
+        metadata=metadata,
+    )
+    if use_live_metadata:
+        report["issues"].append(
+            {
+                "code": "live_metadata_not_used",
+                "severity": "info",
+                "message": (
+                    "diagnose_odoo_call is preview-only; pass metadata explicitly "
+                    "or use inspect_model_relationships for live fields_get metadata."
+                ),
+            }
+        )
+    return report
+
+
+@mcp.tool(description="Build a JSON-2 request preview without network access")
+def generate_json2_payload(
+    model: str,
+    method: str,
+    args: Optional[List[Any]] = None,
+    kwargs: Optional[Dict[str, Any]] = None,
+    base_url: Optional[str] = None,
+    database: Optional[str] = None,
+    include_database_header: bool = True,
+) -> Dict[str, Any]:
+    """
+    Generate a JSON-2 endpoint, headers, and named JSON body.
+    """
+    return generate_json2_payload_report(
+        model=model,
+        method=method,
+        args=args,
+        kwargs=kwargs,
+        base_url=base_url,
+        database=database,
+        include_database_header=include_database_header,
+    )
+
+
+@mcp.tool(description="Inspect model relationships and required field metadata")
+def inspect_model_relationships(
+    ctx: Context,
+    model: str,
+    fields_metadata: Optional[Dict[str, Any]] = None,
+    include_readonly: bool = True,
+    include_computed: bool = True,
+    use_live_metadata: bool = True,
+) -> Dict[str, Any]:
+    """
+    Summarize relationship fields using provided metadata or bounded fields_get.
+    """
+    try:
+        validate_model_name(model)
+        metadata_source = "input" if fields_metadata is not None else "none"
+        metadata_error = None
+        if fields_metadata is None and use_live_metadata:
+            metadata_source = "server"
+            try:
+                odoo = ctx.request_context.lifespan_context.odoo
+                fields_metadata = odoo.get_model_fields(model)
+                if "error" in fields_metadata:
+                    metadata_error = str(fields_metadata["error"])
+                    fields_metadata = None
+            except Exception as exc:
+                metadata_error = str(exc)
+                fields_metadata = None
+        return inspect_model_relationships_report(
+            model=model,
+            fields_metadata=fields_metadata,
+            metadata_source=metadata_source,
+            metadata_error=metadata_error,
+            include_readonly=include_readonly,
+            include_computed=include_computed,
+        )
+    except Exception as e:
+        return {"success": False, "tool": "inspect_model_relationships", "error": str(e)}
+
+
+@mcp.tool(description="Report Odoo upgrade and JSON-2 migration risks")
+def upgrade_risk_report(
+    source_version: Optional[str] = None,
+    target_version: Optional[str] = None,
+    modules: Optional[List[Dict[str, Any]]] = None,
+    methods: Optional[List[Dict[str, Any]]] = None,
+    source_findings: Optional[List[Dict[str, Any]]] = None,
+    observed_errors: Optional[List[Any]] = None,
+    use_live_metadata: bool = False,
+    include_debug: bool = False,
+) -> Dict[str, Any]:
+    """
+    Build an input-driven upgrade risk report without executing Odoo calls.
+    """
+    report = build_upgrade_risk_report(
+        source_version=source_version,
+        target_version=target_version,
+        modules=modules,
+        methods=methods,
+        source_findings=source_findings,
+        observed_errors=observed_errors,
+        include_debug=include_debug,
+    )
+    if use_live_metadata:
+        report["risks"].append(
+            {
+                "code": "live_metadata_not_used",
+                "severity": "info",
+                "evidence": "upgrade_risk_report is input-driven in this release.",
+                "recommendation": "Pass module/method/source findings explicitly.",
+            }
+        )
+    return report
+
+
+@mcp.tool(description="Classify Odoo requirements into fit/gap implementation buckets")
+def fit_gap_report(
+    requirements: List[Any],
+    available_models: Optional[List[str]] = None,
+    available_fields: Optional[Dict[str, Any]] = None,
+    installed_modules: Optional[List[Any]] = None,
+    business_context: Optional[Dict[str, Any]] = None,
+    use_live_metadata: bool = False,
+) -> Dict[str, Any]:
+    """
+    Normalize requirements into standard/config/Studio/custom/avoid/unknown buckets.
+    """
+    report = build_fit_gap_report(
+        requirements=requirements,
+        available_models=available_models,
+        available_fields=available_fields,
+        installed_modules=installed_modules,
+        business_context=business_context,
+    )
+    if use_live_metadata:
+        report["assumptions"].append(
+            "fit_gap_report is input-driven in this release; use list_models/get_model_fields first."
+        )
+    return report
 
 
 @mcp.tool(description="Execute a custom method on an Odoo model")
@@ -216,7 +474,7 @@ def execute_method(
     ctx: Context,
     model: str,
     method: str,
-    args: List = None,
+    args: Optional[List[Any]] = None,
     kwargs: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
@@ -249,101 +507,138 @@ def execute_method(
             )  # Create a copy to avoid affecting the original args
 
             if len(normalized_args) > 0:
-                # Process domain in args[0]
-                domain = normalized_args[0]
-                domain_list = []
-
-                # Check if domain is wrapped unnecessarily ([domain] instead of domain)
-                if (
-                    isinstance(domain, list)
-                    and len(domain) == 1
-                    and isinstance(domain[0], list)
-                ):
-                    # Case [[domain]] - unwrap to [domain]
-                    domain = domain[0]
-
-                # Normalize domain similar to search_records function
-                if domain is None:
-                    domain_list = []
-                elif isinstance(domain, dict):
-                    if "conditions" in domain:
-                        # Object format
-                        conditions = domain.get("conditions", [])
-                        domain_list = []
-                        for cond in conditions:
-                            if isinstance(cond, dict) and all(
-                                k in cond for k in ["field", "operator", "value"]
-                            ):
-                                domain_list.append(
-                                    [cond["field"], cond["operator"], cond["value"]]
-                                )
-                elif isinstance(domain, list):
-                    # List format
-                    if not domain:
-                        domain_list = []
-                    elif all(isinstance(item, list) for item in domain) or any(
-                        item in ["&", "|", "!"] for item in domain
-                    ):
-                        domain_list = domain
-                    elif len(domain) >= 3 and isinstance(domain[0], str):
-                        # Case [field, operator, value] (not [[field, operator, value]])
-                        domain_list = [domain]
-                elif isinstance(domain, str):
-                    # String format (JSON)
-                    try:
-                        parsed_domain = json.loads(domain)
-                        if (
-                            isinstance(parsed_domain, dict)
-                            and "conditions" in parsed_domain
-                        ):
-                            conditions = parsed_domain.get("conditions", [])
-                            domain_list = []
-                            for cond in conditions:
-                                if isinstance(cond, dict) and all(
-                                    k in cond for k in ["field", "operator", "value"]
-                                ):
-                                    domain_list.append(
-                                        [cond["field"], cond["operator"], cond["value"]]
-                                    )
-                        elif isinstance(parsed_domain, list):
-                            domain_list = parsed_domain
-                    except json.JSONDecodeError:
-                        try:
-                            import ast
-
-                            parsed_domain = ast.literal_eval(domain)
-                            if isinstance(parsed_domain, list):
-                                domain_list = parsed_domain
-                        except:
-                            domain_list = []
-
-                # Xác thực domain_list
-                if domain_list:
-                    valid_conditions = []
-                    for cond in domain_list:
-                        if isinstance(cond, str) and cond in ["&", "|", "!"]:
-                            valid_conditions.append(cond)
-                            continue
-
-                        if (
-                            isinstance(cond, list)
-                            and len(cond) == 3
-                            and isinstance(cond[0], str)
-                            and isinstance(cond[1], str)
-                        ):
-                            valid_conditions.append(cond)
-
-                    domain_list = valid_conditions
-
-                # Cập nhật args với domain đã chuẩn hóa
-                normalized_args[0] = domain_list
+                normalized_args[0] = normalize_domain_input(normalized_args[0])
                 args = normalized_args
-
-                # Log for debugging
-                print(f"Executing {method} with normalized domain: {domain_list}")
 
         result = odoo.execute_method(model, method, *args, **kwargs)
         return {"success": True, "result": result}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool(description="List Odoo models with optional name filtering")
+def list_models(
+    ctx: Context,
+    query: Optional[str] = None,
+    limit: int = 100,
+) -> Dict[str, Any]:
+    """
+    List available Odoo model technical names and display names.
+
+    Prefer this read-only tool over execute_method when discovering models.
+    """
+    odoo = ctx.request_context.lifespan_context.odoo
+    try:
+        limit = clamp_limit(limit, maximum=500)
+        models = odoo.get_models()
+        if "error" in models:
+            return {"success": False, "error": models["error"]}
+
+        model_names = models.get("model_names", [])
+        models_details = models.get("models_details", {})
+        if query:
+            query_lower = query.lower()
+            model_names = [
+                model_name
+                for model_name in model_names
+                if query_lower in model_name.lower()
+                or query_lower
+                in str(models_details.get(model_name, {}).get("name", "")).lower()
+            ]
+
+        records = [
+            {
+                "model": model_name,
+                "name": models_details.get(model_name, {}).get("name", ""),
+            }
+            for model_name in model_names[:limit]
+        ]
+        return {"success": True, "count": len(records), "result": records}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool(description="Get field metadata for a specific Odoo model")
+def get_model_fields(
+    ctx: Context,
+    model: str,
+    field_names: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Read field definitions for a model.
+
+    Prefer this read-only tool over execute_method for model introspection.
+    """
+    odoo = ctx.request_context.lifespan_context.odoo
+    try:
+        validate_model_name(model)
+        fields = odoo.get_model_fields(model)
+        if "error" in fields:
+            return {"success": False, "error": fields["error"]}
+        if field_names:
+            fields = {name: fields[name] for name in field_names if name in fields}
+        return {"success": True, "count": len(fields), "result": fields}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool(description="Search Odoo records with read-only search_read")
+def search_records(
+    ctx: Context,
+    model: str,
+    domain: Optional[Any] = None,
+    fields: Optional[List[str]] = None,
+    limit: int = 10,
+    offset: int = 0,
+    order: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Search and read records with bounded read-only semantics.
+
+    Domain accepts standard Odoo domain arrays, a JSON string, or
+    {"conditions": [{"field": ..., "operator": ..., "value": ...}]}.
+    """
+    odoo = ctx.request_context.lifespan_context.odoo
+    try:
+        validate_model_name(model)
+        limit = clamp_limit(limit)
+        if offset < 0:
+            raise ValueError("offset must be greater than or equal to 0")
+        records = odoo.search_read(
+            model_name=model,
+            domain=normalize_domain_input(domain),
+            fields=fields,
+            offset=offset,
+            limit=limit,
+            order=order,
+        )
+        return {"success": True, "count": len(records), "result": records}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool(description="Read a single Odoo record by model and ID")
+def read_record(
+    ctx: Context,
+    model: str,
+    record_id: int,
+    fields: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Read one record by ID with bounded read-only semantics.
+    """
+    odoo = ctx.request_context.lifespan_context.odoo
+    try:
+        validate_model_name(model)
+        if record_id < 1:
+            raise ValueError("record_id must be greater than 0")
+        records = odoo.read_records(model, [record_id], fields=fields)
+        if not records:
+            return {
+                "success": False,
+                "error": f"Record not found: {model} ID {record_id}",
+            }
+        return {"success": True, "result": records[0]}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -368,8 +663,8 @@ def search_employee(
     model = "hr.employee"
     method = "name_search"
 
-    args = []
-    kwargs = {"name": name, "limit": limit}
+    args: List[Any] = []
+    kwargs: Dict[str, Any] = {"name": name, "limit": limit}
 
     try:
         result = odoo.execute_method(model, method, *args, **kwargs)
@@ -421,7 +716,7 @@ def search_holidays(
     adjusted_start_date = adjusted_start_date_dt.strftime("%Y-%m-%d")
 
     # Build the domain
-    domain = [
+    domain: List[Any] = [
         "&",
         ["start_datetime", "<=", f"{end_date} 22:59:59"],
         # Use adjusted date

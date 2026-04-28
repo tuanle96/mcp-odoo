@@ -1,18 +1,19 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=77.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "odoo-mcp"
-version = "0.0.3"
+version = "0.0.4"
 description = "MCP Server for Odoo Integration"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = "MIT"
 classifiers = [
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Operating System :: OS Independent",
 ]
 keywords = ["odoo", "mcp", "server"]
@@ -20,9 +21,8 @@ authors = [
     {name = "Lê Anh Tuấn", email = "justin.le.1105@gmail.com"}
 ]
 dependencies = [
-    "mcp>=0.1.1",
+    "mcp>=1.27,<2",
     "requests>=2.31.0",
-    "pypi-xmlrpc==2020.12.3",
 ]
 
 [project.urls]
@@ -34,6 +34,7 @@ dev = [
     "black",
     "isort",
     "mypy",
+    "pytest",
     "ruff",
     "build",
     "twine",

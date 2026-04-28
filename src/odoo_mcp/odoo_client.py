@@ -1,29 +1,60 @@
 """
-Odoo XML-RPC client for MCP server integration
+Odoo client for MCP server integration.
+
+XML-RPC remains the default transport for existing deployments. Odoo 19+ can use
+the External JSON-2 API by setting ``ODOO_TRANSPORT=json2`` and an API key.
 """
 
+import http.client
 import json
 import os
 import re
 import socket
+import ssl
+import sys
+import urllib.error
 import urllib.parse
-
-import http.client
+import urllib.request
 import xmlrpc.client
+from typing import Any, cast
+
+from .diagnostics import JSON2_POSITIONAL_ARG_MAP, sanitize_odoo_error
+
+SUPPORTED_TRANSPORTS = {"xmlrpc", "json2"}
 
 
-class OdooClient:
-    """Client for interacting with Odoo via XML-RPC"""
+class OdooJson2Error(ValueError):
+    """Structured JSON-2 error with redacted debug details by default."""
 
     def __init__(
         self,
-        url,
-        db,
-        username,
-        password,
-        timeout=10,
-        verify_ssl=True,
-    ):
+        message: str,
+        *,
+        status_code: int | None = None,
+        odoo_error: dict[str, Any] | None = None,
+        response_body: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.odoo_error = odoo_error
+        self.response_body = response_body
+
+
+class OdooClient:
+    """Client for interacting with Odoo via XML-RPC or JSON-2."""
+
+    def __init__(
+        self,
+        url: str,
+        db: str,
+        username: str,
+        password: str,
+        timeout: int = 10,
+        verify_ssl: bool = True,
+        transport: str = "xmlrpc",
+        api_key: str | None = None,
+        json2_database_header: bool = True,
+    ) -> None:
         """
         Initialize the Odoo client with connection parameters
 
@@ -31,9 +62,12 @@ class OdooClient:
             url: Odoo server URL (with or without protocol)
             db: Database name
             username: Login username
-            password: Login password
+            password: Login password or API key for explicit JSON-2 usage
             timeout: Connection timeout in seconds
             verify_ssl: Whether to verify SSL certificates
+            transport: Transport backend, either ``xmlrpc`` or ``json2``
+            api_key: Odoo API key used as JSON-2 bearer token
+            json2_database_header: Whether JSON-2 calls should send X-Odoo-Database
         """
         # Ensure URL has a protocol
         if not re.match(r"^https?://", url):
@@ -46,15 +80,18 @@ class OdooClient:
         self.db = db
         self.username = username
         self.password = password
-        self.uid = None
+        self.uid: int | None = None
+        self.transport = normalize_transport(transport)
+        self.api_key = api_key or (password if self.transport == "json2" else None)
+        self.json2_database_header = json2_database_header
 
         # Set timeout and SSL verification
         self.timeout = timeout
         self.verify_ssl = verify_ssl
 
         # Setup connections
-        self._common = None
-        self._models = None
+        self._common: Any = None
+        self._models: Any = None
 
         # Parse hostname for logging
         parsed_url = urllib.parse.urlparse(self.url)
@@ -63,22 +100,30 @@ class OdooClient:
         # Connect
         self._connect()
 
-    def _connect(self):
-        """Initialize the XML-RPC connection and authenticate"""
-        # Tạo transport với timeout phù hợp
+    def _connect(self) -> None:
+        """Initialize the selected transport and authenticate."""
+        print(f"Connecting to Odoo at: {self.url}", file=sys.stderr)
+        print(f"  Hostname: {self.hostname}", file=sys.stderr)
+        print(f"  Transport: {self.transport}", file=sys.stderr)
+        print(
+            f"  Timeout: {self.timeout}s, Verify SSL: {self.verify_ssl}",
+            file=sys.stderr,
+        )
+
+        if self.transport == "json2":
+            self._connect_json2()
+        else:
+            self._connect_xmlrpc()
+
+    def _connect_xmlrpc(self) -> None:
+        """Initialize the XML-RPC connection and authenticate."""
+        # Create a transport with the configured timeout.
         is_https = self.url.startswith("https://")
         transport = RedirectTransport(
             timeout=self.timeout, use_https=is_https, verify_ssl=self.verify_ssl
         )
 
-        print(f"Connecting to Odoo at: {self.url}", file=os.sys.stderr)
-        print(f"  Hostname: {self.hostname}", file=os.sys.stderr)
-        print(
-            f"  Timeout: {self.timeout}s, Verify SSL: {self.verify_ssl}",
-            file=os.sys.stderr,
-        )
-
-        # Thiết lập endpoints
+        # Set up XML-RPC endpoints.
         self._common = xmlrpc.client.ServerProxy(
             f"{self.url}/xmlrpc/2/common", transport=transport
         )
@@ -86,15 +131,15 @@ class OdooClient:
             f"{self.url}/xmlrpc/2/object", transport=transport
         )
 
-        # Xác thực và lấy user ID
+        # Authenticate and capture the user ID.
         print(
             f"Authenticating with database: {self.db}, username: {self.username}",
-            file=os.sys.stderr,
+            file=sys.stderr,
         )
         try:
             print(
                 f"Making request to {self.hostname}/xmlrpc/2/common (attempt 1)",
-                file=os.sys.stderr,
+                file=sys.stderr,
             )
             self.uid = self._common.authenticate(
                 self.db, self.username, self.password, {}
@@ -102,19 +147,142 @@ class OdooClient:
             if not self.uid:
                 raise ValueError("Authentication failed: Invalid username or password")
         except (socket.error, socket.timeout, ConnectionError, TimeoutError) as e:
-            print(f"Connection error: {str(e)}", file=os.sys.stderr)
+            print(f"Connection error: {str(e)}", file=sys.stderr)
             raise ConnectionError(f"Failed to connect to Odoo server: {str(e)}")
         except Exception as e:
-            print(f"Authentication error: {str(e)}", file=os.sys.stderr)
+            print(f"Authentication error: {str(e)}", file=sys.stderr)
             raise ValueError(f"Failed to authenticate with Odoo: {str(e)}")
 
-    def _execute(self, model, method, *args, **kwargs):
-        """Execute a method on an Odoo model"""
+    def _connect_json2(self) -> None:
+        """Validate JSON-2 bearer authentication with a lightweight call."""
+        if not self.api_key:
+            raise ValueError(
+                "JSON-2 transport requires ODOO_API_KEY, or ODOO_PASSWORD containing an Odoo API key."
+            )
+
+        print("Authenticating with JSON-2 bearer token", file=sys.stderr)
+        try:
+            self._json2_call("res.users", "context_get", {})
+        except (socket.error, socket.timeout, ConnectionError, TimeoutError) as e:
+            print(f"Connection error: {str(e)}", file=sys.stderr)
+            raise ConnectionError(f"Failed to connect to Odoo server: {str(e)}")
+        except Exception as e:
+            print(f"Authentication error: {str(e)}", file=sys.stderr)
+            raise ValueError(f"Failed to authenticate with Odoo JSON-2: {str(e)}")
+
+    def _execute(self, model: str, method: str, *args: Any, **kwargs: Any) -> Any:
+        """Execute a method on an Odoo model."""
+        if self.transport == "json2":
+            payload = self._build_json2_payload(model, method, args, kwargs)
+            return self._json2_call(model, method, payload)
+
         return self._models.execute_kw(
-            self.db, self.uid, self.password, model, method, args, kwargs
+            self.db, self.uid, self.password, model, method, list(args), kwargs
         )
 
-    def execute_method(self, model, method, *args, **kwargs):
+    def _build_json2_payload(
+        self,
+        model: str,
+        method: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Convert common XML-RPC style positional calls to JSON-2 named args."""
+        payload = dict(kwargs)
+        if not args:
+            return payload
+
+        arg_names = JSON2_POSITIONAL_ARG_MAP.get(method)
+        if arg_names is None:
+            raise ValueError(
+                f"JSON-2 transport requires keyword arguments for {model}.{method}; "
+                "positional arguments are only mapped for common ORM methods. "
+                "Pass kwargs matching the Odoo method signature or use XML-RPC."
+            )
+
+        if len(args) > len(arg_names):
+            raise ValueError(
+                f"JSON-2 transport received too many positional arguments for "
+                f"{model}.{method}: expected at most {len(arg_names)}, got {len(args)}."
+            )
+
+        for name, value in zip(arg_names, args):
+            if name in payload:
+                raise ValueError(
+                    f"JSON-2 transport received {model}.{method} argument {name!r} "
+                    "both positionally and as a keyword."
+                )
+            payload[name] = value
+
+        return payload
+
+    def _json2_call(self, model: str, method: str, payload: dict[str, Any]) -> Any:
+        """POST a JSON-2 request and return the decoded JSON result."""
+        if not self.api_key:
+            raise ValueError("JSON-2 API key is not configured")
+
+        endpoint = f"{self.url}/json/2/{model}/{method}"
+        body = json.dumps(payload).encode("utf-8")
+        headers = {
+            "Authorization": f"bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        if self.json2_database_header and self.db:
+            headers["X-Odoo-Database"] = self.db
+
+        request = urllib.request.Request(
+            endpoint,
+            data=body,
+            method="POST",
+            headers=headers,
+        )
+        context = (
+            ssl._create_unverified_context()
+            if self.url.startswith("https://") and not self.verify_ssl
+            else None
+        )
+
+        try:
+            print(
+                f"Making JSON-2 request to {self.hostname}/json/2/{model}/{method}",
+                file=sys.stderr,
+            )
+            with urllib.request.urlopen(
+                request,
+                timeout=self.timeout,
+                context=context,
+            ) as response:
+                response_body = response.read().decode("utf-8")
+        except urllib.error.HTTPError as err:
+            error_body = err.read().decode("utf-8", errors="replace")
+            odoo_error = sanitize_odoo_error(error_body)
+            message = (
+                f"JSON-2 request {model}.{method} failed with HTTP {err.code}: "
+                f"{odoo_error.get('message') if odoo_error else error_body}"
+            )
+            raise OdooJson2Error(
+                message,
+                status_code=err.code,
+                odoo_error=odoo_error,
+                response_body=error_body,
+            ) from err
+        except urllib.error.URLError as err:
+            raise ConnectionError(
+                f"JSON-2 request {model}.{method} failed: {err.reason}"
+            ) from err
+
+        if not response_body:
+            return None
+
+        try:
+            return json.loads(response_body)
+        except json.JSONDecodeError as err:
+            raise ValueError(
+                f"JSON-2 request {model}.{method} returned invalid JSON: {response_body}"
+            ) from err
+
+    def execute_method(self, model: str, method: str, *args: Any, **kwargs: Any) -> Any:
         """
         Execute an arbitrary method on a model
 
@@ -129,7 +297,7 @@ class OdooClient:
         """
         return self._execute(model, method, *args, **kwargs)
 
-    def get_models(self):
+    def get_models(self) -> dict[str, Any]:
         """
         Get a list of all available models in the system
 
@@ -172,10 +340,10 @@ class OdooClient:
 
             return models_info
         except Exception as e:
-            print(f"Error retrieving models: {str(e)}", file=os.sys.stderr)
+            print(f"Error retrieving models: {str(e)}", file=sys.stderr)
             return {"model_names": [], "models_details": {}, "error": str(e)}
 
-    def get_model_info(self, model_name):
+    def get_model_info(self, model_name: str) -> dict[str, Any]:
         """
         Get information about a specific model
 
@@ -196,18 +364,18 @@ class OdooClient:
                 "ir.model",
                 "search_read",
                 [("model", "=", model_name)],
-                {"fields": ["name", "model"]},
+                fields=["name", "model"],
             )
 
             if not result:
                 return {"error": f"Model {model_name} not found"}
 
-            return result[0]
+            return cast(dict[str, Any], result[0])
         except Exception as e:
-            print(f"Error retrieving model info: {str(e)}", file=os.sys.stderr)
+            print(f"Error retrieving model info: {str(e)}", file=sys.stderr)
             return {"error": str(e)}
 
-    def get_model_fields(self, model_name):
+    def get_model_fields(self, model_name: str) -> dict[str, Any]:
         """
         Get field definitions for a specific model
 
@@ -225,14 +393,20 @@ class OdooClient:
         """
         try:
             fields = self._execute(model_name, "fields_get")
-            return fields
+            return cast(dict[str, Any], fields)
         except Exception as e:
-            print(f"Error retrieving fields: {str(e)}", file=os.sys.stderr)
+            print(f"Error retrieving fields: {str(e)}", file=sys.stderr)
             return {"error": str(e)}
 
     def search_read(
-        self, model_name, domain, fields=None, offset=None, limit=None, order=None
-    ):
+        self,
+        model_name: str,
+        domain: list[Any],
+        fields: list[str] | None = None,
+        offset: int | None = None,
+        limit: int | None = None,
+        order: str | None = None,
+    ) -> list[dict[str, Any]]:
         """
         Search for records and read their data in a single call
 
@@ -254,7 +428,7 @@ class OdooClient:
             5
         """
         try:
-            kwargs = {}
+            kwargs: dict[str, Any] = {}
             if offset:
                 kwargs["offset"] = offset
             if fields is not None:
@@ -264,13 +438,15 @@ class OdooClient:
             if order is not None:
                 kwargs["order"] = order
 
-            result = self._execute(model_name, "search_read", domain, kwargs)
-            return result
+            result = self._execute(model_name, "search_read", domain, **kwargs)
+            return cast(list[dict[str, Any]], result)
         except Exception as e:
-            print(f"Error in search_read: {str(e)}", file=os.sys.stderr)
+            print(f"Error in search_read: {str(e)}", file=sys.stderr)
             return []
 
-    def read_records(self, model_name, ids, fields=None):
+    def read_records(
+        self, model_name: str, ids: list[int], fields: list[str] | None = None
+    ) -> list[dict[str, Any]]:
         """
         Read data of records by IDs
 
@@ -289,14 +465,14 @@ class OdooClient:
             'YourCompany'
         """
         try:
-            kwargs = {}
+            kwargs: dict[str, Any] = {}
             if fields is not None:
                 kwargs["fields"] = fields
 
-            result = self._execute(model_name, "read", ids, kwargs)
-            return result
+            result = self._execute(model_name, "read", ids, **kwargs)
+            return cast(list[dict[str, Any]], result)
         except Exception as e:
-            print(f"Error reading records: {str(e)}", file=os.sys.stderr)
+            print(f"Error reading records: {str(e)}", file=sys.stderr)
             return []
 
 
@@ -304,25 +480,38 @@ class RedirectTransport(xmlrpc.client.Transport):
     """Transport that adds timeout, SSL verification, and redirect handling"""
 
     def __init__(
-        self, timeout=10, use_https=True, verify_ssl=True, max_redirects=5, proxy=None
-    ):
+        self,
+        timeout: int = 10,
+        use_https: bool = True,
+        verify_ssl: bool = True,
+        max_redirects: int = 5,
+        proxy: str | None = None,
+    ) -> None:
         super().__init__()
         self.timeout = timeout
         self.use_https = use_https
         self.verify_ssl = verify_ssl
         self.max_redirects = max_redirects
         self.proxy = proxy or os.environ.get("HTTP_PROXY")
+        self.context: Any = None
 
         if use_https and not verify_ssl:
             import ssl
 
             self.context = ssl._create_unverified_context()
 
-    def make_connection(self, host):
+    def make_connection(self, host: Any) -> http.client.HTTPConnection:
+        if isinstance(host, tuple):
+            host = host[0]
+        host = str(host)
+
         if self.proxy:
             proxy_url = urllib.parse.urlparse(self.proxy)
+            if not proxy_url.hostname:
+                raise ValueError("Invalid HTTP_PROXY value")
+            proxy_port = proxy_url.port or 80
             connection = http.client.HTTPConnection(
-                proxy_url.hostname, proxy_url.port, timeout=self.timeout
+                proxy_url.hostname, proxy_port, timeout=self.timeout
             )
             connection.set_tunnel(host)
         else:
@@ -338,19 +527,25 @@ class RedirectTransport(xmlrpc.client.Transport):
 
         return connection
 
-    def request(self, host, handler, request_body, verbose):
+    def request(
+        self, host: Any, handler: str, request_body: Any, verbose: bool = False
+    ) -> Any:
         """Send HTTP request with retry for redirects"""
         redirects = 0
         while redirects < self.max_redirects:
             try:
-                print(f"Making request to {host}{handler}", file=os.sys.stderr)
+                print(f"Making request to {host}{handler}", file=sys.stderr)
                 return super().request(host, handler, request_body, verbose)
             except xmlrpc.client.ProtocolError as err:
                 if err.errcode in (301, 302, 303, 307, 308) and err.headers.get(
                     "location"
                 ):
                     redirects += 1
-                    location = err.headers.get("location")
+                    location_header = err.headers.get("location")
+                    if isinstance(location_header, bytes):
+                        location = location_header.decode()
+                    else:
+                        location = str(location_header)
                     parsed = urllib.parse.urlparse(location)
                     if parsed.netloc:
                         host = parsed.netloc
@@ -360,13 +555,28 @@ class RedirectTransport(xmlrpc.client.Transport):
                 else:
                     raise
             except Exception as e:
-                print(f"Error during request: {str(e)}", file=os.sys.stderr)
+                print(f"Error during request: {str(e)}", file=sys.stderr)
                 raise
 
-        raise xmlrpc.client.ProtocolError(host + handler, 310, "Too many redirects", {})
+        host_label = host[0] if isinstance(host, tuple) else str(host)
+        raise xmlrpc.client.ProtocolError(
+            host_label + handler, 310, "Too many redirects", {}
+        )
 
 
-def load_config():
+def normalize_transport(transport: str) -> str:
+    """Normalize transport aliases to stable internal identifiers."""
+    normalized = transport.strip().lower().replace("-", "").replace("_", "")
+    if normalized == "xmlrpc":
+        return "xmlrpc"
+    if normalized == "json2":
+        return "json2"
+    raise ValueError(
+        f"Unsupported Odoo transport {transport!r}. Expected one of: {', '.join(sorted(SUPPORTED_TRANSPORTS))}."
+    )
+
+
+def load_config() -> dict[str, str]:
     """
     Load Odoo configuration from environment variables or config file
 
@@ -385,26 +595,33 @@ def load_config():
         var in os.environ
         for var in ["ODOO_URL", "ODOO_DB", "ODOO_USERNAME", "ODOO_PASSWORD"]
     ):
-        return {
+        config = {
             "url": os.environ["ODOO_URL"],
             "db": os.environ["ODOO_DB"],
             "username": os.environ["ODOO_USERNAME"],
             "password": os.environ["ODOO_PASSWORD"],
         }
+        if "ODOO_TRANSPORT" in os.environ:
+            config["transport"] = os.environ["ODOO_TRANSPORT"]
+        if "ODOO_API_KEY" in os.environ:
+            config["api_key"] = os.environ["ODOO_API_KEY"]
+        if "ODOO_JSON2_DATABASE_HEADER" in os.environ:
+            config["json2_database_header"] = os.environ["ODOO_JSON2_DATABASE_HEADER"]
+        return config
 
     # Try to load from file
     for path in config_paths:
         expanded_path = os.path.expanduser(path)
         if os.path.exists(expanded_path):
-            with open(expanded_path, "r") as f:
-                return json.load(f)
+            with open(expanded_path, "r", encoding="utf-8") as f:
+                return cast(dict[str, str], json.load(f))
 
     raise FileNotFoundError(
         "No Odoo configuration found. Please create an odoo_config.json file or set environment variables."
     )
 
 
-def get_odoo_client():
+def get_odoo_client() -> OdooClient:
     """
     Get a configured Odoo client instance
 
@@ -418,14 +635,26 @@ def get_odoo_client():
         os.environ.get("ODOO_TIMEOUT", "30")
     )  # Increase default timeout to 30 seconds
     verify_ssl = os.environ.get("ODOO_VERIFY_SSL", "1").lower() in ["1", "true", "yes"]
+    transport = normalize_transport(
+        os.environ.get("ODOO_TRANSPORT", config.get("transport", "xmlrpc"))
+    )
+    api_key = os.environ.get("ODOO_API_KEY", config.get("api_key"))
+    json2_database_header = parse_bool(
+        os.environ.get(
+            "ODOO_JSON2_DATABASE_HEADER",
+            config.get("json2_database_header", "1"),
+        )
+    )
 
     # Print detailed configuration
-    print("Odoo client configuration:", file=os.sys.stderr)
-    print(f"  URL: {config['url']}", file=os.sys.stderr)
-    print(f"  Database: {config['db']}", file=os.sys.stderr)
-    print(f"  Username: {config['username']}", file=os.sys.stderr)
-    print(f"  Timeout: {timeout}s", file=os.sys.stderr)
-    print(f"  Verify SSL: {verify_ssl}", file=os.sys.stderr)
+    print("Odoo client configuration:", file=sys.stderr)
+    print(f"  URL: {config['url']}", file=sys.stderr)
+    print(f"  Database: {config['db']}", file=sys.stderr)
+    print(f"  Username: {config['username']}", file=sys.stderr)
+    print(f"  Transport: {transport}", file=sys.stderr)
+    print(f"  Timeout: {timeout}s", file=sys.stderr)
+    print(f"  Verify SSL: {verify_ssl}", file=sys.stderr)
+    print(f"  JSON-2 database header: {json2_database_header}", file=sys.stderr)
 
     return OdooClient(
         url=config["url"],
@@ -434,4 +663,12 @@ def get_odoo_client():
         password=config["password"],
         timeout=timeout,
         verify_ssl=verify_ssl,
+        transport=transport,
+        api_key=api_key,
+        json2_database_header=json2_database_header,
     )
+
+
+def parse_bool(value: str) -> bool:
+    """Parse common environment/config boolean values."""
+    return value.strip().lower() in ["1", "true", "yes", "on"]

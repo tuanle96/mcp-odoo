@@ -14,24 +14,21 @@ COPY . /app/
 # Create logs directory
 RUN mkdir -p /app/logs && chmod 777 /app/logs
 
-# Install Python dependencies and the package
-RUN pip install --no-cache-dir "mcp[cli]" && \
-    pip install --no-cache-dir -e .
+# Install the package using the dependency constraints declared by the project.
+RUN pip install --no-cache-dir .
 
-# Set environment variables (can be overridden at runtime)
-ENV ODOO_URL=""
-ENV ODOO_DB=""
-ENV ODOO_USERNAME=""
-ENV ODOO_PASSWORD=""
+# Runtime Odoo connection values should be supplied via `docker run -e ...`.
+# Do not bake credential placeholders into the image; Docker flags password ENV
+# declarations as secrets even when the default is empty.
 ENV ODOO_TIMEOUT="30"
 ENV ODOO_VERIFY_SSL="1"
 ENV DEBUG="0"
 
-# Make run_server.py executable
-RUN chmod +x run_server.py
-
 # Set stdout/stderr to unbuffered mode
 ENV PYTHONUNBUFFERED=1
 
-# Run the custom MCP server script instead of the module
-ENTRYPOINT ["python", "run_server.py"] 
+# Streamable HTTP uses this port by default when enabled.
+EXPOSE 8000
+
+# Run through the public package entry point.
+ENTRYPOINT ["odoo-mcp"]
