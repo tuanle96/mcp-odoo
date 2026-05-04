@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## [0.3.0] - 2026-05-04
+
+### Added
+- Added `aggregate_records` tool — server-side groupby/aggregation that uses `formatted_read_group` on Odoo 19+ and falls back to `read_group` on earlier versions. Supports `sum`, `avg`, `min`, `max`, `count`, `count_distinct`, `array_agg`, `bool_and`, `bool_or`.
+- Added `chatter_post` tool — post messages on `mail.thread` records with two safety modes: default approval-token preview/execute flow, or direct mode via `MCP_CHATTER_DIRECT=1`. Supports `message_type` (`comment`/`notification`), `subtype_xmlid`, `partner_ids`, `attachment_ids`.
+- Added smart field selection for `search_records` and `read_record` — when the caller omits `fields`, the server picks a curated subset (business identifiers + state + key relations) and excludes audit, message, activity, binary, and unstored-compute columns. Pass `fields=["*"]` to opt out and fetch every field. Cap configured via `ODOO_MCP_MAX_SMART_FIELDS` (default 15).
+- Added `ODOO_LOCALE` plumbing — when set, every Odoo call gets `context.lang` injected automatically. Caller-supplied `context.lang` always wins.
+- Added structured logging — `setup_logging()` reads `ODOO_MCP_LOG_LEVEL`, `ODOO_MCP_LOG_JSON`, and `ODOO_MCP_LOG_FILE`. JSON formatter and rotating file handler use the standard library only (no new runtime dependencies).
+- Surfaced `chatter_direct_enabled` posture in `runtime_security_report` and `health_check`.
+- Extended JSON-2 positional argument mappings for `read_group`, `formatted_read_group`, and `message_post`.
+
+### Changed
+- `search_records` and `read_record` responses now include `smart_fields_applied` and `fields_used`.
+- Tool count surfaced by `health_check` is now 24 (was 22 in v0.2.0).
+- `OdooClient.__init__` accepts an optional `lang` argument that drives the locale-injection pipeline.
+
+### Compatibility
+- No breaking changes for existing callers. Default behaviour for `search_records` / `read_record` shifts from "all fields" to "smart subset" — pass `fields=["*"]` to restore the prior behaviour.
+- New env vars: `ODOO_LOCALE`, `ODOO_MCP_MAX_SMART_FIELDS`, `ODOO_MCP_LOG_LEVEL`, `ODOO_MCP_LOG_JSON`, `ODOO_MCP_LOG_FILE`, `MCP_CHATTER_DIRECT`.
+
 ## [0.2.0] - 2026-04-28
 
 ### Added

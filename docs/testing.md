@@ -68,7 +68,7 @@ The current smoke checks validate:
 
 The smoke harness expects:
 
-- 22 tools,
+- 24 tools,
 - 5 prompts,
 - 1 direct resource,
 - 3 resource templates,

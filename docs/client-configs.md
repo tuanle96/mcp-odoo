@@ -4,7 +4,27 @@ Odoo MCP is most predictable over `stdio`. Use Streamable HTTP only when your cl
 
 ## Local stdio
 
-Generic MCP client configuration:
+### Via `uvx` (recommended, no install)
+
+```json
+{
+  "mcpServers": {
+    "odoo": {
+      "command": "uvx",
+      "args": ["odoo-mcp"],
+      "env": {
+        "ODOO_URL": "https://your-odoo-instance.com",
+        "ODOO_DB": "your-database",
+        "ODOO_USERNAME": "your-user",
+        "ODOO_PASSWORD": "your-password-or-api-key",
+        "ODOO_TRANSPORT": "xmlrpc"
+      }
+    }
+  }
+}
+```
+
+### Via Python module path
 
 ```json
 {
@@ -84,6 +104,138 @@ Example:
 
 If you use a virtual environment, set `command` to that environment's Python binary, for example `/path/to/.venv/bin/python`.
 
+## Cursor
+
+Cursor reads MCP configuration from `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` inside a workspace.
+
+```json
+{
+  "mcpServers": {
+    "odoo": {
+      "command": "uvx",
+      "args": ["odoo-mcp"],
+      "env": {
+        "ODOO_URL": "https://your-odoo-instance.com",
+        "ODOO_DB": "your-database",
+        "ODOO_USERNAME": "your-user",
+        "ODOO_PASSWORD": "your-password-or-api-key",
+        "ODOO_TRANSPORT": "xmlrpc"
+      }
+    }
+  }
+}
+```
+
+## Windsurf
+
+Windsurf reads MCP configuration from `~/.codeium/windsurf/mcp_config.json`.
+
+```json
+{
+  "mcpServers": {
+    "odoo": {
+      "command": "uvx",
+      "args": ["odoo-mcp"],
+      "env": {
+        "ODOO_URL": "https://your-odoo-instance.com",
+        "ODOO_DB": "your-database",
+        "ODOO_USERNAME": "your-user",
+        "ODOO_PASSWORD": "your-password-or-api-key"
+      }
+    }
+  }
+}
+```
+
+## VS Code (with MCP extensions)
+
+Recent VS Code MCP integrations (e.g. Continue.dev, Cline) read configuration through their own settings panel, but most accept a generic `mcpServers` snippet that mirrors Claude Desktop. Use either `uvx` or the absolute Python path patterns above.
+
+For workspaces that prefer a `.vscode/mcp.json` file:
+
+```json
+{
+  "mcpServers": {
+    "odoo": {
+      "command": "uvx",
+      "args": ["odoo-mcp"],
+      "env": {
+        "ODOO_URL": "https://your-odoo-instance.com",
+        "ODOO_DB": "your-database",
+        "ODOO_USERNAME": "your-user",
+        "ODOO_PASSWORD": "your-password-or-api-key"
+      }
+    }
+  }
+}
+```
+
+## Zed
+
+Zed (via the assistant context_servers feature) reads MCP servers from `settings.json`:
+
+```json
+{
+  "context_servers": {
+    "odoo": {
+      "command": {
+        "path": "uvx",
+        "args": ["odoo-mcp"],
+        "env": {
+          "ODOO_URL": "https://your-odoo-instance.com",
+          "ODOO_DB": "your-database",
+          "ODOO_USERNAME": "your-user",
+          "ODOO_PASSWORD": "your-password-or-api-key"
+        }
+      }
+    }
+  }
+}
+```
+
+## Continue.dev
+
+Continue (`~/.continue/config.json`) supports MCP servers under the `mcpServers` key:
+
+```json
+{
+  "mcpServers": [
+    {
+      "name": "odoo",
+      "command": "uvx",
+      "args": ["odoo-mcp"],
+      "env": {
+        "ODOO_URL": "https://your-odoo-instance.com",
+        "ODOO_DB": "your-database",
+        "ODOO_USERNAME": "your-user",
+        "ODOO_PASSWORD": "your-password-or-api-key"
+      }
+    }
+  ]
+}
+```
+
+## Cline (VS Code extension)
+
+Cline reads MCP servers from its settings UI; the JSON shape mirrors Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "odoo": {
+      "command": "uvx",
+      "args": ["odoo-mcp"],
+      "env": {
+        "ODOO_URL": "https://your-odoo-instance.com",
+        "ODOO_DB": "your-database",
+        "ODOO_USERNAME": "your-user",
+        "ODOO_PASSWORD": "your-password-or-api-key"
+      }
+    }
+  }
+}
+```
+
 ## Streamable HTTP
 
 Start the server locally:
@@ -123,6 +275,8 @@ Non-local binds require `--allow-remote-http` or `MCP_ALLOW_REMOTE_HTTP=1`. This
 For public or shared-network use, put the server behind a reverse proxy or platform gateway that provides authentication, TLS, access logs, and rate limits. Do not expose Odoo credentials through an unauthenticated MCP endpoint.
 
 ## Docker stdio
+
+The prebuilt image lives at `ghcr.io/tuanle96/mcp-odoo:latest`. Replace `mcp/odoo:latest` below with that tag to skip the local build step.
 
 ```json
 {
