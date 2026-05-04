@@ -10,6 +10,7 @@ ODOO_ENV_KEYS = (
     "ODOO_TRANSPORT",
     "ODOO_API_KEY",
     "ODOO_JSON2_DATABASE_HEADER",
+    "ODOO_LOCALE",
 )
 
 
@@ -126,3 +127,59 @@ def test_load_config_raises_when_no_environment_or_config_file(
 
     with pytest.raises(FileNotFoundError):
         odoo_client_module.load_config()
+
+
+def test_load_config_includes_odoo_locale_when_set(
+    monkeypatch, tmp_path, odoo_client_module
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ODOO_URL", "https://odoo.example.test")
+    monkeypatch.setenv("ODOO_DB", "prod")
+    monkeypatch.setenv("ODOO_USERNAME", "api-user")
+    monkeypatch.setenv("ODOO_PASSWORD", "secret")
+    monkeypatch.setenv("ODOO_LOCALE", "fr_FR")
+
+    config = odoo_client_module.load_config()
+    assert config["lang"] == "fr_FR"
+
+
+def test_get_odoo_client_passes_lang_from_odoo_locale(
+    monkeypatch, odoo_client_module
+):
+    captured = {}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setenv("ODOO_URL", "https://odoo.example.test")
+    monkeypatch.setenv("ODOO_DB", "prod")
+    monkeypatch.setenv("ODOO_USERNAME", "api-user")
+    monkeypatch.setenv("ODOO_PASSWORD", "secret")
+    monkeypatch.setenv("ODOO_LOCALE", "vi_VN")
+    monkeypatch.setattr(odoo_client_module, "OdooClient", FakeClient)
+
+    odoo_client_module.get_odoo_client()
+
+    assert captured["lang"] == "vi_VN"
+
+
+def test_get_odoo_client_lang_defaults_to_none_when_locale_unset(
+    monkeypatch, odoo_client_module
+):
+    captured = {}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    clear_odoo_env(monkeypatch)
+    monkeypatch.setenv("ODOO_URL", "https://odoo.example.test")
+    monkeypatch.setenv("ODOO_DB", "prod")
+    monkeypatch.setenv("ODOO_USERNAME", "api-user")
+    monkeypatch.setenv("ODOO_PASSWORD", "secret")
+    monkeypatch.setattr(odoo_client_module, "OdooClient", FakeClient)
+
+    odoo_client_module.get_odoo_client()
+
+    assert captured["lang"] is None

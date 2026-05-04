@@ -180,7 +180,7 @@ def init_database(target: VersionTarget, env: dict[str, str]) -> None:
             "-d",
             target.database,
             "-i",
-            "base",
+            "base,mail",
             "--without-demo=all",
             "--db_host=db",
             "--db_port=5432",
@@ -723,6 +723,7 @@ def mcp_env(
     api_key: str | None = None,
     username: str = ADMIN_LOGIN,
     password: str = ADMIN_PASSWORD,
+    locale: str | None = None,
 ) -> dict[str, str]:
     env = os.environ.copy()
     env.update(
@@ -740,6 +741,8 @@ def mcp_env(
     )
     if api_key:
         env["ODOO_API_KEY"] = api_key
+    if locale:
+        env["ODOO_LOCALE"] = locale
     return env
 
 
@@ -767,6 +770,8 @@ def assert_tool_surface(tool_names: set[str]) -> None:
         "build_domain",
         "business_pack_report",
         "health_check",
+        "aggregate_records",
+        "chatter_post",
     }
     if not expected_tools <= tool_names:
         raise AssertionError(f"Missing MCP tools: {expected_tools - tool_names}")
@@ -1079,8 +1084,137 @@ async def mcp_stdio_smoke(
                 await session.call_tool("health_check", arguments={}),
                 "health_check",
             )
-            if health.get("server", {}).get("tool_count") != 22:
-                raise AssertionError(f"health_check did not report 22 tools: {health}")
+            if health.get("server", {}).get("tool_count") != 24:
+                raise AssertionError(f"health_check did not report 24 tools: {health}")
+            if "chatter_direct_enabled" not in health.get("runtime", {}):
+                raise AssertionError(
+                    f"health_check did not surface chatter_direct posture: {health}"
+                )
+
+            # --- 0.3.0 features: smart fields, aggregate, chatter --------
+            smart_search = decode_tool_json(
+                await session.call_tool(
+                    "search_records",
+                    arguments={"model": "res.partner", "limit": 1},
+                ),
+                "search_records",
+            )
+            if not smart_search.get("success"):
+                raise AssertionError(f"search_records (smart) failed: {smart_search}")
+            if smart_search.get("smart_fields_applied") is not True:
+                raise AssertionError(
+                    "search_records did not apply smart fields when caller omitted fields"
+                )
+            fields_used = smart_search.get("fields_used") or []
+            if "name" not in fields_used or "id" not in fields_used:
+                raise AssertionError(
+                    f"smart fields missing core columns: {smart_search}"
+                )
+
+            star_search = decode_tool_json(
+                await session.call_tool(
+                    "search_records",
+                    arguments={"model": "res.partner", "limit": 1, "fields": ["*"]},
+                ),
+                "search_records",
+            )
+            if star_search.get("smart_fields_applied") is not False:
+                raise AssertionError(
+                    "search_records did not honour fields=['*'] opt-out"
+                )
+
+            aggregate = decode_tool_json(
+                await session.call_tool(
+                    "aggregate_records",
+                    arguments={
+                        "model": "res.partner",
+                        "group_by": ["is_company"],
+                        "measures": ["id:count"],
+                    },
+                ),
+                "aggregate_records",
+            )
+            if not aggregate.get("success"):
+                raise AssertionError(f"aggregate_records failed: {aggregate}")
+            if aggregate.get("major_version") is None:
+                raise AssertionError(
+                    f"aggregate_records did not detect Odoo version: {aggregate}"
+                )
+            expected_method = (
+                "formatted_read_group"
+                if (aggregate.get("major_version") or 0) >= 19
+                else "read_group"
+            )
+            if aggregate.get("method") != expected_method:
+                raise AssertionError(
+                    f"aggregate_records picked wrong method (expected {expected_method}): {aggregate}"
+                )
+
+            chatter_body = "Smoke chatter execute round-trip"
+            chatter_preview = decode_tool_json(
+                await session.call_tool(
+                    "chatter_post",
+                    arguments={
+                        "model": "res.partner",
+                        "record_id": 1,
+                        "body": chatter_body,
+                    },
+                ),
+                "chatter_post",
+            )
+            if chatter_preview.get("mode") != "preview":
+                raise AssertionError(
+                    f"chatter_post default mode should be preview: {chatter_preview}"
+                )
+            if not chatter_preview.get("approval", {}).get("token", "").startswith(
+                "odoo-write:"
+            ):
+                raise AssertionError(
+                    f"chatter_post preview missing approval token: {chatter_preview}"
+                )
+
+            chatter_executed = decode_tool_json(
+                await session.call_tool(
+                    "chatter_post",
+                    arguments={
+                        "model": "res.partner",
+                        "record_id": 1,
+                        "body": chatter_body,
+                        "approval": chatter_preview["approval"],
+                        "confirm": True,
+                    },
+                ),
+                "chatter_post",
+            )
+            if not chatter_executed.get("success"):
+                raise AssertionError(
+                    f"chatter_post execute failed: {chatter_executed}"
+                )
+            if chatter_executed.get("mode") != "execute":
+                raise AssertionError(
+                    f"chatter_post execute mode mismatch: {chatter_executed}"
+                )
+            chatter_persisted = decode_tool_json(
+                await session.call_tool(
+                    "search_records",
+                    arguments={
+                        "model": "mail.message",
+                        "domain": [
+                            ["model", "=", "res.partner"],
+                            ["res_id", "=", 1],
+                            ["body", "ilike", "round-trip"],
+                        ],
+                        "fields": ["id", "body"],
+                        "limit": 5,
+                    },
+                ),
+                "search_records",
+            )
+            if chatter_persisted.get("count", 0) < 1:
+                raise AssertionError(
+                    f"chatter_post execute did not persist a mail.message: {chatter_persisted}"
+                )
+
             return {
                 "transport": transport,
                 "tools": sorted(tool_names),
@@ -1090,6 +1224,12 @@ async def mcp_stdio_smoke(
                 "mcp_partner_sample_count": len(payload_result),
                 "diagnostic_tools_smoke": True,
                 "agent_tools_smoke": True,
+                "smart_fields_smoke": True,
+                "aggregate_records_smoke": True,
+                "chatter_post_smoke": True,
+                "chatter_execute_smoke": True,
+                "chatter_persisted_message_count": chatter_persisted.get("count", 0),
+                "aggregate_method": aggregate.get("method"),
             }
 
 
@@ -1427,6 +1567,54 @@ def run_inspector_http_tools_list(target: VersionTarget) -> dict[str, Any]:
     return {"transport": "streamable-http", "tool_count": len(tool_names)}
 
 
+async def mcp_locale_smoke(
+    target: VersionTarget,
+    *,
+    locale: str = "en_US",
+    transport: str = "xmlrpc",
+    api_key: str | None = None,
+) -> dict[str, Any]:
+    """Verify ODOO_LOCALE plumbing does not break basic MCP operations."""
+    env = mcp_env(target, transport=transport, api_key=api_key, locale=locale)
+
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "odoo_mcp"],
+        env=env,
+    )
+    async with stdio_client(server_params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            profile = decode_tool_json(
+                await session.call_tool(
+                    "get_odoo_profile",
+                    arguments={"include_modules": False, "module_limit": 5},
+                ),
+                "get_odoo_profile",
+            )
+            if not profile.get("success"):
+                raise AssertionError(
+                    f"get_odoo_profile failed under ODOO_LOCALE={locale}: {profile}"
+                )
+            record = decode_tool_json(
+                await session.call_tool(
+                    "read_record",
+                    arguments={"model": "res.partner", "record_id": 1},
+                ),
+                "read_record",
+            )
+            if not record.get("success"):
+                raise AssertionError(
+                    f"read_record failed under ODOO_LOCALE={locale}: {record}"
+                )
+    return {
+        "locale": locale,
+        "transport": transport,
+        "profile_ok": True,
+        "read_record_ok": True,
+    }
+
+
 def smoke_one(
     target: VersionTarget,
     keep_stack: bool,
@@ -1485,6 +1673,9 @@ def smoke_one(
             if restricted_json2_api_key
             else None
         )
+        locale_result = asyncio.run(
+            mcp_locale_smoke(target, locale="en_US", transport="xmlrpc")
+        )
         mcp_http_result = (
             asyncio.run(
                 mcp_streamable_http_smoke(
@@ -1529,6 +1720,8 @@ def smoke_one(
             result["mcp_streamable_http"] = mcp_http_result
         if inspector_stdio_result:
             result["inspector_stdio"] = inspector_stdio_result
+        if locale_result:
+            result["locale_smoke"] = locale_result
 
         complex_rule_fixture = create_complex_record_rule_fixture(target, env)
         complex_rule_access = asyncio.run(
