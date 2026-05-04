@@ -19,10 +19,13 @@ from mcp.types import Annotations, ToolAnnotations
 from pydantic import BaseModel, Field
 
 from .agent_tools import (
+    DEFAULT_MAX_SMART_FIELDS,
+    build_approval_token,
     build_domain_report,
     build_write_preview_report,
     business_pack_report as build_business_pack_report,
     scan_addons_source_report,
+    select_smart_fields,
     validate_write_report,
     verify_write_approval,
 )
@@ -291,6 +294,123 @@ def clamp_limit(limit: int, maximum: int = MAX_SEARCH_LIMIT) -> int:
     return min(limit, maximum)
 
 
+def max_smart_fields() -> int:
+    """Read configured cap for smart-field selection (default 15)."""
+    raw = os.environ.get("ODOO_MCP_MAX_SMART_FIELDS", "").strip()
+    if not raw:
+        return DEFAULT_MAX_SMART_FIELDS
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_MAX_SMART_FIELDS
+    return max(1, value)
+
+
+def _cached_fields_metadata(
+    app_context: AppContext, odoo: OdooClient, model: str
+) -> Dict[str, Any]:
+    """Return fields_get metadata for ``model`` using the lifespan cache."""
+    cached = app_context.schema_cache.get(model)
+    if isinstance(cached, dict):
+        return cached
+    fields_metadata = odoo.get_model_fields(model)
+    if isinstance(fields_metadata, dict) and "error" not in fields_metadata:
+        app_context.schema_cache[model] = fields_metadata
+        return fields_metadata
+    return {}
+
+
+_AGGREGATION_FUNCTIONS = {
+    "sum",
+    "avg",
+    "min",
+    "max",
+    "count",
+    "count_distinct",
+    "array_agg",
+    "bool_and",
+    "bool_or",
+}
+
+
+def parse_measure_spec(spec: str) -> tuple[str, str]:
+    """Split a 'field:agg' measure into (field, agg).
+
+    Defaults to 'sum' when no aggregator is supplied.
+    Raises ValueError on invalid shapes.
+    """
+    cleaned = str(spec).strip()
+    if not cleaned:
+        raise ValueError("measure entries must be non-empty strings")
+    if ":" not in cleaned:
+        return cleaned, "sum"
+    field, agg = cleaned.split(":", 1)
+    field = field.strip()
+    agg = agg.strip().lower()
+    if not field or not agg:
+        raise ValueError(f"invalid measure spec: {spec!r}")
+    if agg not in _AGGREGATION_FUNCTIONS:
+        raise ValueError(
+            f"unsupported aggregator {agg!r}; expected one of "
+            f"{sorted(_AGGREGATION_FUNCTIONS)}."
+        )
+    return field, agg
+
+
+def odoo_major_version(odoo: OdooClient) -> int | None:
+    """Return the connected Odoo major version, or None if unknown.
+
+    Tries the server-version metadata first; falls back to the
+    ``ir.module.module`` ``latest_version`` of the ``base`` module (which
+    starts with the major version on every Odoo deployment) so that
+    JSON-2 clients still detect the correct major when ``/web/version``
+    is unavailable or returns a non-standard payload.
+    """
+    info = odoo.get_server_version()
+    if isinstance(info, dict):
+        raw = info.get("server_version") or info.get("server_serie") or ""
+        match = re.match(r"\s*(\d+)", str(raw))
+        if match:
+            return int(match.group(1))
+    try:
+        result = odoo.execute_method(
+            "ir.module.module",
+            "search_read",
+            [["name", "=", "base"]],
+            fields=["latest_version"],
+            limit=1,
+        )
+    except Exception:
+        return None
+    if not result:
+        return None
+    raw_version = str(result[0].get("latest_version", ""))
+    fallback_match = re.match(r"\s*(\d+)", raw_version)
+    return int(fallback_match.group(1)) if fallback_match else None
+
+
+def resolve_read_fields(
+    app_context: AppContext,
+    odoo: OdooClient,
+    model: str,
+    fields: Optional[List[str]],
+) -> Optional[List[str]]:
+    """Pick the field list for read-only tools.
+
+    - ``fields=None`` → smart selection (cap via ODOO_MCP_MAX_SMART_FIELDS).
+    - ``fields=["*"]`` → caller wants every field; return None to skip filtering.
+    - Otherwise return the caller list unchanged.
+    """
+    if fields is None:
+        metadata = _cached_fields_metadata(app_context, odoo, model)
+        if not metadata:
+            return None
+        return select_smart_fields(metadata, max_fields=max_smart_fields())
+    if len(fields) == 1 and fields[0] == "*":
+        return None
+    return fields
+
+
 def normalize_domain_input(domain: Any) -> List[Any]:
     """Normalize common MCP/JSON domain shapes to an Odoo domain list."""
     if domain is None:
@@ -376,6 +496,11 @@ def side_effect_method_allowed(model: str, method: str) -> bool:
     return f"{model}.{method}" in set(allowed_side_effect_methods())
 
 
+def chatter_direct_enabled() -> bool:
+    """Return True when chatter_post may bypass approval-token gating."""
+    return truthy_env("MCP_CHATTER_DIRECT")
+
+
 def runtime_security_report() -> Dict[str, Any]:
     """Expose MCP runtime safety posture without including secrets."""
     security = getattr(mcp.settings, "transport_security", None)
@@ -388,6 +513,7 @@ def runtime_security_report() -> Dict[str, Any]:
         "remote_http_allowed": truthy_env("MCP_ALLOW_REMOTE_HTTP"),
         "write_execution_enabled": writes_enabled(),
         "unknown_execute_method_enabled": broad_unknown_enabled,
+        "chatter_direct_enabled": chatter_direct_enabled(),
         "allowed_side_effect_methods": allowed_side_effect_methods(),
         "broad_unknown_method_mode": {
             "enabled": broad_unknown_enabled,
@@ -1730,21 +1856,29 @@ def search_records(
     Domain accepts standard Odoo domain arrays, a JSON string, or
     {"conditions": [{"field": ..., "operator": ..., "value": ...}]}.
     """
-    odoo = ctx.request_context.lifespan_context.odoo
+    app_context = ctx.request_context.lifespan_context
+    odoo = app_context.odoo
     try:
         validate_model_name(model)
         limit = clamp_limit(limit)
         if offset < 0:
             raise ValueError("offset must be greater than or equal to 0")
+        resolved_fields = resolve_read_fields(app_context, odoo, model, fields)
         records = odoo.search_read(
             model_name=model,
             domain=normalize_domain_input(domain),
-            fields=fields,
+            fields=resolved_fields,
             offset=offset,
             limit=limit,
             order=order,
         )
-        return {"success": True, "count": len(records), "result": records}
+        return {
+            "success": True,
+            "count": len(records),
+            "result": records,
+            "smart_fields_applied": fields is None,
+            "fields_used": resolved_fields,
+        }
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -1762,19 +1896,283 @@ def read_record(
 ) -> Dict[str, Any]:
     """
     Read one record by ID with bounded read-only semantics.
+
+    When ``fields`` is omitted the server picks a curated subset
+    (business identifiers + state + relations) to keep LLM context small.
+    Pass ``fields=["*"]`` to fetch every available field.
+    """
+    app_context = ctx.request_context.lifespan_context
+    odoo = app_context.odoo
+    try:
+        validate_model_name(model)
+        if record_id < 1:
+            raise ValueError("record_id must be greater than 0")
+        resolved_fields = resolve_read_fields(app_context, odoo, model, fields)
+        records = odoo.read_records(model, [record_id], fields=resolved_fields)
+        if not records:
+            return {
+                "success": False,
+                "error": f"Record not found: {model} ID {record_id}",
+            }
+        return {
+            "success": True,
+            "result": records[0],
+            "smart_fields_applied": fields is None,
+            "fields_used": resolved_fields,
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool(
+    description=(
+        "Aggregate Odoo records server-side using Postgres groupby/sum/count. "
+        "Uses formatted_read_group on Odoo 19+ and falls back to read_group."
+    ),
+    annotations=READ_ONLY_TOOL,
+    structured_output=True,
+)
+def aggregate_records(
+    ctx: Context,
+    model: str,
+    group_by: List[str],
+    measures: Optional[List[str]] = None,
+    domain: Optional[Any] = None,
+    lazy: bool = False,
+    limit: Optional[int] = None,
+    offset: int = 0,
+    order: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Group records server-side and aggregate measures.
+
+    ``measures`` are ``"field:agg"`` strings (default agg ``sum``).
+    Allowed aggregators: sum, avg, min, max, count, count_distinct,
+    array_agg, bool_and, bool_or.
+
+    Returns ``rows`` (list of dicts) plus the chosen ``method`` and
+    detected Odoo ``major_version``. Limit is capped at ``MAX_SEARCH_LIMIT``
+    when provided.
+    """
+    odoo = ctx.request_context.lifespan_context.odoo
+    try:
+        validate_model_name(model)
+        if not group_by:
+            raise ValueError("group_by must include at least one field")
+        if offset < 0:
+            raise ValueError("offset must be greater than or equal to 0")
+        clamped_limit = clamp_limit(limit) if limit is not None else None
+        normalized_domain = normalize_domain_input(domain)
+        normalized_measures: List[str] = []
+        parsed_measures: List[tuple[str, str]] = []
+        for spec in measures or []:
+            field, agg = parse_measure_spec(spec)
+            normalized_measures.append(f"{field}:{agg}")
+            parsed_measures.append((field, agg))
+
+        major = odoo_major_version(odoo)
+        method_used = "read_group"
+        rows: list[dict[str, Any]]
+
+        if major is not None and major >= 19:
+            method_used = "formatted_read_group"
+            kwargs: Dict[str, Any] = {
+                "domain": normalized_domain,
+                "groupby": group_by,
+                "aggregates": normalized_measures,
+            }
+            if offset:
+                kwargs["offset"] = offset
+            if clamped_limit is not None:
+                kwargs["limit"] = clamped_limit
+            if order:
+                kwargs["order"] = order
+            try:
+                rows = odoo.execute_method(model, "formatted_read_group", **kwargs)
+            except Exception as exc:  # pragma: no cover - rare server-version drift
+                method_used = "read_group"
+                kwargs_fallback = {
+                    "domain": normalized_domain,
+                    "fields": normalized_measures,
+                    "groupby": group_by,
+                    "lazy": lazy,
+                }
+                if offset:
+                    kwargs_fallback["offset"] = offset
+                if clamped_limit is not None:
+                    kwargs_fallback["limit"] = clamped_limit
+                if order:
+                    kwargs_fallback["orderby"] = order
+                rows = odoo.execute_method(model, "read_group", **kwargs_fallback)
+                fallback_reason = str(exc)
+            else:
+                fallback_reason = ""
+        else:
+            kwargs = {
+                "domain": normalized_domain,
+                "fields": normalized_measures,
+                "groupby": group_by,
+                "lazy": lazy,
+            }
+            if offset:
+                kwargs["offset"] = offset
+            if clamped_limit is not None:
+                kwargs["limit"] = clamped_limit
+            if order:
+                kwargs["orderby"] = order
+            rows = odoo.execute_method(model, "read_group", **kwargs)
+            fallback_reason = ""
+
+        return {
+            "success": True,
+            "method": method_used,
+            "major_version": major,
+            "fallback_reason": fallback_reason or None,
+            "model": model,
+            "group_by": group_by,
+            "measures": normalized_measures,
+            "row_count": len(rows),
+            "rows": rows,
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def _build_chatter_payload(
+    *,
+    model: str,
+    record_id: int,
+    body: str,
+    message_type: str,
+    subtype_xmlid: Optional[str],
+    partner_ids: Optional[List[int]],
+    attachment_ids: Optional[List[int]],
+) -> Dict[str, Any]:
+    """Build the canonical message_post call payload (deterministic ordering)."""
+    kwargs: Dict[str, Any] = {"body": body, "message_type": message_type}
+    if subtype_xmlid:
+        kwargs["subtype_xmlid"] = subtype_xmlid
+    if partner_ids:
+        kwargs["partner_ids"] = [int(pid) for pid in partner_ids]
+    if attachment_ids:
+        kwargs["attachment_ids"] = [int(aid) for aid in attachment_ids]
+    return {
+        "model": model,
+        "method": "message_post",
+        "record_ids": [int(record_id)],
+        "kwargs": kwargs,
+    }
+
+
+@mcp.tool(
+    description=(
+        "Post a chatter message on a mail.thread record. Default mode requires "
+        "an approval token returned from a preview call; set MCP_CHATTER_DIRECT=1 "
+        "to bypass and post immediately."
+    ),
+    annotations=DESTRUCTIVE_TOOL,
+    structured_output=True,
+)
+def chatter_post(
+    ctx: Context,
+    model: str,
+    record_id: int,
+    body: str,
+    message_type: str = "comment",
+    subtype_xmlid: Optional[str] = None,
+    partner_ids: Optional[List[int]] = None,
+    attachment_ids: Optional[List[int]] = None,
+    approval: Optional[Dict[str, Any]] = None,
+    confirm: bool = False,
+) -> Dict[str, Any]:
+    """Post a message on the chatter of a mail.thread-derived record.
+
+    Modes:
+    - Default (gated): first call returns ``mode=preview`` with an approval
+      token. Re-call with the same arguments plus ``approval`` and
+      ``confirm=true`` to send.
+    - Direct (``MCP_CHATTER_DIRECT=1``): the message is posted on the first
+      call without a token.
+
+    Allowed ``message_type`` values: ``comment`` (default), ``notification``.
     """
     odoo = ctx.request_context.lifespan_context.odoo
     try:
         validate_model_name(model)
         if record_id < 1:
             raise ValueError("record_id must be greater than 0")
-        records = odoo.read_records(model, [record_id], fields=fields)
-        if not records:
+        body_text = (body or "").strip()
+        if not body_text:
+            raise ValueError("body must be a non-empty string")
+        if message_type not in {"comment", "notification"}:
+            raise ValueError(
+                "message_type must be 'comment' or 'notification'."
+            )
+
+        canonical = _build_chatter_payload(
+            model=model,
+            record_id=record_id,
+            body=body_text,
+            message_type=message_type,
+            subtype_xmlid=subtype_xmlid,
+            partner_ids=partner_ids,
+            attachment_ids=attachment_ids,
+        )
+        token = build_approval_token(canonical)
+
+        direct_mode = chatter_direct_enabled()
+        if direct_mode:
+            result = odoo.execute_method(
+                model,
+                "message_post",
+                [record_id],
+                **canonical["kwargs"],
+            )
             return {
-                "success": False,
-                "error": f"Record not found: {model} ID {record_id}",
+                "success": True,
+                "mode": "direct",
+                "model": model,
+                "record_id": record_id,
+                "approval_required": False,
+                "result": result,
             }
-        return {"success": True, "result": records[0]}
+
+        if approval is None:
+            return {
+                "success": True,
+                "mode": "preview",
+                "model": model,
+                "record_id": record_id,
+                "approval": {**canonical, "token": token},
+                "warnings": [
+                    "Preview only. Re-call chatter_post with the returned approval "
+                    "and confirm=true to actually post."
+                ],
+            }
+
+        provided_token = str(approval.get("token", ""))
+        if provided_token != token:
+            raise ValueError(
+                "Approval token does not match the chatter payload — re-run preview."
+            )
+        if not confirm:
+            raise ValueError(
+                "confirm=true is required to execute an approved chatter post."
+            )
+
+        result = odoo.execute_method(
+            model,
+            "message_post",
+            [record_id],
+            **canonical["kwargs"],
+        )
+        return {
+            "success": True,
+            "mode": "execute",
+            "model": model,
+            "record_id": record_id,
+            "approval_required": True,
+            "result": result,
+        }
     except Exception as e:
         return {"success": False, "error": str(e)}
 

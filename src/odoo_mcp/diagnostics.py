@@ -20,6 +20,9 @@ JSON2_POSITIONAL_ARG_MAP: dict[str, tuple[str, ...]] = {
     "create": ("vals_list",),
     "name_search": ("name", "domain", "operator", "limit"),
     "fields_get": ("allfields", "attributes"),
+    "read_group": ("domain", "fields", "groupby", "offset", "limit", "orderby", "lazy"),
+    "formatted_read_group": ("domain", "groupby", "aggregates", "having", "offset", "limit", "order"),
+    "message_post": ("ids",),
 }
 
 READ_ONLY_METHODS = {

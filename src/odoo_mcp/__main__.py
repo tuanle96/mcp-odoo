@@ -4,8 +4,11 @@ Command line entry point for the Odoo MCP Server
 
 import argparse
 import json
+import logging
+import logging.handlers
 import os
 import sys
+import time
 import traceback
 
 from .server import mcp
@@ -13,6 +16,108 @@ from .server import mcp
 SUPPORTED_MCP_TRANSPORTS = {"stdio", "streamable-http", "sse"}
 SECRET_ENV_KEYS = {"ODOO_PASSWORD", "ODOO_API_KEY", "MCP_HTTP_AUTH_TOKEN"}
 LOCAL_HTTP_HOSTS = {"127.0.0.1", "localhost", "::1"}
+LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+DEFAULT_LOG_FILE_BYTES = 10 * 1024 * 1024
+DEFAULT_LOG_FILE_BACKUPS = 3
+
+
+class JsonLogFormatter(logging.Formatter):
+    """Minimal structured-log formatter using stdlib only."""
+
+    _STANDARD_FIELDS = {
+        "args",
+        "asctime",
+        "created",
+        "exc_info",
+        "exc_text",
+        "filename",
+        "funcName",
+        "levelname",
+        "levelno",
+        "lineno",
+        "message",
+        "module",
+        "msecs",
+        "msg",
+        "name",
+        "pathname",
+        "process",
+        "processName",
+        "relativeCreated",
+        "stack_info",
+        "thread",
+        "threadName",
+    }
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload: dict[str, object] = {
+            "time": time.strftime(
+                "%Y-%m-%dT%H:%M:%S", time.gmtime(record.created)
+            )
+            + f".{int(record.msecs):03d}Z",
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        if record.exc_info:
+            payload["exc_info"] = self.formatException(record.exc_info)
+        for key, value in record.__dict__.items():
+            if key not in self._STANDARD_FIELDS and not key.startswith("_"):
+                payload[key] = value
+        return json.dumps(payload, default=str, sort_keys=True)
+
+
+def setup_logging(
+    *,
+    level: str | None = None,
+    use_json: bool | None = None,
+    log_file: str | None = None,
+) -> logging.Logger:
+    """Configure the root logger from CLI args or env vars.
+
+    Reads ``ODOO_MCP_LOG_LEVEL``, ``ODOO_MCP_LOG_JSON`` (truthy), and
+    ``ODOO_MCP_LOG_FILE`` when explicit kwargs are not supplied. Adds a
+    rotating file handler when a log file path is configured.
+    """
+    resolved_level = (level or os.environ.get("ODOO_MCP_LOG_LEVEL", "INFO")).upper()
+    if resolved_level not in LOG_LEVELS:
+        resolved_level = "INFO"
+    resolved_json = (
+        use_json if use_json is not None else parse_bool(os.environ.get("ODOO_MCP_LOG_JSON"))
+    )
+    resolved_file = log_file if log_file is not None else os.environ.get("ODOO_MCP_LOG_FILE")
+
+    formatter: logging.Formatter
+    if resolved_json:
+        formatter = JsonLogFormatter()
+    else:
+        formatter = logging.Formatter(
+            "%(asctime)s %(levelname)s %(name)s: %(message)s",
+            datefmt="%Y-%m-%dT%H:%M:%S",
+        )
+
+    root = logging.getLogger()
+    root.setLevel(resolved_level)
+    # Replace existing handlers so repeated calls (tests) stay deterministic.
+    root.handlers.clear()
+
+    stream_handler = logging.StreamHandler(sys.stderr)
+    stream_handler.setFormatter(formatter)
+    stream_handler.setLevel(resolved_level)
+    root.addHandler(stream_handler)
+
+    if resolved_file:
+        file_handler = logging.handlers.RotatingFileHandler(
+            resolved_file,
+            maxBytes=DEFAULT_LOG_FILE_BYTES,
+            backupCount=DEFAULT_LOG_FILE_BACKUPS,
+            encoding="utf-8",
+        )
+        file_handler.setFormatter(formatter)
+        file_handler.setLevel(resolved_level)
+        root.addHandler(file_handler)
+
+    return root
 
 
 def parse_bool(value: str | None) -> bool:
@@ -153,6 +258,7 @@ def main() -> int:
     """
     try:
         args = parse_args()
+        setup_logging()
         configure_mcp_runtime(args)
         if args.health:
             print(json.dumps(health_payload(args), sort_keys=True))

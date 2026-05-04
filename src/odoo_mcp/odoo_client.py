@@ -54,6 +54,7 @@ class OdooClient:
         transport: str = "xmlrpc",
         api_key: str | None = None,
         json2_database_header: bool = True,
+        lang: str | None = None,
     ) -> None:
         """
         Initialize the Odoo client with connection parameters
@@ -68,6 +69,8 @@ class OdooClient:
             transport: Transport backend, either ``xmlrpc`` or ``json2``
             api_key: Odoo API key used as JSON-2 bearer token
             json2_database_header: Whether JSON-2 calls should send X-Odoo-Database
+            lang: Default Odoo locale to inject into context.lang
+                (caller-supplied context.lang always wins).
         """
         # Ensure URL has a protocol
         if not re.match(r"^https?://", url):
@@ -84,6 +87,7 @@ class OdooClient:
         self.transport = normalize_transport(transport)
         self.api_key = api_key or (password if self.transport == "json2" else None)
         self.json2_database_header = json2_database_header
+        self.lang = (lang or "").strip() or None
 
         # Set timeout and SSL verification
         self.timeout = timeout
@@ -170,8 +174,21 @@ class OdooClient:
             print(f"Authentication error: {str(e)}", file=sys.stderr)
             raise ValueError(f"Failed to authenticate with Odoo JSON-2: {str(e)}")
 
+    def _apply_lang_context(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Merge ``self.lang`` into ``kwargs['context']`` when caller did not set it."""
+        if not self.lang:
+            return kwargs
+        merged = dict(kwargs)
+        existing_context = merged.get("context")
+        context = dict(existing_context) if isinstance(existing_context, dict) else {}
+        if "lang" not in context:
+            context["lang"] = self.lang
+            merged["context"] = context
+        return merged
+
     def _execute(self, model: str, method: str, *args: Any, **kwargs: Any) -> Any:
         """Execute a method on an Odoo model."""
+        kwargs = self._apply_lang_context(kwargs)
         if self.transport == "json2":
             payload = self._build_json2_payload(model, method, args, kwargs)
             return self._json2_call(model, method, payload)
@@ -684,6 +701,8 @@ def load_config() -> dict[str, str]:
             config["api_key"] = os.environ["ODOO_API_KEY"]
         if "ODOO_JSON2_DATABASE_HEADER" in os.environ:
             config["json2_database_header"] = os.environ["ODOO_JSON2_DATABASE_HEADER"]
+        if "ODOO_LOCALE" in os.environ:
+            config["lang"] = os.environ["ODOO_LOCALE"]
         return config
 
     # Try to load from file
@@ -722,6 +741,7 @@ def get_odoo_client() -> OdooClient:
             config.get("json2_database_header", "1"),
         )
     )
+    lang = os.environ.get("ODOO_LOCALE", config.get("lang")) or None
 
     # Print detailed configuration
     print("Odoo client configuration:", file=sys.stderr)
@@ -732,6 +752,8 @@ def get_odoo_client() -> OdooClient:
     print(f"  Timeout: {timeout}s", file=sys.stderr)
     print(f"  Verify SSL: {verify_ssl}", file=sys.stderr)
     print(f"  JSON-2 database header: {json2_database_header}", file=sys.stderr)
+    if lang:
+        print(f"  Default locale: {lang}", file=sys.stderr)
 
     return OdooClient(
         url=config["url"],
@@ -743,6 +765,7 @@ def get_odoo_client() -> OdooClient:
         transport=transport,
         api_key=api_key,
         json2_database_header=json2_database_header,
+        lang=lang,
     )
 
 
