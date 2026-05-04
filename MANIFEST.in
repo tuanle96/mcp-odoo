@@ -7,3 +7,12 @@ include docker-compose.integration.yml
 recursive-include docs *.md
 recursive-include scripts *.py
 recursive-include tests/fixtures *
+
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude .DS_Store
+prune .omc
+prune plans
+prune .mypy_cache
+prune .pytest_cache
+prune .ruff_cache

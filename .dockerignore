@@ -1,12 +1,40 @@
 .git
+.github
+.gitignore
+.dockerignore
+
+# Python tooling caches
 .mypy_cache
 .pytest_cache
 .ruff_cache
-.venv
 __pycache__
-*.egg-info
-build
-dist
-.omx
 *.pyc
 *.pyo
+*.egg-info
+
+# Build outputs
+build
+dist
+
+# Virtual envs
+.venv
+venv
+
+# Local AI orchestration / planning artifacts
+.omc
+plans
+
+# Project tests and docs (not needed in runtime image)
+tests
+docs
+
+# Lockfile not consumed by `pip install .`
+uv.lock
+
+# Top-level docs (kept out of image; available in repo)
+CHANGELOG.md
+CODE_OF_CONDUCT.md
+CONTRIBUTING.md
+SECURITY.md
+SUPPORT.md
+docker-compose.integration.yml
