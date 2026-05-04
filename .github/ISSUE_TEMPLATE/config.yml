@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/tuanle96/mcp-odoo/security/advisories/new
+    about: Report a vulnerability privately. Do not open a public issue.
+  - name: Support and usage questions
+    url: https://github.com/tuanle96/mcp-odoo/blob/main/SUPPORT.md
+    about: How to ask a usable question (versions, transports, sanitized logs).

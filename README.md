@@ -9,6 +9,7 @@
   <a href="https://pypi.org/project/odoo-mcp/"><img alt="PyPI" src="https://img.shields.io/pypi/v/odoo-mcp.svg"></a>
   <a href="https://pypi.org/project/odoo-mcp/"><img alt="Python" src="https://img.shields.io/pypi/pyversions/odoo-mcp.svg"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-black.svg"></a>
+  <a href="https://github.com/tuanle96/mcp-odoo/actions/workflows/publish.yml"><img alt="CI" src="https://github.com/tuanle96/mcp-odoo/actions/workflows/publish.yml/badge.svg"></a>
 </p>
 
 Odoo MCP turns an Odoo database into a Model Context Protocol server. It is built for local agents, IDEs, and automation tools that need real Odoo context without hand-rolled scripts or unsafe direct write access.
