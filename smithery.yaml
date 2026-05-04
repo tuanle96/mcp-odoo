@@ -1,0 +1,67 @@
+runtime: container
+build:
+  dockerfile: Dockerfile
+
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    required:
+      - odooUrl
+      - odooDb
+      - odooUsername
+      - odooPassword
+    properties:
+      odooUrl:
+        type: string
+        description: Odoo instance URL (e.g. https://example.odoo.com)
+      odooDb:
+        type: string
+        description: Odoo database name
+      odooUsername:
+        type: string
+        description: Odoo login username
+      odooPassword:
+        type: string
+        description: Odoo password or API key
+        format: password
+      odooTransport:
+        type: string
+        enum: [xmlrpc, json2]
+        default: xmlrpc
+        description: Odoo RPC transport (json2 for Odoo 19+)
+      odooApiKey:
+        type: string
+        description: Odoo API key for JSON-2 transport
+        format: password
+      odooLocale:
+        type: string
+        description: Default locale (e.g. fr_FR) injected into context.lang
+      odooMcpEnableWrites:
+        type: boolean
+        default: false
+        description: Required for execute_approved_write
+      odooMcpAllowedSideEffectMethods:
+        type: string
+        description: Comma-separated model.method allowlist (e.g. "sale.order.action_confirm")
+      mcpChatterDirect:
+        type: boolean
+        default: false
+        description: Bypass approval-token gate for chatter_post
+  commandFunction: |-
+    (config) => ({
+      command: "odoo-mcp",
+      args: [],
+      env: {
+        ODOO_URL: config.odooUrl,
+        ODOO_DB: config.odooDb,
+        ODOO_USERNAME: config.odooUsername,
+        ODOO_PASSWORD: config.odooPassword,
+        ODOO_TRANSPORT: config.odooTransport || "xmlrpc",
+        ODOO_API_KEY: config.odooApiKey || "",
+        ODOO_LOCALE: config.odooLocale || "",
+        ODOO_MCP_ENABLE_WRITES: config.odooMcpEnableWrites ? "1" : "0",
+        ODOO_MCP_ALLOWED_SIDE_EFFECT_METHODS: config.odooMcpAllowedSideEffectMethods || "",
+        MCP_CHATTER_DIRECT: config.mcpChatterDirect ? "1" : "0"
+      }
+    })

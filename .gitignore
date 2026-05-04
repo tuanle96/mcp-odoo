@@ -58,3 +58,4 @@ coverage.xml
 # Local AI orchestration / planning artifacts
 .omc/
 plans/
+.claude/
