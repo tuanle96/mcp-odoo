@@ -357,10 +357,31 @@ def parse_measure_spec(spec: str) -> tuple[str, str]:
     return field, agg
 
 
+def parse_odoo_major_version(value: Any) -> int | None:
+    """Extract an Odoo major version from numeric and SaaS version shapes."""
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, float):
+        return int(value) if value >= 1 else None
+
+    raw = str(value).strip()
+    if not raw:
+        return None
+    match = re.search(r"(\d+)", raw)
+    if not match:
+        return None
+    major = int(match.group(1))
+    return major if major > 0 else None
+
+
 def odoo_major_version(odoo: OdooClient) -> int | None:
     """Return the connected Odoo major version, or None if unknown.
 
-    Tries the server-version metadata first; falls back to the
+    Tries the server-version metadata first. Odoo Online SaaS can report
+    ``server_version_info[0]`` as strings such as ``"saas~19"``; read that
+    before the less-specific version strings. Falls back to the
     ``ir.module.module`` ``latest_version`` of the ``base`` module (which
     starts with the major version on every Odoo deployment) so that
     JSON-2 clients still detect the correct major when ``/web/version``
@@ -368,10 +389,15 @@ def odoo_major_version(odoo: OdooClient) -> int | None:
     """
     info = odoo.get_server_version()
     if isinstance(info, dict):
-        raw = info.get("server_version") or info.get("server_serie") or ""
-        match = re.match(r"\s*(\d+)", str(raw))
-        if match:
-            return int(match.group(1))
+        version_info = info.get("server_version_info")
+        candidates: list[Any] = []
+        if isinstance(version_info, (list, tuple)) and version_info:
+            candidates.append(version_info[0])
+        candidates.extend([info.get("server_version"), info.get("server_serie")])
+        for raw in candidates:
+            major = parse_odoo_major_version(raw)
+            if major is not None:
+                return major
     try:
         result = odoo.execute_method(
             "ir.module.module",
@@ -385,8 +411,13 @@ def odoo_major_version(odoo: OdooClient) -> int | None:
     if not result:
         return None
     raw_version = str(result[0].get("latest_version", ""))
-    fallback_match = re.match(r"\s*(\d+)", raw_version)
-    return int(fallback_match.group(1)) if fallback_match else None
+    return parse_odoo_major_version(raw_version)
+
+
+def formatted_read_group_missing(exc: Exception) -> bool:
+    """Return whether an Odoo error says formatted_read_group is absent."""
+    message = str(exc)
+    return "formatted_read_group" in message and "does not exist" in message
 
 
 def resolve_read_fields(
@@ -1927,7 +1958,7 @@ def read_record(
 @mcp.tool(
     description=(
         "Aggregate Odoo records server-side using Postgres groupby/sum/count. "
-        "Uses formatted_read_group on Odoo 19+ and falls back to read_group."
+        "Uses formatted_read_group on Odoo 19+ and read_group on earlier versions."
     ),
     annotations=READ_ONLY_TOOL,
     structured_output=True,
@@ -1972,55 +2003,52 @@ def aggregate_records(
         major = odoo_major_version(odoo)
         method_used = "read_group"
         rows: list[dict[str, Any]]
+        fallback_reason = ""
+
+        formatted_kwargs: Dict[str, Any] = {
+            "domain": normalized_domain,
+            "groupby": group_by,
+            "aggregates": normalized_measures,
+        }
+        if offset:
+            formatted_kwargs["offset"] = offset
+        if clamped_limit is not None:
+            formatted_kwargs["limit"] = clamped_limit
+        if order:
+            formatted_kwargs["order"] = order
+
+        legacy_kwargs: Dict[str, Any] = {
+            "domain": normalized_domain,
+            "fields": normalized_measures,
+            "groupby": group_by,
+            "lazy": lazy,
+        }
+        if offset:
+            legacy_kwargs["offset"] = offset
+        if clamped_limit is not None:
+            legacy_kwargs["limit"] = clamped_limit
+        if order:
+            legacy_kwargs["orderby"] = order
 
         if major is not None and major >= 19:
             method_used = "formatted_read_group"
-            kwargs: Dict[str, Any] = {
-                "domain": normalized_domain,
-                "groupby": group_by,
-                "aggregates": normalized_measures,
-            }
-            if offset:
-                kwargs["offset"] = offset
-            if clamped_limit is not None:
-                kwargs["limit"] = clamped_limit
-            if order:
-                kwargs["order"] = order
-            try:
-                rows = odoo.execute_method(model, "formatted_read_group", **kwargs)
-            except Exception as exc:  # pragma: no cover - rare server-version drift
-                method_used = "read_group"
-                kwargs_fallback = {
-                    "domain": normalized_domain,
-                    "fields": normalized_measures,
-                    "groupby": group_by,
-                    "lazy": lazy,
-                }
-                if offset:
-                    kwargs_fallback["offset"] = offset
-                if clamped_limit is not None:
-                    kwargs_fallback["limit"] = clamped_limit
-                if order:
-                    kwargs_fallback["orderby"] = order
-                rows = odoo.execute_method(model, "read_group", **kwargs_fallback)
-                fallback_reason = str(exc)
-            else:
-                fallback_reason = ""
+            rows = odoo.execute_method(
+                model, "formatted_read_group", **formatted_kwargs
+            )
+        elif major is not None:
+            rows = odoo.execute_method(model, "read_group", **legacy_kwargs)
         else:
-            kwargs = {
-                "domain": normalized_domain,
-                "fields": normalized_measures,
-                "groupby": group_by,
-                "lazy": lazy,
-            }
-            if offset:
-                kwargs["offset"] = offset
-            if clamped_limit is not None:
-                kwargs["limit"] = clamped_limit
-            if order:
-                kwargs["orderby"] = order
-            rows = odoo.execute_method(model, "read_group", **kwargs)
-            fallback_reason = ""
+            method_used = "formatted_read_group"
+            try:
+                rows = odoo.execute_method(
+                    model, "formatted_read_group", **formatted_kwargs
+                )
+            except Exception as exc:
+                if not formatted_read_group_missing(exc):
+                    raise
+                method_used = "read_group"
+                rows = odoo.execute_method(model, "read_group", **legacy_kwargs)
+                fallback_reason = str(exc)
 
         return {
             "success": True,
