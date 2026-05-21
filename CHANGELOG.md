@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## [0.3.1] - 2026-05-21
+
+### Fixed
+- Fixed `aggregate_records` on Odoo Online SaaS 19.x by detecting SaaS version metadata such as `saas~19` and routing Odoo 19+ aggregation calls to `formatted_read_group` instead of legacy `read_group`.
+
 ## [0.3.0] - 2026-05-04
 
 ### Added
