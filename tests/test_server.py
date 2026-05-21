@@ -1016,19 +1016,40 @@ def test_max_smart_fields_env_caps_selection(monkeypatch):
 
 
 class _AggregateClient:
-    def __init__(self, version="17.0+e", rows=None, fail_formatted=False):
+    def __init__(
+        self,
+        version="17.0+e",
+        version_info=None,
+        rows=None,
+        formatted_exception=None,
+        base_latest_version=None,
+    ):
         self.version = version
+        self.version_info = version_info
         self.rows = rows if rows is not None else []
-        self.fail_formatted = fail_formatted
+        self.formatted_exception = formatted_exception
+        self.base_latest_version = base_latest_version
         self.calls: list[tuple[str, str, dict]] = []
 
     def get_server_version(self):
-        return {"server_version": self.version}
+        info = {}
+        if self.version is not None:
+            info["server_version"] = self.version
+        if self.version_info is not None:
+            info["server_version_info"] = self.version_info
+        return info
 
     def execute_method(self, model, method, *args, **kwargs):
         self.calls.append((model, method, kwargs))
-        if method == "formatted_read_group" and self.fail_formatted:
-            raise RuntimeError("formatted_read_group not available")
+        if model == "ir.module.module" and method == "search_read":
+            if self.base_latest_version is None:
+                return []
+            return [{"latest_version": self.base_latest_version}]
+        if (
+            method == "formatted_read_group"
+            and self.formatted_exception is not None
+        ):
+            raise self.formatted_exception
         return list(self.rows)
 
 
@@ -1078,12 +1099,55 @@ def test_aggregate_records_uses_formatted_read_group_on_odoo_19():
     assert client.calls[0][2]["aggregates"] == ["amount_total:sum"]
 
 
-def test_aggregate_records_falls_back_when_formatted_read_group_unavailable():
+def test_aggregate_records_uses_formatted_read_group_on_saas_19_metadata():
+    server = importlib.import_module("odoo_mcp.server")
+    client = _AggregateClient(
+        version="17.0+e",
+        version_info=["saas~19", 1, 0, "final", 0, "e"],
+        rows=[{"state": "sale", "amount_total:sum": 5000.0}],
+    )
+
+    result = server.aggregate_records(
+        FakeCtx(client),
+        model="sale.order",
+        group_by=["state"],
+        measures=["amount_total:sum"],
+    )
+
+    assert result["success"] is True
+    assert result["method"] == "formatted_read_group"
+    assert result["major_version"] == 19
+    assert client.calls[0][1] == "formatted_read_group"
+
+
+def test_aggregate_records_known_odoo_19_does_not_fallback_on_formatted_error():
     server = importlib.import_module("odoo_mcp.server")
     client = _AggregateClient(
         version="19.0",
+        formatted_exception=ValueError("Invalid field 'bad_field'"),
+    )
+
+    result = server.aggregate_records(
+        FakeCtx(client),
+        model="sale.order",
+        group_by=["state"],
+        measures=["amount_total:sum"],
+    )
+
+    assert result["success"] is False
+    assert "Invalid field 'bad_field'" in result["error"]
+    methods = [call[1] for call in client.calls]
+    assert methods == ["formatted_read_group"]
+
+
+def test_aggregate_records_unknown_version_falls_back_only_when_formatted_missing():
+    server = importlib.import_module("odoo_mcp.server")
+    client = _AggregateClient(
+        version="no-digits-here",
         rows=[{"state": "draft"}],
-        fail_formatted=True,
+        formatted_exception=AttributeError(
+            "The method 'sale.order.formatted_read_group' does not exist"
+        ),
     )
 
     result = server.aggregate_records(
@@ -1097,7 +1161,27 @@ def test_aggregate_records_falls_back_when_formatted_read_group_unavailable():
     assert result["method"] == "read_group"
     assert result["fallback_reason"]
     methods = [call[1] for call in client.calls]
-    assert methods == ["formatted_read_group", "read_group"]
+    assert methods == ["search_read", "formatted_read_group", "read_group"]
+
+
+def test_aggregate_records_unknown_version_preserves_non_missing_formatted_error():
+    server = importlib.import_module("odoo_mcp.server")
+    client = _AggregateClient(
+        version="no-digits-here",
+        formatted_exception=ValueError("Invalid domain leaf"),
+    )
+
+    result = server.aggregate_records(
+        FakeCtx(client),
+        model="sale.order",
+        group_by=["state"],
+        measures=["amount_total:sum"],
+    )
+
+    assert result["success"] is False
+    assert "Invalid domain leaf" in result["error"]
+    methods = [call[1] for call in client.calls]
+    assert methods == ["search_read", "formatted_read_group"]
 
 
 def test_aggregate_records_rejects_invalid_measure():
@@ -1155,9 +1239,53 @@ def test_odoo_major_version_uses_server_version_metadata_when_present():
             return {"server_version": "17.0+e"}
 
         def execute_method(self, *args, **kwargs):
-            raise AssertionError("execute_method should not run when metadata is present")
+            raise AssertionError(
+                "execute_method should not run when metadata is present"
+            )
 
     assert server.odoo_major_version(StubClient()) == 17
+
+
+def test_parse_odoo_major_version_accepts_numeric_and_saas_shapes():
+    server = importlib.import_module("odoo_mcp.server")
+
+    assert server.parse_odoo_major_version(19) == 19
+    assert server.parse_odoo_major_version(19.1) == 19
+    assert server.parse_odoo_major_version("19.0+e") == 19
+    assert server.parse_odoo_major_version("saas~19") == 19
+    assert server.parse_odoo_major_version("saas~19.1+e") == 19
+    assert server.parse_odoo_major_version("no-digits-here") is None
+
+
+def test_odoo_major_version_prefers_server_version_info_first_value():
+    server = importlib.import_module("odoo_mcp.server")
+
+    class StubClient:
+        def get_server_version(self):
+            return {
+                "server_version_info": ["saas~19", 1, 0, "final", 0, "e"],
+                "server_version": "17.0+e",
+            }
+
+        def execute_method(self, *args, **kwargs):
+            raise AssertionError(
+                "execute_method should not run when metadata is present"
+            )
+
+    assert server.odoo_major_version(StubClient()) == 19
+
+
+def test_odoo_major_version_parses_saas_server_version_string():
+    server = importlib.import_module("odoo_mcp.server")
+
+    class StubClient:
+        def get_server_version(self):
+            return {"server_version": "saas~19.1+e"}
+
+        def execute_method(self, *args, **kwargs):
+            raise AssertionError("execute_method should not run when metadata is present")
+
+    assert server.odoo_major_version(StubClient()) == 19
 
 
 def test_parse_measure_spec_defaults_to_sum_and_validates_aggregator():
@@ -2838,7 +2966,13 @@ def test_aggregate_records_offset_propagates_for_legacy_path():
 
 def test_aggregate_records_falls_back_propagates_offset_and_order():
     server = importlib.import_module("odoo_mcp.server")
-    client = _AggregateClient(version="19.0", rows=[], fail_formatted=True)
+    client = _AggregateClient(
+        version="no-digits-here",
+        rows=[],
+        formatted_exception=AttributeError(
+            "The method 'sale.order.formatted_read_group' does not exist"
+        ),
+    )
     server.aggregate_records(
         FakeCtx(client),
         model="sale.order",
@@ -2848,7 +2982,9 @@ def test_aggregate_records_falls_back_propagates_offset_and_order():
         limit=50,
         order="id:count desc",
     )
-    fallback_kwargs = client.calls[1][2]
+    fallback_kwargs = next(
+        kwargs for _, method, kwargs in client.calls if method == "read_group"
+    )
     assert fallback_kwargs["offset"] == 3
     assert fallback_kwargs["limit"] == 50
     assert fallback_kwargs["orderby"] == "id:count desc"
