@@ -1,0 +1,21 @@
+{
+  "default": "acme",
+  "instances": {
+    "acme": {
+      "url": "https://acme.odoo.com",
+      "db": "acme",
+      "username": "bot",
+      "api_key": "your-odoo-api-key",
+      "transport": "json2"
+    },
+    "globex": {
+      "url": "https://globex.odoo.com",
+      "db": "globex",
+      "username": "bot",
+      "password": "your-password",
+      "lang": "fr_FR",
+      "timeout": 60,
+      "verify_ssl": true
+    }
+  }
+}

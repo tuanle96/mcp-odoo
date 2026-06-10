@@ -88,6 +88,7 @@ def build_write_preview_report(
     values: dict[str, Any] | None = None,
     record_ids: list[int] | None = None,
     context: dict[str, Any] | None = None,
+    instance: str = "default",
 ) -> dict[str, Any]:
     """Build a non-executing preview for standard ORM write operations."""
     normalized_operation = operation.strip().lower()
@@ -134,6 +135,7 @@ def build_write_preview_report(
         "record_ids": normalized_ids,
         "values": normalized_values,
         "context": dict(context or {}),
+        "instance": instance or "default",
     }
     approval_token = build_approval_token(canonical_payload)
 
@@ -167,6 +169,7 @@ def verify_write_approval(approval: dict[str, Any]) -> tuple[bool, str]:
         "record_ids": approval.get("record_ids") or [],
         "values": approval.get("values") or {},
         "context": approval.get("context") or {},
+        "instance": approval.get("instance") or "default",
     }
     expected = build_approval_token(payload)
     return token == expected, expected
@@ -181,6 +184,7 @@ def validate_write_report(
     context: dict[str, Any] | None = None,
     fields_metadata: dict[str, Any] | None = None,
     metadata_source: str = "none",
+    instance: str = "default",
 ) -> dict[str, Any]:
     """Validate write payload shape against optional fields_get metadata."""
     preview = build_write_preview_report(
@@ -189,6 +193,7 @@ def validate_write_report(
         values=values,
         record_ids=record_ids,
         context=context,
+        instance=instance,
     )
     issues: list[dict[str, str]] = list(preview["issues"])
     field_hints: list[dict[str, str]] = []

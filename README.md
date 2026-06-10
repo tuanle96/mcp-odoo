@@ -113,6 +113,7 @@ Optional environment variables:
 
 | Variable | Default | Effect |
 | --- | --- | --- |
+| `ODOO_CONFIG_FILE` | unset | Explicit path to a config file, checked before the standard locations. |
 | `ODOO_LOCALE` | unset | Inject `context.lang` on every Odoo call. Caller-supplied `context.lang` always wins. |
 | `ODOO_MCP_MAX_SMART_FIELDS` | `15` | Cap for smart-field selection when caller omits `fields`. |
 | `ODOO_MCP_LOG_LEVEL` | `INFO` | Process logger level (DEBUG/INFO/WARNING/ERROR/CRITICAL). |
@@ -135,6 +136,42 @@ You can also use `odoo_config.json`:
   "password": "your-password-or-api-key"
 }
 ```
+
+### Multiple Odoo instances
+
+One server can talk to several Odoo databases. Add an `instances` map to your config file (auto-detected — a file without `instances` keeps the flat single-instance shape above):
+
+```json
+{
+  "default": "acme",
+  "instances": {
+    "acme": {
+      "url": "https://acme.odoo.com",
+      "db": "acme",
+      "username": "bot",
+      "api_key": "...",
+      "transport": "json2"
+    },
+    "globex": {
+      "url": "https://globex.odoo.com",
+      "db": "globex",
+      "username": "bot",
+      "password": "...",
+      "lang": "fr_FR",
+      "timeout": 60
+    }
+  }
+}
+```
+
+- Every read/write tool accepts an optional `instance` parameter; omitted → the `default` instance. `default` itself is optional when only one instance is defined.
+- Each entry supports the same keys as the flat config (`url`, `db`, `username`, `password`, `api_key`, `transport`, `json2_database_header`, `lang`) plus `timeout` and `verify_ssl`. Instance entries are self-contained: credentials and transport never fall back to env vars (so one instance can never inherit another deployment's `ODOO_API_KEY`). Only non-credential knobs (`ODOO_TIMEOUT`, `ODOO_VERIFY_SSL`, `ODOO_LOCALE`) act as fallback defaults for entries that omit them. Env overrides like `ODOO_TRANSPORT`/`ODOO_API_KEY` still apply to legacy flat configs, as before.
+- `ODOO_CONFIG_FILE=/path/to/config.json` points at an explicit config file, checked before `./odoo_config.json`, `~/.config/odoo/config.json`, and `~/.odoo_config.json`.
+- **Precedence**: when `ODOO_URL`/`ODOO_DB`/`ODOO_USERNAME`/`ODOO_PASSWORD` are all set, the environment wins and defines a single instance named `default` — unset them to use a multi-instance file.
+- Instance names must match `[A-Za-z0-9_-]{1,64}`. Clients connect lazily — an instance is only contacted when a tool targets it.
+- Discovery: the `list_instances` tool returns configured names, URLs, databases, and transports — never credentials.
+- Write-approval tokens encode the instance name, so a token validated against one instance can never execute on another.
+- MCP resources (`odoo://…`) always use the default instance in this release; use tools for multi-instance access.
 
 ## Run
 
@@ -166,7 +203,7 @@ odoo-mcp --health
 
 ## MCP Tools
 
-24 tools grouped by use case. Each tool name is a single-purpose handle the agent can call.
+25 tools grouped by use case. Each tool name is a single-purpose handle the agent can call. Tools that talk to Odoo accept an optional `instance` parameter when multiple instances are configured (see [Multiple Odoo instances](#multiple-odoo-instances)).
 
 ### Read & Discover (10)
 
@@ -216,11 +253,12 @@ odoo-mcp --health
 | `fit_gap_report` | Classify requirements into standard, configuration, Studio, custom module, avoid, or unknown. |
 | `business_pack_report` | Report expected modules, models, and discovery calls for sales, CRM, inventory, accounting, or HR. |
 
-### Utility (1)
+### Utility (2)
 
 | Tool | Purpose |
 | --- | --- |
 | `health_check` | Report non-secret MCP runtime posture. |
+| `list_instances` | List configured Odoo instance names, URLs, databases, and transports — never credentials. |
 
 ## Resources
 

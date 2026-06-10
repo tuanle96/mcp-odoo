@@ -64,11 +64,32 @@ The current smoke checks validate:
 - MCP Inspector `tools/list` over stdio and HTTP,
 - teardown of Compose containers, networks, and volumes.
 
+### Multi-instance smoke
+
+`scripts/odoo_multi_instance_smoke.py` boots one disposable stack (Odoo 18 by default) with **three databases** and runs the multi-instance MCP surface end to end:
+
+```bash
+uv run --python 3.12 --with-editable . scripts/odoo_multi_instance_smoke.py
+# options: --version 18.0 --port 18269 --timeout 240 --keep-stack
+```
+
+It validates:
+
+- `list_instances` discovery (4 entries: 3 databases + a second account on the default instance) with credential redaction,
+- `health_check` instance posture (`instance_count`, `default_instance`),
+- validate → execute writes on all three instances, with distinct instance-bound approval tokens,
+- concurrent reads against all three instances (each sees only its own marker record),
+- default-instance routing when `instance` is omitted,
+- two accounts against the same database authenticating independently (`get_odoo_profile` identity check),
+- cross-instance approval-token replay rejection (and that the probe record was never created),
+- unknown-instance errors that list configured names without leaking credentials,
+- teardown of Compose containers, networks, and volumes.
+
 ## Expected surface
 
 The smoke harness expects:
 
-- 24 tools,
+- 25 tools,
 - 5 prompts,
 - 1 direct resource,
 - 3 resource templates,

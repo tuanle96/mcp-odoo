@@ -80,6 +80,19 @@ disposable Odoo container as `/mnt/extra-addons`. It installs and updates the
 XML-defined partner record rule through MCP as a dedicated fixture credential
 without sudo or impersonation.
 
+## Multi-instance routing
+
+One server process can serve several named Odoo instances. `load_instances_config()` in `odoo_client.py` resolves configuration from legacy env vars (single instance named `default`), a flat config file (same), or a multi-instance file with an `instances` map plus a `default` key (`ODOO_CONFIG_FILE` is checked before the standard paths).
+
+Routing rules:
+
+- Tools accept an optional `instance` parameter; `_resolve_odoo()` maps it to a lazily-created, per-name cached `OdooClient` on the lifespan context. Instances are only contacted when a tool targets them.
+- Instance entries are self-contained: credentials and transport never fall back to env vars, so one instance can never inherit another deployment's API key. Non-credential knobs (`ODOO_TIMEOUT`, `ODOO_VERIFY_SSL`, `ODOO_LOCALE`) remain global fallbacks.
+- Approval tokens (standard writes and chatter) hash the instance name into the canonical payload. A token validated against one instance cannot verify or execute against another; `execute_approved_write` takes the target instance from the approval record only.
+- Schema caches are partitioned per instance (`{instance}:{model}`), so field metadata from one database is never served for another.
+- MCP resources (`odoo://…`) always use the default instance; multi-instance access goes through tools.
+- `list_instances` exposes names, URLs, databases, and transports through an explicit allowlist — credentials are never serialized.
+
 ## Runtime state
 
 Approval tokens are process-local and short-lived. They are intended for one MCP server session, not durable queues or cross-process approvals.

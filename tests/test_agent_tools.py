@@ -246,6 +246,7 @@ def test_verify_write_approval_returns_true_for_matching_token():
         "record_ids": [7],
         "values": {"name": "Ada"},
         "context": {},
+        "instance": "default",
     }
     token = agent_tools.build_approval_token(canonical)
     is_valid, _ = agent_tools.verify_write_approval({**canonical, "token": token})

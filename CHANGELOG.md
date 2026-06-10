@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Added
+- Multi-instance support — configure several named Odoo instances in one config file via an `instances` map plus a `default` key. Every Odoo-facing tool accepts an optional `instance` parameter (omitted → default instance). Clients connect lazily per instance.
+- Added `list_instances` tool — reports configured instance names, URLs, databases, and transports without ever exposing credentials.
+- Added `ODOO_CONFIG_FILE` env var — explicit config file path checked before `./odoo_config.json`, `~/.config/odoo/config.json`, and `~/.odoo_config.json`.
+- Per-instance `timeout` and `verify_ssl` config keys; global env vars now act as fallback defaults for entries that omit a key.
+- `health_check` / `runtime_security_report` now include `odoo_instances` posture (`instance_count`, `default_instance`).
+- Added `scripts/odoo_multi_instance_smoke.py` — live Docker Compose smoke for multi-instance: three databases at once, two accounts on one instance, per-instance writes, cross-instance isolation, and token-replay rejection.
+
+### Security
+- Write-approval tokens (`preview_write` → `validate_write` → `execute_approved_write`) and `chatter_post` tokens now encode the target instance name. A token validated against one instance can never verify or execute against another. `execute_approved_write` executes on the instance recorded in the approval — there is no instance override at execution time.
+- Schema caches (smart-field metadata and `schema_catalog`) are partitioned per instance, so field metadata from one Odoo database is never served for another.
+- `execute_approved_write` no longer echoes `expected_token` on a token mismatch — returning the correct token for an arbitrary payload was a token-minting oracle. Re-run `preview_write`/`validate_write` instead.
+- Instance config entries never inherit `ODOO_API_KEY` (or any credential) from the environment; a warning is printed when `ODOO_CONFIG_FILE` is set but ignored because all four legacy `ODOO_*` connection env vars are present.
+
+### Compatibility
+- No breaking changes. Legacy environment variables (`ODOO_URL`/`ODOO_DB`/`ODOO_USERNAME`/`ODOO_PASSWORD`) and flat `odoo_config.json` files keep working unchanged and still take precedence; they define a single instance named `default`.
+- Approval tokens are session-scoped and in-memory, so the token format change requires no migration.
+- Tool count surfaced by `health_check` is now 25 (was 24 in v0.3.x).
+- MCP resources (`odoo://…`) use the default instance in this release; multi-instance resource URIs are future work.
+
+### Schema Compatibility
+- No schema compatibility changes.
+
 ## [0.3.1] - 2026-05-21
 
 ### Fixed

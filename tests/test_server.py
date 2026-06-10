@@ -25,15 +25,26 @@ class FakeRequest:
 
 
 class FakeCtx:
-    def __init__(self, odoo):
-        self.request_context = FakeRequest(FakeLife(odoo))
+    def __init__(self, odoo, clients=None):
+        self.request_context = FakeRequest(FakeLife(odoo, clients))
 
 
 class FakeLife:
-    def __init__(self, odoo):
+    def __init__(self, odoo, clients=None):
         self.odoo = odoo
         self.schema_cache = {}
         self.write_approvals = {}
+        self._named_clients = dict(clients or {})
+
+    def get_client(self, instance=None):
+        if not instance:
+            return "default", self.odoo
+        if instance in self._named_clients:
+            return instance, self._named_clients[instance]
+        raise ValueError(
+            f"Unknown Odoo instance {instance!r}. "
+            f"Available instances: {sorted(self._named_clients)}"
+        )
 
 
 def test_server_import_initializes_fastmcp_with_current_sdk_without_lifespan():
@@ -81,9 +92,10 @@ def test_server_registers_expected_tools_and_resources_without_lifespan():
         "health_check",
         "aggregate_records",
         "chatter_post",
+        "list_instances",
     }
     assert expected_tools <= tools
-    assert len(tools) == 24
+    assert len(tools) == 25
     assert "odoo://models" in resources
     assert {
         "odoo://model/{model_name}",
@@ -738,7 +750,7 @@ def test_profile_health_and_prompts_are_available():
 
     health = call_tool_json(server, "health_check", {})
     assert health["success"] is True
-    assert health["server"]["tool_count"] == 24
+    assert health["server"]["tool_count"] == 25
     assert health["runtime"]["chatter_direct_enabled"] is False
     assert health["runtime"]["broad_unknown_method_mode"]["enabled"] is False
 
@@ -1686,7 +1698,7 @@ def test_max_smart_fields_invalid_env_falls_back_to_default(monkeypatch):
 def test_mcp_surface_counts_reports_v030_totals():
     server = importlib.import_module("odoo_mcp.server")
     counts = server.mcp_surface_counts()
-    assert counts["tool_count"] == 24
+    assert counts["tool_count"] == 25
     assert counts["prompt_count"] == 5
     # 1 fixed resource + 3 templates = 4
     assert counts["resource_count"] == 4
@@ -2560,6 +2572,7 @@ def test_execute_approved_write_rejects_invalid_operation(monkeypatch):
         "record_ids": [7],
         "values": {"name": "Ada"},
         "context": {},
+        "instance": "default",
     }
     token = server.build_approval_token(canonical)
     approval = {**canonical, "token": token}
@@ -3449,3 +3462,379 @@ def test_execute_method_normalizes_domain_for_search_methods(monkeypatch):
         args=['[["name","=","Ada"]]'],
     )
     assert captured[0][0] == ("res.partner", "search_read", [["name", "=", "Ada"]])
+
+
+# ----- Multi-instance support (v0.4) ----------------------------------------
+
+
+class _NamedClient:
+    """Minimal fake client that records calls for routing assertions."""
+
+    def __init__(self, label):
+        self.label = label
+        self.calls = []
+
+    def search_read(self, **kwargs):
+        self.calls.append(("search_read", kwargs))
+        return [{"id": 1, "name": self.label}]
+
+    def get_model_fields(self, model):
+        self.calls.append(("get_model_fields", model))
+        return {"name": {"type": "char", "readonly": False}}
+
+    def execute_method(self, *args, **kwargs):
+        self.calls.append(("execute_method", args, kwargs))
+        return {"posted_by": self.label}
+
+
+def test_search_records_routes_to_named_instance():
+    server = importlib.import_module("odoo_mcp.server")
+    default_client = _NamedClient("default")
+    globex_client = _NamedClient("globex")
+    ctx = FakeCtx(default_client, clients={"globex": globex_client})
+
+    result = server.search_records(
+        ctx, "res.partner", fields=["name"], instance="globex"
+    )
+
+    assert result["success"] is True
+    assert result["result"][0]["name"] == "globex"
+    assert globex_client.calls and not default_client.calls
+
+
+def test_tool_with_unknown_instance_returns_error_listing_names():
+    server = importlib.import_module("odoo_mcp.server")
+    ctx = FakeCtx(_NamedClient("default"), clients={"globex": _NamedClient("globex")})
+
+    result = server.search_records(ctx, "res.partner", instance="ghost")
+
+    assert result["success"] is False
+    assert "ghost" in result["error"]
+    assert "globex" in result["error"]
+
+
+def test_schema_cache_is_partitioned_by_instance(monkeypatch):
+    server = importlib.import_module("odoo_mcp.server")
+    monkeypatch.setattr(server, "resolve_default_instance_name", lambda: "default")
+    default_client = _NamedClient("default")
+    globex_client = _NamedClient("globex")
+    ctx = FakeCtx(default_client, clients={"globex": globex_client})
+    app_context = ctx.request_context.lifespan_context
+
+    server.search_records(ctx, "res.partner")
+    server.search_records(ctx, "res.partner", instance="globex")
+
+    cache_keys = set(app_context.schema_cache)
+    assert any(key == "default:res.partner" for key in cache_keys)
+    assert any(key == "globex:res.partner" for key in cache_keys)
+
+
+def test_cross_instance_approval_token_replay_is_rejected(monkeypatch):
+    server = importlib.import_module("odoo_mcp.server")
+    monkeypatch.setattr(server, "resolve_default_instance_name", lambda: "default")
+    default_client = _NamedClient("default")
+    globex_client = _NamedClient("globex")
+    ctx = FakeCtx(default_client, clients={"globex": globex_client})
+
+    validation = server.validate_write(
+        ctx, "res.partner", "write", values={"name": "Ada"}, record_ids=[7]
+    )
+    assert validation["success"] is True
+    assert validation["approval"]["instance"] == "default"
+
+    # Replay the approved token against another instance: hash must not verify.
+    tampered = dict(validation["approval"])
+    tampered["instance"] = "globex"
+    is_valid, _ = server.verify_write_approval(tampered)
+    assert is_valid is False
+
+    monkeypatch.setenv("ODOO_MCP_ENABLE_WRITES", "1")
+    rejected = server.execute_approved_write(ctx, tampered, confirm=True)
+    assert rejected["success"] is False
+    assert "token" in rejected["error"]
+    assert not globex_client.calls
+
+
+def test_validate_write_tokens_differ_between_instances(monkeypatch):
+    server = importlib.import_module("odoo_mcp.server")
+    monkeypatch.setattr(server, "resolve_default_instance_name", lambda: "default")
+    default_client = _NamedClient("default")
+    globex_client = _NamedClient("globex")
+    ctx = FakeCtx(default_client, clients={"globex": globex_client})
+
+    on_default = server.validate_write(
+        ctx, "res.partner", "write", values={"name": "Ada"}, record_ids=[7]
+    )
+    on_globex = server.validate_write(
+        ctx,
+        "res.partner",
+        "write",
+        values={"name": "Ada"},
+        record_ids=[7],
+        instance="globex",
+    )
+
+    assert on_default["approval"]["token"] != on_globex["approval"]["token"]
+    assert on_globex["approval"]["instance"] == "globex"
+
+
+def test_execute_approved_write_runs_on_instance_named_in_approval(monkeypatch):
+    server = importlib.import_module("odoo_mcp.server")
+    monkeypatch.setattr(server, "resolve_default_instance_name", lambda: "default")
+    default_client = _NamedClient("default")
+    globex_client = _NamedClient("globex")
+    ctx = FakeCtx(default_client, clients={"globex": globex_client})
+
+    validation = server.validate_write(
+        ctx,
+        "res.partner",
+        "write",
+        values={"name": "Ada"},
+        record_ids=[7],
+        instance="globex",
+    )
+    assert validation["success"] is True
+
+    monkeypatch.setenv("ODOO_MCP_ENABLE_WRITES", "1")
+    result = server.execute_approved_write(ctx, validation["approval"], confirm=True)
+
+    assert result["success"] is True
+    assert result["instance"] == "globex"
+    assert any(call[0] == "execute_method" for call in globex_client.calls)
+    assert not any(call[0] == "execute_method" for call in default_client.calls)
+
+
+def test_chatter_post_tokens_differ_between_instances(monkeypatch):
+    server = importlib.import_module("odoo_mcp.server")
+    monkeypatch.setattr(server, "resolve_default_instance_name", lambda: "default")
+    monkeypatch.delenv("MCP_CHATTER_DIRECT", raising=False)
+    default_client = _NamedClient("default")
+    globex_client = _NamedClient("globex")
+    ctx = FakeCtx(default_client, clients={"globex": globex_client})
+
+    on_default = server.chatter_post(ctx, "res.partner", 7, "hello")
+    on_globex = server.chatter_post(ctx, "res.partner", 7, "hello", instance="globex")
+
+    assert on_default["mode"] == "preview"
+    assert on_globex["mode"] == "preview"
+    assert on_default["approval"]["token"] != on_globex["approval"]["token"]
+    assert on_globex["approval"]["instance"] == "globex"
+
+
+def test_list_instances_tool_reports_names_without_credentials(monkeypatch, tmp_path):
+    server = importlib.import_module("odoo_mcp.server")
+    for key in (
+        "ODOO_URL",
+        "ODOO_DB",
+        "ODOO_USERNAME",
+        "ODOO_PASSWORD",
+        "ODOO_CONFIG_FILE",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "odoo_config.json").write_text(
+        json.dumps(
+            {
+                "default": "acme",
+                "instances": {
+                    "acme": {
+                        "url": "https://acme.odoo.test",
+                        "db": "acme",
+                        "username": "bot",
+                        "api_key": "super-secret-key",
+                        "transport": "json2",
+                    },
+                    "globex": {
+                        "url": "https://globex.odoo.test",
+                        "db": "globex",
+                        "username": "demo",
+                        "password": "super-secret-pass",
+                    },
+                },
+            }
+        )
+    )
+
+    result = call_tool_json(server, "list_instances", {})
+
+    assert result["success"] is True
+    assert result["default"] == "acme"
+    assert result["instance_count"] == 2
+    names = [item["name"] for item in result["instances"]]
+    assert names == ["acme", "globex"]
+    serialized = json.dumps(result)
+    assert "super-secret-key" not in serialized
+    assert "super-secret-pass" not in serialized
+
+
+def test_health_check_reports_instance_posture(monkeypatch, tmp_path):
+    server = importlib.import_module("odoo_mcp.server")
+    for key in (
+        "ODOO_URL",
+        "ODOO_DB",
+        "ODOO_USERNAME",
+        "ODOO_PASSWORD",
+        "ODOO_CONFIG_FILE",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "odoo_config.json").write_text(
+        json.dumps(
+            {
+                "default": "acme",
+                "instances": {
+                    "acme": {"url": "https://acme.odoo.test", "db": "acme"},
+                    "globex": {"url": "https://globex.odoo.test", "db": "globex"},
+                },
+            }
+        )
+    )
+
+    health = call_tool_json(server, "health_check", {})
+
+    assert health["runtime"]["odoo_instances"] == {
+        "instance_count": 2,
+        "default_instance": "acme",
+    }
+
+
+def test_preview_write_offline_accepts_instance_when_no_config(monkeypatch):
+    """Offline preview must still mint an instance-bound token without config."""
+    server = importlib.import_module("odoo_mcp.server")
+
+    def no_config():
+        raise FileNotFoundError("no config in offline preview")
+
+    monkeypatch.setattr(server, "load_instances_config", no_config)
+    preview = server.preview_write(
+        "res.partner",
+        "write",
+        values={"name": "Ada"},
+        record_ids=[7],
+        instance="globex",
+    )
+
+    assert preview["success"] is True
+    assert preview["approval"]["instance"] == "globex"
+    assert preview["approval"]["token"].startswith("odoo-write:")
+
+
+def test_preview_write_rejects_unknown_instance_when_config_present(monkeypatch):
+    server = importlib.import_module("odoo_mcp.server")
+    monkeypatch.setattr(
+        server,
+        "load_instances_config",
+        lambda: ("acme", {"acme": {}, "globex": {}}),
+    )
+
+    preview = server.preview_write(
+        "res.partner",
+        "write",
+        values={"name": "Ada"},
+        record_ids=[7],
+        instance="ghost",
+    )
+
+    assert preview["success"] is False
+    assert "ghost" in preview["error"]
+    assert "acme" in preview["error"] and "globex" in preview["error"]
+
+
+def test_validate_write_with_input_metadata_binds_instance_without_client(monkeypatch):
+    """Caller-supplied metadata path must bind the token without touching Odoo."""
+    server = importlib.import_module("odoo_mcp.server")
+    monkeypatch.setattr(server, "resolve_default_instance_name", lambda: "default")
+
+    class _Untouchable:
+        def __getattr__(self, name):
+            raise AssertionError("client must not be used with input metadata")
+
+    ctx = FakeCtx(_Untouchable(), clients={})
+    # FakeLife.get_client would raise for unknown names; bypass config validation.
+    monkeypatch.setattr(server, "resolve_instance_name", lambda name: name or "default")
+
+    report = server.validate_write(
+        ctx,
+        "res.partner",
+        "write",
+        values={"name": "Ada"},
+        record_ids=[7],
+        fields_metadata={"name": {"type": "char", "readonly": False}},
+        instance="globex",
+    )
+
+    assert report["success"] is True
+    assert report["approval"]["instance"] == "globex"
+    # Input metadata never authorizes execution.
+    assert report["approval_status"]["stored"] is False
+
+
+def test_execute_approved_write_rejects_legacy_token_without_instance(monkeypatch):
+    """A 0.3.x-style approval (no instance key) hashes differently and must fail."""
+    server = importlib.import_module("odoo_mcp.server")
+
+    class _Client:
+        def execute_method(self, *args, **kwargs):
+            raise AssertionError("legacy token must fail before execution")
+
+    legacy_payload = {
+        "model": "res.partner",
+        "operation": "write",
+        "record_ids": [7],
+        "values": {"name": "Ada"},
+        "context": {},
+    }
+    legacy_token = server.build_approval_token(legacy_payload)
+    monkeypatch.setenv("ODOO_MCP_ENABLE_WRITES", "1")
+
+    result = server.execute_approved_write(
+        FakeCtx(_Client()),
+        {**legacy_payload, "token": legacy_token},
+        confirm=True,
+    )
+
+    assert result["success"] is False
+    assert "token" in result["error"]
+
+
+def test_app_context_get_client_reuses_cached_named_client(monkeypatch):
+    server = importlib.import_module("odoo_mcp.server")
+    built = []
+
+    def fake_get_odoo_client_for(name):
+        built.append(name)
+        return name, object()
+
+    monkeypatch.setattr(server, "get_odoo_client_for", fake_get_odoo_client_for)
+    app_context = server.AppContext()
+
+    name1, client1 = app_context.get_client("globex")
+    name2, client2 = app_context.get_client("globex")
+
+    assert name1 == name2 == "globex"
+    assert client1 is client2
+    assert built == ["globex"]
+
+
+def test_execute_approved_write_never_echoes_expected_token():
+    """Token mismatch must not return the correct token (minting oracle)."""
+    server = importlib.import_module("odoo_mcp.server")
+
+    class _Client:
+        def execute_method(self, *args, **kwargs):
+            raise AssertionError("mismatched token must fail before execution")
+
+    tampered = {
+        "model": "res.partner",
+        "operation": "write",
+        "record_ids": [7],
+        "values": {"name": "Ada"},
+        "context": {},
+        "instance": "default",
+        "token": "odoo-write:forged",
+    }
+    result = server.execute_approved_write(FakeCtx(_Client()), tampered, confirm=True)
+
+    assert result["success"] is False
+    assert "expected_token" not in result
+    assert "odoo-write:" not in json.dumps(result)

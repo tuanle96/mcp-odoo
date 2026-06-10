@@ -68,6 +68,43 @@ For Odoo 19 JSON-2:
 
 `ODOO_JSON2_DATABASE_HEADER` defaults to `1`. Set it to `0` only when host or dbfilter routing already selects the intended database.
 
+### Multi-instance (multiple Odoo databases)
+
+To let one MCP server talk to several Odoo instances, point the server at a multi-instance config file instead of setting the connection env vars:
+
+```json
+{
+  "mcpServers": {
+    "odoo": {
+      "command": "/path/to/python",
+      "args": ["-m", "odoo_mcp"],
+      "env": {
+        "ODOO_CONFIG_FILE": "/absolute/path/to/odoo_config.multi.json"
+      }
+    }
+  }
+}
+```
+
+`odoo_config.multi.json` (see `odoo_config.multi.json.example` in the repo root):
+
+```json
+{
+  "default": "acme",
+  "instances": {
+    "acme":   { "url": "https://acme.odoo.com",   "db": "acme",   "username": "bot", "api_key": "...", "transport": "json2" },
+    "globex": { "url": "https://globex.odoo.com", "db": "globex", "username": "bot", "password": "..." }
+  }
+}
+```
+
+Notes:
+
+- Do **not** set `ODOO_URL`/`ODOO_DB`/`ODOO_USERNAME`/`ODOO_PASSWORD` alongside the file — when all four are present, the environment wins and defines a single instance named `default`.
+- Tools accept an optional `instance` parameter (`search_records(model="res.partner", instance="globex")`); omitted → the `default` instance.
+- Two entries may point at the same `url`+`db` with different credentials to expose two accounts on one instance (e.g. an admin entry and a restricted bot entry).
+- Agents can discover what is configured with the `list_instances` tool — it returns names, URLs, databases, and transports, never credentials.
+
 ## Claude Desktop
 
 On macOS, Claude Desktop reads this file:

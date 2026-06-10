@@ -670,6 +670,155 @@ def normalize_transport(transport: str) -> str:
     )
 
 
+INSTANCE_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+LEGACY_ENV_VARS = ("ODOO_URL", "ODOO_DB", "ODOO_USERNAME", "ODOO_PASSWORD")
+
+
+def _env_config() -> dict[str, Any] | None:
+    """Build a config entry from legacy environment variables, if complete."""
+    if not all(var in os.environ for var in LEGACY_ENV_VARS):
+        return None
+    config: dict[str, Any] = {
+        "url": os.environ["ODOO_URL"],
+        "db": os.environ["ODOO_DB"],
+        "username": os.environ["ODOO_USERNAME"],
+        "password": os.environ["ODOO_PASSWORD"],
+    }
+    if "ODOO_TRANSPORT" in os.environ:
+        config["transport"] = os.environ["ODOO_TRANSPORT"]
+    if "ODOO_API_KEY" in os.environ:
+        config["api_key"] = os.environ["ODOO_API_KEY"]
+    if "ODOO_JSON2_DATABASE_HEADER" in os.environ:
+        config["json2_database_header"] = os.environ["ODOO_JSON2_DATABASE_HEADER"]
+    if "ODOO_LOCALE" in os.environ:
+        config["lang"] = os.environ["ODOO_LOCALE"]
+    return config
+
+
+def _apply_legacy_env_overrides(entry: dict[str, Any]) -> dict[str, Any]:
+    """Apply env-over-file overrides for legacy flat (single-instance) configs.
+
+    Multi-instance entries never receive env credential/transport overrides;
+    this preserves the historical precedence for flat configs only.
+    """
+    merged = dict(entry)
+    if "ODOO_TRANSPORT" in os.environ:
+        merged["transport"] = os.environ["ODOO_TRANSPORT"]
+    if "ODOO_API_KEY" in os.environ:
+        merged["api_key"] = os.environ["ODOO_API_KEY"]
+    if "ODOO_JSON2_DATABASE_HEADER" in os.environ:
+        merged["json2_database_header"] = os.environ["ODOO_JSON2_DATABASE_HEADER"]
+    if "ODOO_LOCALE" in os.environ:
+        merged["lang"] = os.environ["ODOO_LOCALE"]
+    return merged
+
+
+def _config_file_paths() -> list[str]:
+    """Config file candidates: explicit ODOO_CONFIG_FILE first, then standard paths."""
+    paths = []
+    explicit = os.environ.get("ODOO_CONFIG_FILE")
+    if explicit:
+        expanded = os.path.expanduser(explicit)
+        if not os.path.exists(expanded):
+            raise FileNotFoundError(
+                f"ODOO_CONFIG_FILE points to a missing file: {explicit}"
+            )
+        paths.append(expanded)
+    paths.extend(
+        [
+            "./odoo_config.json",
+            os.path.expanduser("~/.config/odoo/config.json"),
+            os.path.expanduser("~/.odoo_config.json"),
+        ]
+    )
+    return paths
+
+
+def _validate_instances(
+    raw: dict[str, Any], path: str
+) -> tuple[str, dict[str, dict[str, Any]]]:
+    """Validate a multi-instance config shape. Error messages never include values."""
+    instances = raw.get("instances")
+    if not isinstance(instances, dict) or not instances:
+        raise ValueError(f"Config file {path}: 'instances' must be a non-empty object.")
+    for name, entry in instances.items():
+        if not INSTANCE_NAME_RE.match(name):
+            raise ValueError(
+                f"Config file {path}: invalid instance name {name!r} "
+                "(allowed: letters, digits, '_', '-', max 64 characters)."
+            )
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"Config file {path}: instance {name!r} must be an object."
+            )
+        for required in ("url", "db"):
+            if not entry.get(required):
+                raise ValueError(
+                    f"Config file {path}: instance {name!r} is missing "
+                    f"required key '{required}'."
+                )
+    default = raw.get("default")
+    if default is None:
+        if len(instances) == 1:
+            default = next(iter(instances))
+        else:
+            raise ValueError(
+                f"Config file {path}: 'default' is required when multiple "
+                f"instances are defined. Available instances: {sorted(instances)}"
+            )
+    if default not in instances:
+        raise ValueError(
+            f"Config file {path}: default instance {default!r} not found. "
+            f"Available instances: {sorted(instances)}"
+        )
+    return str(default), instances
+
+
+def load_instances_config() -> tuple[str, dict[str, dict[str, Any]]]:
+    """
+    Load named Odoo instance configurations.
+
+    Returns:
+        tuple: (default_instance_name, {name: config_entry}). Legacy environment
+        variables or a flat config file yield a single instance named "default".
+    """
+    env_config = _env_config()
+    if env_config is not None:
+        if os.environ.get("ODOO_CONFIG_FILE"):
+            print(
+                "Warning: ODOO_CONFIG_FILE is ignored because ODOO_URL/ODOO_DB/"
+                "ODOO_USERNAME/ODOO_PASSWORD are all set; the environment "
+                "defines a single 'default' instance. Unset them to use the "
+                "config file.",
+                file=sys.stderr,
+            )
+        return "default", {"default": env_config}
+
+    for path in _config_file_paths():
+        expanded_path = os.path.expanduser(path)
+        if not os.path.exists(expanded_path):
+            continue
+        try:
+            with open(expanded_path, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                f"Invalid JSON in Odoo config file {expanded_path}: "
+                f"line {e.lineno} column {e.colno}"
+            ) from e
+        if isinstance(raw, dict) and "instances" in raw:
+            return _validate_instances(raw, expanded_path)
+        return "default", {
+            "default": _apply_legacy_env_overrides(cast(dict[str, Any], raw))
+        }
+
+    raise FileNotFoundError(
+        "No Odoo configuration found. Please create an odoo_config.json file, "
+        "set ODOO_CONFIG_FILE, or set environment variables."
+    )
+
+
 def load_config() -> dict[str, str]:
     """
     Load Odoo configuration from environment variables or config file
@@ -677,77 +826,41 @@ def load_config() -> dict[str, str]:
     Returns:
         dict: Configuration dictionary with url, db, username, password
     """
-    # Define config file paths to check
-    config_paths = [
-        "./odoo_config.json",
-        os.path.expanduser("~/.config/odoo/config.json"),
-        os.path.expanduser("~/.odoo_config.json"),
-    ]
+    default_name, instances = load_instances_config()
+    return cast(dict[str, str], instances[default_name])
 
-    # Try environment variables first
-    if all(
-        var in os.environ
-        for var in ["ODOO_URL", "ODOO_DB", "ODOO_USERNAME", "ODOO_PASSWORD"]
-    ):
-        config = {
-            "url": os.environ["ODOO_URL"],
-            "db": os.environ["ODOO_DB"],
-            "username": os.environ["ODOO_USERNAME"],
-            "password": os.environ["ODOO_PASSWORD"],
-        }
-        if "ODOO_TRANSPORT" in os.environ:
-            config["transport"] = os.environ["ODOO_TRANSPORT"]
-        if "ODOO_API_KEY" in os.environ:
-            config["api_key"] = os.environ["ODOO_API_KEY"]
-        if "ODOO_JSON2_DATABASE_HEADER" in os.environ:
-            config["json2_database_header"] = os.environ["ODOO_JSON2_DATABASE_HEADER"]
-        if "ODOO_LOCALE" in os.environ:
-            config["lang"] = os.environ["ODOO_LOCALE"]
-        return config
 
-    # Try to load from file
-    for path in config_paths:
-        expanded_path = os.path.expanduser(path)
-        if os.path.exists(expanded_path):
-            with open(expanded_path, "r", encoding="utf-8") as f:
-                return cast(dict[str, str], json.load(f))
-
-    raise FileNotFoundError(
-        "No Odoo configuration found. Please create an odoo_config.json file or set environment variables."
+def build_odoo_client(entry: dict[str, Any], *, name: str = "default") -> OdooClient:
+    """Build an OdooClient from a config entry, with env vars as fallback defaults."""
+    timeout = int(entry.get("timeout") or os.environ.get("ODOO_TIMEOUT", "30"))
+    verify_ssl_raw = entry.get("verify_ssl")
+    if verify_ssl_raw is None:
+        verify_ssl_raw = os.environ.get("ODOO_VERIFY_SSL", "1")
+    verify_ssl = (
+        verify_ssl_raw
+        if isinstance(verify_ssl_raw, bool)
+        else parse_bool(str(verify_ssl_raw))
     )
-
-
-def get_odoo_client() -> OdooClient:
-    """
-    Get a configured Odoo client instance
-
-    Returns:
-        OdooClient: A configured Odoo client instance
-    """
-    config = load_config()
-
-    # Get additional options from environment variables
-    timeout = int(
-        os.environ.get("ODOO_TIMEOUT", "30")
-    )  # Increase default timeout to 30 seconds
-    verify_ssl = os.environ.get("ODOO_VERIFY_SSL", "1").lower() in ["1", "true", "yes"]
-    transport = normalize_transport(
-        os.environ.get("ODOO_TRANSPORT", config.get("transport", "xmlrpc"))
+    transport = normalize_transport(str(entry.get("transport") or "xmlrpc"))
+    # Credentials never fall back to env vars: an instance entry without its own
+    # api_key must not inherit another deployment's key (legacy flat/env configs
+    # receive env overrides upstream in load_instances_config/_env_config).
+    api_key = entry.get("api_key")
+    json2_header_raw = entry.get("json2_database_header")
+    if json2_header_raw is None:
+        json2_header_raw = "1"
+    json2_database_header = (
+        json2_header_raw
+        if isinstance(json2_header_raw, bool)
+        else parse_bool(str(json2_header_raw))
     )
-    api_key = os.environ.get("ODOO_API_KEY", config.get("api_key"))
-    json2_database_header = parse_bool(
-        os.environ.get(
-            "ODOO_JSON2_DATABASE_HEADER",
-            config.get("json2_database_header", "1"),
-        )
-    )
-    lang = os.environ.get("ODOO_LOCALE", config.get("lang")) or None
+    lang = entry.get("lang") or os.environ.get("ODOO_LOCALE") or None
 
-    # Print detailed configuration
-    print("Odoo client configuration:", file=sys.stderr)
-    print(f"  URL: {config['url']}", file=sys.stderr)
-    print(f"  Database: {config['db']}", file=sys.stderr)
-    print(f"  Username: {config['username']}", file=sys.stderr)
+    # Print detailed configuration (never credentials)
+    print(f"Odoo client configuration [instance: {name}]:", file=sys.stderr)
+    print(f"  URL: {entry['url']}", file=sys.stderr)
+    print(f"  Database: {entry['db']}", file=sys.stderr)
+    print(f"  Username: {entry.get('username', '')}", file=sys.stderr)
     print(f"  Transport: {transport}", file=sys.stderr)
     print(f"  Timeout: {timeout}s", file=sys.stderr)
     print(f"  Verify SSL: {verify_ssl}", file=sys.stderr)
@@ -756,10 +869,10 @@ def get_odoo_client() -> OdooClient:
         print(f"  Default locale: {lang}", file=sys.stderr)
 
     return OdooClient(
-        url=config["url"],
-        db=config["db"],
-        username=config["username"],
-        password=config["password"],
+        url=entry["url"],
+        db=entry["db"],
+        username=str(entry.get("username", "")),
+        password=str(entry.get("password", "")),
         timeout=timeout,
         verify_ssl=verify_ssl,
         transport=transport,
@@ -767,6 +880,50 @@ def get_odoo_client() -> OdooClient:
         json2_database_header=json2_database_header,
         lang=lang,
     )
+
+
+def get_odoo_client() -> OdooClient:
+    """
+    Get a configured Odoo client instance for the default instance
+
+    Returns:
+        OdooClient: A configured Odoo client instance
+    """
+    default_name, instances = load_instances_config()
+    return build_odoo_client(instances[default_name], name=default_name)
+
+
+def get_odoo_client_for(instance: str | None = None) -> tuple[str, OdooClient]:
+    """
+    Get a configured Odoo client for a named instance (or the default).
+
+    Raises:
+        ValueError: If the instance name is not configured. The message lists
+            available instance names only — never URLs or credentials.
+    """
+    default_name, instances = load_instances_config()
+    name = instance or default_name
+    if name not in instances:
+        raise ValueError(
+            f"Unknown Odoo instance {name!r}. "
+            f"Available instances: {sorted(instances)}"
+        )
+    return name, build_odoo_client(instances[name], name=name)
+
+
+def list_configured_instances() -> dict[str, dict[str, Any]]:
+    """Describe configured instances without exposing credentials."""
+    default_name, instances = load_instances_config()
+    summary: dict[str, dict[str, Any]] = {}
+    for name, entry in instances.items():
+        # Explicit allowlist of keys — never copy the raw entry.
+        summary[name] = {
+            "url": entry.get("url"),
+            "db": entry.get("db"),
+            "transport": normalize_transport(str(entry.get("transport") or "xmlrpc")),
+            "is_default": name == default_name,
+        }
+    return summary
 
 
 def parse_bool(value: str) -> bool:
