@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.tuanle96/mcp-odoo",
   "description": "Odoo MCP server: safe gated writes, access diagnostics, schema discovery, multi-instance routing.",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "websiteUrl": "https://github.com/tuanle96/mcp-odoo#readme",
   "repository": {
     "url": "https://github.com/tuanle96/mcp-odoo",
@@ -12,7 +12,7 @@
     {
       "registryType": "pypi",
       "identifier": "odoo-mcp",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "transport": {
         "type": "stdio"
       },

@@ -2,10 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.6.0] - 2026-06-10
 
 ### Added
-- Framework adapter examples in `examples/` — copy-paste integrations for Cursor (`.cursor/mcp.json` + rules), Claude Code, Codex CLI, OpenAI Agents SDK (local `MCPServerStreamableHttp` + `HostedMCPTool`), LangGraph (`langchain-mcp-adapters>=0.2.2`), CrewAI (native `mcps=[...]`), and an importable n8n workflow using the official MCP Client Tool node. Index with a transport matrix at `examples/README.md`.
+- Framework adapter examples in `examples/` — copy-paste integrations for Cursor (`.cursor/mcp.json` + rules), Claude Code, Codex CLI, OpenAI Agents SDK (local `MCPServerStreamableHttp` + `HostedMCPTool`), LangGraph (`langchain-mcp-adapters>=0.2.2`), CrewAI (native `mcps=[...]`), and an importable n8n workflow using the official MCP Client Tool node. Index with a transport matrix at `examples/README.md`. Python adapters support any OpenAI-compatible provider via `OPENAI_BASE_URL`/`OPENAI_MODEL` and were verified end-to-end against a live Odoo 19 stack (openai-agents 0.17.4, langchain 1.3.6, crewai 1.14.6, n8n 2.25.7 import).
 - Audit logging trail — `ODOO_MCP_AUDIT_LOG=<path>` appends one JSONL line per write-path event (`preview`, `validate`, `execute`, `elicit`, `chatter_post`) with model, operation, record IDs, instance, outcome, and a token digest (never the token itself). Fail-open with a warning; posture surfaced in `health_check`.
 - Elicitation-based write approval — `ODOO_MCP_ELICIT_WRITES=1` makes `execute_approved_write` ask the human through MCP elicitation (native confirm form showing a diff summary) before executing; clients without elicitation support fall back to the unchanged token flow. Declines are audited.
 - Side-effect policy file — reviewed `execute_method` side-effect methods can now live in a version-controllable JSON file (`ODOO_MCP_POLICY_FILE`, default `./odoo_mcp_policy.json` when present; see `odoo_mcp_policy.json.example`) with reviewer metadata, merged with the `ODOO_MCP_ALLOWED_SIDE_EFFECT_METHODS` env allowlist. Broken policy files fail closed and surface their error in `health_check`.
