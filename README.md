@@ -17,7 +17,7 @@
 
 Odoo MCP turns any Odoo 16+ database into a Model Context Protocol server — using only your existing credentials. **No App Store module, no permission setup, no admin access required.** Built for local agents, IDEs, and automation tools that need real Odoo context without hand-rolled scripts or unsafe direct write access.
 
-It speaks XML-RPC for Odoo 16-18 and External JSON-2 for Odoo 19+. It exposes a compact MCP surface with read tools, diagnostics, schema discovery, migration helpers, local addon scanning, and a gated write workflow.
+It speaks XML-RPC for Odoo 16-18 and External JSON-2 for Odoo 19+. It exposes a compact MCP surface with read tools, diagnostics, schema discovery, migration helpers, local addon scanning, and a gated write workflow. One server can serve [multiple named Odoo instances](#multiple-odoo-instances) at once.
 
 ## Try it in 30 seconds
 
@@ -33,7 +33,8 @@ Once configured (see [Install](#install) and [Configure](#configure)), ask your 
 
 | Capability | What it gives you |
 | --- | --- |
-| 24 MCP tools | Read records, aggregate server-side, post chatter, inspect schema, build domains, scan addons, diagnose calls, access rules, and validate writes. |
+| 25 MCP tools | Read records, aggregate server-side, post chatter, inspect schema, build domains, scan addons, diagnose calls, access rules, and validate writes. |
+| Multi-instance | One server, several named Odoo instances — optional `instance` parameter on every tool, `list_instances` discovery, instance-bound approval tokens, per-instance schema caches. |
 | 5 agent prompts | Reusable workflows for failed calls, fit/gap workshops, JSON-2 migration, safe writes, and module audits. |
 | Odoo 16-19 coverage | XML-RPC by default, JSON-2 opt-in for Odoo 19. |
 | Streamable HTTP | Local HTTP/SSE support for clients that do not use stdio. |
@@ -54,6 +55,7 @@ Once configured (see [Install](#install) and [Configure](#configure)), ask your 
 | Diagnostics | `diagnose_odoo_call`, `diagnose_access`, `inspect_model_relationships`, `upgrade_risk_report`, `fit_gap_report`, `business_pack_report`, `scan_addons_source`. | Usually CRUD only. |
 | Transport | XML-RPC (16-19) **and** External JSON-2 (Odoo 19+). Ready for Odoo 20. | Usually XML-RPC only — XML-RPC is deprecated in Odoo 20. |
 | Migration helpers | `generate_json2_payload` previews the JSON-2 body for any XML-RPC call before you migrate. | None. |
+| Multi-instance | Named instances in one config file, per-tool routing, tokens and caches isolated per instance. | Usually one global connection per server process. |
 | Agent prompts | 5 ready-made prompts for diagnose / fit-gap / JSON-2 migration / safe-write / module-audit. | Usually none. |
 | HTTP transport security | DNS-rebinding protection, host/origin allowlists, local-bind by default. | Often missing. |
 | Real Odoo smoke tests | Docker Compose harness boots disposable Odoo 16/17/18/19 stacks per release. | Often mock-based only. |
@@ -411,6 +413,12 @@ uv run --python 3.12 --with-editable . scripts/odoo_compose_smoke.py \
 ```
 
 The smoke harness boots disposable Docker Compose stacks, validates direct Odoo access, validates MCP stdio, and for Odoo 19 also validates JSON-2 and Streamable HTTP.
+
+Run the multi-instance smoke (one stack, three databases, two accounts on one instance):
+
+```bash
+uv run --python 3.12 --with-editable . scripts/odoo_multi_instance_smoke.py
+```
 
 ## Compatibility
 
