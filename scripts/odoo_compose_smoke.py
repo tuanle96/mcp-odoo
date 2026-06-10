@@ -773,6 +773,7 @@ def assert_tool_surface(tool_names: set[str]) -> None:
         "aggregate_records",
         "chatter_post",
         "list_instances",
+        "lookup_model_history",
     }
     if not expected_tools <= tool_names:
         raise AssertionError(f"Missing MCP tools: {expected_tools - tool_names}")
@@ -1037,7 +1038,7 @@ async def mcp_stdio_smoke(
             )
             if (
                 upgrade.get("transport", {}).get("xmlrpc_jsonrpc_deprecation")
-                != "Odoo 20 fall 2026"
+                != "Odoo 22 fall 2028"
             ):
                 raise AssertionError(f"Bad upgrade risk transport info: {upgrade}")
 
@@ -1085,8 +1086,8 @@ async def mcp_stdio_smoke(
                 await session.call_tool("health_check", arguments={}),
                 "health_check",
             )
-            if health.get("server", {}).get("tool_count") != 25:
-                raise AssertionError(f"health_check did not report 25 tools: {health}")
+            if health.get("server", {}).get("tool_count") != 26:
+                raise AssertionError(f"health_check did not report 26 tools: {health}")
             if "chatter_direct_enabled" not in health.get("runtime", {}):
                 raise AssertionError(
                     f"health_check did not surface chatter_direct posture: {health}"
