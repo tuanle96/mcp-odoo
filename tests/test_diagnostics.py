@@ -170,19 +170,29 @@ def test_inspect_model_relationships_groups_relational_and_required_fields_from_
     assert report["metadata_used"]["source"] == "input"
 
 
-def test_upgrade_risk_report_flags_odoo20_rpc_removal_and_destructive_methods():
+def test_upgrade_risk_report_flags_odoo22_rpc_removal_and_destructive_methods():
     report = diagnostics.upgrade_risk_report(
         source_version="18.0",
-        target_version="20.0",
+        target_version="22.0",
         methods=[{"model": "res.partner", "method": "write"}],
     )
 
     assert report["summary"] == {"risk": "high", "blocked": True}
-    assert report["transport"]["xmlrpc_jsonrpc_deprecation"] == "Odoo 20 fall 2026"
+    assert report["transport"]["xmlrpc_jsonrpc_deprecation"] == "Odoo 22 fall 2028"
     assert report["destructive_methods"] == [
         {"model": "res.partner", "method": "write", "source": "input"}
     ]
     assert any(risk["code"] == "xmlrpc_jsonrpc_removal" for risk in report["risks"])
+
+
+def test_upgrade_risk_report_target_20_warns_but_is_not_blocked():
+    report = diagnostics.upgrade_risk_report(target_version="20.0")
+
+    codes = {risk["code"] for risk in report["risks"]}
+    assert "json2_migration" in codes
+    assert "xmlrpc_jsonrpc_removal" not in codes
+    assert report["summary"]["blocked"] is False
+    assert report["transport"]["json2_required"] is False
 
 
 def test_build_json2_body_warns_on_too_many_positional_args_and_duplicates():
@@ -197,6 +207,80 @@ def test_build_json2_body_warns_on_too_many_positional_args_and_duplicates():
     assert "json2_duplicate_argument" in codes
     # kwarg wins on collision
     assert body["domain"] == "kw-domain"
+
+
+def test_classify_access_error_detects_acl_denial():
+    classification = diagnostics.classify_access_error(
+        "You are not allowed to modify 'Contact' (res.partner) records. "
+        "This operation is allowed for the following groups: Sales/Administrator"
+    )
+    assert classification["category"] == "acl"
+    assert classification["confidence"] == "high"
+    assert "diagnose_access" in classification["recommended_next_action"]
+
+
+def test_classify_access_error_prefers_record_rule_over_acl_phrasing():
+    classification = diagnostics.classify_access_error(
+        "Due to security restrictions, you are not allowed to access "
+        "'Sales Order' (sale.order) records."
+    )
+    assert classification["category"] == "record_rule"
+
+
+def test_classify_access_error_detects_multi_company_note():
+    classification = diagnostics.classify_access_error(
+        "Due to security restrictions, you are not allowed to access these records. "
+        "Note: this might be a multi-company issue."
+    )
+    assert classification["category"] == "multi_company"
+
+
+def test_classify_access_error_detects_authentication_and_db_routing():
+    auth = diagnostics.classify_access_error("Access Denied")
+    assert auth["category"] == "authentication"
+
+    routing = diagnostics.classify_access_error(
+        'FATAL: database "production" does not exist'
+    )
+    assert routing["category"] == "db_routing"
+
+
+def test_classify_access_error_detects_missing_or_filtered_record():
+    classification = diagnostics.classify_access_error(
+        "Record does not exist or has been deleted. (Record: res.partner(99,), User: 6)"
+    )
+    assert classification["category"] == "missing_or_filtered"
+
+
+def test_classify_access_error_falls_back_to_unknown_and_handles_none():
+    classification = diagnostics.classify_access_error("Something exploded")
+    assert classification["category"] == "unknown"
+    assert classification["confidence"] == "low"
+    assert diagnostics.classify_access_error(None) is None
+
+
+def test_classify_access_error_accepts_odoo_error_dict():
+    classification = diagnostics.classify_access_error(
+        {
+            "name": "odoo.exceptions.AccessError",
+            "message": "You are not allowed to access 'Employee' (hr.employee) records.",
+        }
+    )
+    assert classification["category"] == "acl"
+
+
+def test_diagnose_odoo_call_report_includes_error_classification():
+    report = diagnostics.diagnose_odoo_call_report(
+        model="res.partner",
+        method="search_read",
+        observed_error="Due to security restrictions, you are not allowed to access these records.",
+    )
+    assert report["error_classification"]["category"] == "record_rule"
+
+    report_without_error = diagnostics.diagnose_odoo_call_report(
+        model="res.partner", method="search_read"
+    )
+    assert report_without_error["error_classification"] is None
 
 
 def test_parse_error_string_returns_message_when_no_json_braces():
@@ -224,16 +308,28 @@ def test_diagnose_odoo_call_rejects_invalid_model_name():
     assert "invalid_model_name" in codes
 
 
-def test_diagnose_odoo_call_flags_xmlrpc_against_odoo_20():
+def test_diagnose_odoo_call_blocks_xmlrpc_against_odoo_22():
+    report = diagnostics.diagnose_odoo_call_report(
+        model="res.partner",
+        method="search_read",
+        target_version="22.0",
+        transport="xmlrpc",
+    )
+    codes = {issue["code"] for issue in report["issues"]}
+    assert "deprecated_rpc_transport" in codes
+    assert report["success"] is False
+
+
+def test_diagnose_odoo_call_warns_xmlrpc_against_odoo_20_without_blocking():
     report = diagnostics.diagnose_odoo_call_report(
         model="res.partner",
         method="search_read",
         target_version="20.0",
         transport="xmlrpc",
     )
-    codes = {issue["code"] for issue in report["issues"]}
-    assert "deprecated_rpc_transport" in codes
-    assert report["success"] is False
+    issues = {issue["code"]: issue for issue in report["issues"]}
+    assert issues["deprecated_rpc_transport"]["severity"] == "warning"
+    assert report["success"] is True
 
 
 def test_inspect_model_relationships_returns_error_payload_when_metadata_missing():
@@ -313,7 +409,16 @@ def test_transport_compatibility_handles_each_transport_branch():
 def test_max_risk_returns_low_when_no_risks_collected():
     assert diagnostics._max_risk([]) == "low"
     assert (
-        diagnostics._max_risk([{"severity": "warning", "code": "x", "evidence": "y", "recommendation": "z"}])
+        diagnostics._max_risk(
+            [
+                {
+                    "severity": "warning",
+                    "code": "x",
+                    "evidence": "y",
+                    "recommendation": "z",
+                }
+            ]
+        )
         == "medium"
     )
 
@@ -334,9 +439,10 @@ def test_diagnose_odoo_call_includes_next_actions_for_metadata_unused():
         model="res.partner",
         method="search_read",
     )
-    assert "Call inspect_model_relationships for field-level hints." in report[
-        "next_actions"
-    ]
+    assert (
+        "Call inspect_model_relationships for field-level hints."
+        in report["next_actions"]
+    )
 
 
 def test_fit_gap_report_normalizes_requirement_classifications_and_safe_discovery_calls():

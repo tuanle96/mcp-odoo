@@ -1,8 +1,10 @@
 # Odoo MCP
 
+<!-- mcp-name: io.github.tuanle96/mcp-odoo -->
+
 <p align="center">
-  <strong>The Odoo MCP that survives Odoo 20.</strong><br>
-  Five-minute install. Zero Odoo-side setup. Safe writes, real diagnostics, JSON-2 ready.
+  <strong>The Odoo MCP that is fluent in every Odoo version.</strong><br>
+  Five-minute install. Zero Odoo-side setup. Safe writes, real diagnostics, JSON-2 ready years before the Odoo 22 XML-RPC removal.
 </p>
 
 <p align="center">
@@ -33,7 +35,7 @@ Once configured (see [Install](#install) and [Configure](#configure)), ask your 
 
 | Capability | What it gives you |
 | --- | --- |
-| 25 MCP tools | Read records, aggregate server-side, post chatter, inspect schema, build domains, scan addons, diagnose calls, access rules, and validate writes. |
+| 26 MCP tools | Read records, aggregate server-side, post chatter, inspect schema, build domains, scan addons, diagnose calls, access rules, resolve model renames, and validate writes. |
 | Multi-instance | One server, several named Odoo instances — optional `instance` parameter on every tool, `list_instances` discovery, instance-bound approval tokens, per-instance schema caches. |
 | 5 agent prompts | Reusable workflows for failed calls, fit/gap workshops, JSON-2 migration, safe writes, and module audits. |
 | Odoo 16-19 coverage | XML-RPC by default, JSON-2 opt-in for Odoo 19. |
@@ -53,7 +55,7 @@ Once configured (see [Install](#install) and [Configure](#configure)), ask your 
 | Setup steps on Odoo side | **0** — works with any Odoo 16+ instance using credentials you already have. | Often require installing an App Store module, configuring enabled models, and granting per-tool permissions. |
 | Safe write workflow | Approval token + live `fields_get` validation + explicit confirm + env gate. | Often expose direct `create`/`write`/`unlink` or a "yolo" bypass. |
 | Diagnostics | `diagnose_odoo_call`, `diagnose_access`, `inspect_model_relationships`, `upgrade_risk_report`, `fit_gap_report`, `business_pack_report`, `scan_addons_source`. | Usually CRUD only. |
-| Transport | XML-RPC (16-19) **and** External JSON-2 (Odoo 19+). Ready for Odoo 20. | Usually XML-RPC only — XML-RPC is deprecated in Odoo 20. |
+| Transport | XML-RPC (16+) **and** External JSON-2 (Odoo 19+). Ready for the Odoo 22 XML-RPC removal years early. | Usually XML-RPC only — deprecated since Odoo 19, removed in Odoo 22. |
 | Migration helpers | `generate_json2_payload` previews the JSON-2 body for any XML-RPC call before you migrate. | None. |
 | Multi-instance | Named instances in one config file, per-tool routing, tokens and caches isolated per instance. | Usually one global connection per server process. |
 | Agent prompts | 5 ready-made prompts for diagnose / fit-gap / JSON-2 migration / safe-write / module-audit. | Usually none. |
@@ -205,7 +207,7 @@ odoo-mcp --health
 
 ## MCP Tools
 
-25 tools grouped by use case. Each tool name is a single-purpose handle the agent can call. Tools that talk to Odoo accept an optional `instance` parameter when multiple instances are configured (see [Multiple Odoo instances](#multiple-odoo-instances)).
+26 tools grouped by use case. Each tool name is a single-purpose handle the agent can call. Tools that talk to Odoo accept an optional `instance` parameter when multiple instances are configured (see [Multiple Odoo instances](#multiple-odoo-instances)).
 
 ### Read & Discover (10)
 
@@ -240,12 +242,13 @@ odoo-mcp --health
 | `diagnose_access` | Diagnose ACL and record-rule visibility for the current Odoo credential. |
 | `inspect_model_relationships` | Group relationship fields, required fields, and create/write hints. |
 
-### Migrate (2)
+### Migrate (3)
 
 | Tool | Purpose |
 | --- | --- |
 | `generate_json2_payload` | Convert XML-RPC-shaped input into JSON-2 endpoint, headers, and named body. |
 | `upgrade_risk_report` | Surface transport, method, and migration risks across Odoo versions. |
+| `lookup_model_history` | Resolve outdated model names (`account.invoice` → `account.move`) against a curated per-version rename catalog. |
 
 ### Audit & Plan (3)
 
@@ -422,7 +425,7 @@ uv run --python 3.12 --with-editable . scripts/odoo_multi_instance_smoke.py
 
 ## Compatibility
 
-XML-RPC remains the default transport for broad compatibility. Odoo 19 supports External JSON-2 through `ODOO_TRANSPORT=json2`. Odoo has documented XML-RPC and JSON-RPC deprecation for Odoo 20, so new integrations should plan for JSON-2.
+XML-RPC remains the default transport for broad compatibility. Odoo 19 supports External JSON-2 through `ODOO_TRANSPORT=json2`. XML-RPC and JSON-RPC are deprecated since Odoo 19 and scheduled for removal in Odoo 22 (fall 2028), so new integrations should plan for JSON-2.
 
 ## Contributing
 

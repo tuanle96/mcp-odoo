@@ -93,9 +93,10 @@ def test_server_registers_expected_tools_and_resources_without_lifespan():
         "aggregate_records",
         "chatter_post",
         "list_instances",
+        "lookup_model_history",
     }
     assert expected_tools <= tools
-    assert len(tools) == 25
+    assert len(tools) == 26
     assert "odoo://models" in resources
     assert {
         "odoo://model/{model_name}",
@@ -240,7 +241,7 @@ def test_lifespan_is_lazy_and_preview_tools_call_tool_succeed_when_client_raises
             "methods": [{"model": "res.partner", "method": "write"}],
         },
     )
-    assert upgrade["transport"]["xmlrpc_jsonrpc_deprecation"] == "Odoo 20 fall 2026"
+    assert upgrade["transport"]["xmlrpc_jsonrpc_deprecation"] == "Odoo 22 fall 2028"
 
     fit_gap = call_tool_json(
         server,
@@ -750,7 +751,7 @@ def test_profile_health_and_prompts_are_available():
 
     health = call_tool_json(server, "health_check", {})
     assert health["success"] is True
-    assert health["server"]["tool_count"] == 25
+    assert health["server"]["tool_count"] == 26
     assert health["runtime"]["chatter_direct_enabled"] is False
     assert health["runtime"]["broad_unknown_method_mode"]["enabled"] is False
 
@@ -841,6 +842,28 @@ def test_diagnose_access_reports_acl_rules_and_count_mismatch():
     assert report["access"]["granting_count"] == 1
     assert report["rules"]["group_bound"][0]["name"] == "own contacts"
     assert "record_rule_filter_likely" in codes
+
+
+def test_diagnose_access_classifies_observed_error():
+    server = importlib.import_module("odoo_mcp.server")
+
+    report = server.diagnose_access(
+        FakeCtx(AccessDiagnosticClient(count=1)),
+        "res.partner",
+        "read",
+        observed_error=(
+            "Due to security restrictions, you are not allowed to access "
+            "'Contact' (res.partner) records."
+        ),
+    )
+
+    assert report["success"] is True
+    assert report["error_classification"]["category"] == "record_rule"
+
+    report_without_error = server.diagnose_access(
+        FakeCtx(AccessDiagnosticClient(count=1)), "res.partner", "read"
+    )
+    assert report_without_error["error_classification"] is None
 
 
 def test_diagnose_access_uses_odoo19_group_ids_field():
@@ -1057,10 +1080,7 @@ class _AggregateClient:
             if self.base_latest_version is None:
                 return []
             return [{"latest_version": self.base_latest_version}]
-        if (
-            method == "formatted_read_group"
-            and self.formatted_exception is not None
-        ):
+        if method == "formatted_read_group" and self.formatted_exception is not None:
             raise self.formatted_exception
         return list(self.rows)
 
@@ -1215,9 +1235,7 @@ def test_aggregate_records_requires_group_by():
     server = importlib.import_module("odoo_mcp.server")
     client = _AggregateClient(version="17.0")
 
-    result = server.aggregate_records(
-        FakeCtx(client), model="sale.order", group_by=[]
-    )
+    result = server.aggregate_records(FakeCtx(client), model="sale.order", group_by=[])
 
     assert result["success"] is False
     assert "group_by" in result["error"]
@@ -1295,7 +1313,9 @@ def test_odoo_major_version_parses_saas_server_version_string():
             return {"server_version": "saas~19.1+e"}
 
         def execute_method(self, *args, **kwargs):
-            raise AssertionError("execute_method should not run when metadata is present")
+            raise AssertionError(
+                "execute_method should not run when metadata is present"
+            )
 
     assert server.odoo_major_version(StubClient()) == 19
 
@@ -1350,9 +1370,7 @@ def test_chatter_post_execute_with_valid_approval_posts(monkeypatch):
     client = _ChatterClient()
     ctx = FakeCtx(client)
 
-    preview = server.chatter_post(
-        ctx, model="res.partner", record_id=7, body="Hi"
-    )
+    preview = server.chatter_post(ctx, model="res.partner", record_id=7, body="Hi")
     approved = server.chatter_post(
         ctx,
         model="res.partner",
@@ -1377,9 +1395,7 @@ def test_chatter_post_rejects_token_mismatch(monkeypatch):
     client = _ChatterClient()
     ctx = FakeCtx(client)
 
-    preview = server.chatter_post(
-        ctx, model="res.partner", record_id=7, body="Hi"
-    )
+    preview = server.chatter_post(ctx, model="res.partner", record_id=7, body="Hi")
     bad = server.chatter_post(
         ctx,
         model="res.partner",
@@ -1400,9 +1416,7 @@ def test_chatter_post_requires_confirm_in_gated_mode(monkeypatch):
     client = _ChatterClient()
     ctx = FakeCtx(client)
 
-    preview = server.chatter_post(
-        ctx, model="res.partner", record_id=7, body="Hi"
-    )
+    preview = server.chatter_post(ctx, model="res.partner", record_id=7, body="Hi")
     no_confirm = server.chatter_post(
         ctx,
         model="res.partner",
@@ -1497,13 +1511,63 @@ def test_resolve_read_fields_passes_explicit_fields_through():
 
     class ExplodingClient:
         def get_model_fields(self, model):
-            raise AssertionError("should not call fields_get when caller specifies fields")
+            raise AssertionError(
+                "should not call fields_get when caller specifies fields"
+            )
 
     app_context = FakeLife(ExplodingClient())
     resolved = server.resolve_read_fields(
         app_context, app_context.odoo, "res.partner", ["name", "email"]
     )
     assert resolved == ["name", "email"]
+
+
+def test_lookup_model_history_tool_returns_catalog_match():
+    server = importlib.import_module("odoo_mcp.server")
+
+    report = call_tool_json(server, "lookup_model_history", {"name": "account.invoice"})
+    assert report["success"] is True
+    assert report["matches"][0]["new_model"] == "account.move"
+    assert report["metadata_used"]["live_odoo"] is False
+
+
+def test_get_model_fields_relevance_top_returns_ranked_subset():
+    server = importlib.import_module("odoo_mcp.server")
+
+    class WideModelClient:
+        def get_model_fields(self, model):
+            return {
+                "name": {"type": "char", "required": True},
+                "email": {"type": "char"},
+                "note": {"type": "text"},
+                "message_ids": {"type": "one2many"},
+                "image_1920": {"type": "binary"},
+            }
+
+    result = server.get_model_fields(
+        FakeCtx(WideModelClient()), "res.partner", relevance="top", max_fields=2
+    )
+
+    assert result["success"] is True
+    assert result["relevance_applied"] is True
+    assert list(result["result"]) == ["name", "email"]
+    assert result["count"] == 2
+    assert result["ranking"][0]["field"] == "name"
+    assert result["ranking"][0]["score"] > result["ranking"][1]["score"]
+
+
+def test_get_model_fields_rejects_unknown_relevance_mode():
+    server = importlib.import_module("odoo_mcp.server")
+
+    class ExplodingClient:
+        def get_model_fields(self, model):
+            raise AssertionError("must validate relevance before hitting Odoo")
+
+    result = server.get_model_fields(
+        FakeCtx(ExplodingClient()), "res.partner", relevance="bogus"
+    )
+    assert result["success"] is False
+    assert "relevance" in result["error"]
 
 
 def test_aggregate_records_rejects_invalid_model_name():
@@ -1698,7 +1762,7 @@ def test_max_smart_fields_invalid_env_falls_back_to_default(monkeypatch):
 def test_mcp_surface_counts_reports_v030_totals():
     server = importlib.import_module("odoo_mcp.server")
     counts = server.mcp_surface_counts()
-    assert counts["tool_count"] == 25
+    assert counts["tool_count"] == 26
     assert counts["prompt_count"] == 5
     # 1 fixed resource + 3 templates = 4
     assert counts["resource_count"] == 4
@@ -1709,8 +1773,7 @@ def test_new_tools_expose_output_schema_and_annotations():
 
     server = importlib.import_module("odoo_mcp.server")
     tools = {
-        tool.name: tool.model_dump()
-        for tool in asyncio.run(server.mcp.list_tools())
+        tool.name: tool.model_dump() for tool in asyncio.run(server.mcp.list_tools())
     }
 
     aggregate = tools["aggregate_records"]
@@ -1729,7 +1792,13 @@ def test_search_records_and_read_record_response_carry_new_keys():
     client = _SmartFieldsClient()
 
     search = server.search_records(FakeCtx(client), "res.partner", limit=1)
-    for required in ("success", "count", "result", "smart_fields_applied", "fields_used"):
+    for required in (
+        "success",
+        "count",
+        "result",
+        "smart_fields_applied",
+        "fields_used",
+    ):
         assert required in search
 
     read = server.read_record(FakeCtx(client), "res.partner", 1)
@@ -2001,9 +2070,7 @@ def test_odoo_major_version_returns_none_when_get_server_version_returns_non_dic
 def test_normalize_domain_input_accepts_search_domain_object():
     server = importlib.import_module("odoo_mcp.server")
     sd = server.SearchDomain(
-        conditions=[
-            server.DomainCondition(field="name", operator="=", value="Ada")
-        ]
+        conditions=[server.DomainCondition(field="name", operator="=", value="Ada")]
     )
     assert server.normalize_domain_input(sd) == [["name", "=", "Ada"]]
 
@@ -2196,7 +2263,9 @@ def test_available_user_read_fields_returns_base_when_metadata_missing():
 def test_available_user_read_fields_includes_group_fields_when_present():
     server = importlib.import_module("odoo_mcp.server")
     # When the model exposes both groups_id and all_group_ids, we want both
-    fields = server._available_user_read_fields({"id", "name", "groups_id", "all_group_ids"})
+    fields = server._available_user_read_fields(
+        {"id", "name", "groups_id", "all_group_ids"}
+    )
     assert "groups_id" in fields
     assert "all_group_ids" in fields
 
@@ -2822,8 +2891,7 @@ def test_fit_gap_report_includes_live_metadata_not_used_assumption():
     server = importlib.import_module("odoo_mcp.server")
     report = server.fit_gap_report(["Track contacts"], use_live_metadata=True)
     assert any(
-        "fit_gap_report is input-driven" in str(item)
-        for item in report["assumptions"]
+        "fit_gap_report is input-driven" in str(item) for item in report["assumptions"]
     )
 
 
@@ -2877,7 +2945,11 @@ def test_get_model_fields_tool_filters_by_field_names():
 
     class _Client:
         def get_model_fields(self, model):
-            return {"name": {"type": "char"}, "ref": {"type": "char"}, "active": {"type": "boolean"}}
+            return {
+                "name": {"type": "char"},
+                "ref": {"type": "char"},
+                "active": {"type": "boolean"},
+            }
 
     result = server.get_model_fields(
         FakeCtx(_Client()), "res.partner", field_names=["name", "ref", "ghost"]
@@ -3069,7 +3141,9 @@ def test_search_holidays_rejects_invalid_start_date():
     class _Client:
         pass
 
-    result = server.search_holidays(FakeCtx(_Client()), start_date="garbage", end_date="2024-01-01")
+    result = server.search_holidays(
+        FakeCtx(_Client()), start_date="garbage", end_date="2024-01-01"
+    )
     assert result.success is False
     assert "start_date" in result.error
 
@@ -3212,9 +3286,7 @@ def test_diagnose_access_reports_acl_denied_likely_when_no_granting_rows():
                 return 0
             raise AssertionError(f"unexpected: {model}.{method}")
 
-    report = server.diagnose_access(
-        FakeCtx(_Client()), "res.partner", "read"
-    )
+    report = server.diagnose_access(FakeCtx(_Client()), "res.partner", "read")
     code_names = {c["code"] for c in report["diagnosis"]["codes"]}
     assert "acl_denied_likely" in code_names
 
@@ -3238,9 +3310,7 @@ def test_diagnose_access_reports_metadata_error_when_ir_model_search_fails():
                 return [{"id": 7}]
             raise AssertionError(f"unexpected: {model}.{method}")
 
-    report = server.diagnose_access(
-        FakeCtx(_Client()), "res.partner", "read"
-    )
+    report = server.diagnose_access(FakeCtx(_Client()), "res.partner", "read")
     stages = {err["stage"] for err in report["metadata_errors"]}
     assert "ir.model" in stages
 
@@ -3269,9 +3339,7 @@ def test_diagnose_access_recovers_uid_from_user_context_when_client_lacks_attrib
                 return 1
             raise AssertionError(f"unexpected: {model}.{method}")
 
-    report = server.diagnose_access(
-        FakeCtx(_Client()), "res.partner", "read"
-    )
+    report = server.diagnose_access(FakeCtx(_Client()), "res.partner", "read")
     assert report["current_user"]["uid"] == 7
 
 
@@ -3305,9 +3373,7 @@ def test_diagnose_access_records_user_fields_and_read_errors():
                 return 0
             raise AssertionError(f"unexpected: {model}.{method}")
 
-    report = server.diagnose_access(
-        FakeCtx(_Client()), "res.partner", "read"
-    )
+    report = server.diagnose_access(FakeCtx(_Client()), "res.partner", "read")
     stages = {err["stage"] for err in report["metadata_errors"]}
     assert "res.users.fields_get" in stages or "res.users.read" in stages
 
@@ -3335,15 +3401,19 @@ def test_diagnose_access_skips_non_dict_rule_entries():
                 # Mix dict and non-dict entries to exercise the skip
                 return [
                     "broken",
-                    {"id": 1, "name": "valid", "active": True, "perm_read": True, "groups": False},
+                    {
+                        "id": 1,
+                        "name": "valid",
+                        "active": True,
+                        "perm_read": True,
+                        "groups": False,
+                    },
                 ]
             if model == "res.partner" and method == "search_count":
                 return 1
             raise AssertionError(f"unexpected: {model}.{method}")
 
-    report = server.diagnose_access(
-        FakeCtx(_Client()), "res.partner", "read"
-    )
+    report = server.diagnose_access(FakeCtx(_Client()), "res.partner", "read")
     assert len(report["rules"]["active"]) == 1
 
 

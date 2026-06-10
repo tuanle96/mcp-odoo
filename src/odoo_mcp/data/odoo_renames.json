@@ -1,0 +1,202 @@
+{
+  "catalog_version": 1,
+  "coverage_note": "Curated catalog of well-known Odoo model renames, removals, and replacements. Not exhaustive — it targets the names agents most often hallucinate. Verify against live list_models/get_model_fields before relying on any entry.",
+  "entries": [
+    {
+      "old_model": "account.invoice",
+      "new_model": "account.move",
+      "changed_in": "13.0",
+      "kind": "renamed",
+      "notes": "Invoices merged into journal entries; filter with move_type in ('out_invoice','in_invoice',...)."
+    },
+    {
+      "old_model": "account.invoice.line",
+      "new_model": "account.move.line",
+      "changed_in": "13.0",
+      "kind": "renamed",
+      "notes": "Invoice lines merged into journal items; product lines have display_type = 'product'."
+    },
+    {
+      "old_model": "account.invoice.tax",
+      "new_model": "account.move.line",
+      "changed_in": "13.0",
+      "kind": "merged",
+      "notes": "Tax lines are account.move.line rows with tax_line_id set."
+    },
+    {
+      "old_model": "account.voucher",
+      "new_model": "account.payment",
+      "changed_in": "13.0",
+      "kind": "replaced",
+      "notes": "Vouchers removed; use account.payment and account.move."
+    },
+    {
+      "old_model": "account.register.payments",
+      "new_model": "account.payment.register",
+      "changed_in": "14.0",
+      "kind": "renamed",
+      "notes": "Payment registration wizard renamed."
+    },
+    {
+      "old_model": "hr.holidays",
+      "new_model": "hr.leave",
+      "changed_in": "12.0",
+      "kind": "renamed",
+      "notes": "Leave requests renamed; allocations split into hr.leave.allocation."
+    },
+    {
+      "old_model": "hr.holidays.status",
+      "new_model": "hr.leave.type",
+      "changed_in": "12.0",
+      "kind": "renamed",
+      "notes": "Leave types renamed."
+    },
+    {
+      "old_model": "mass.mailing",
+      "new_model": "mailing.mailing",
+      "changed_in": "13.0",
+      "kind": "renamed",
+      "notes": "Email marketing models moved to the mailing.* namespace."
+    },
+    {
+      "old_model": "mail.mass_mailing.contact",
+      "new_model": "mailing.contact",
+      "changed_in": "13.0",
+      "kind": "renamed",
+      "notes": "Mailing contacts moved to the mailing.* namespace."
+    },
+    {
+      "old_model": "mail.mass_mailing.list",
+      "new_model": "mailing.list",
+      "changed_in": "13.0",
+      "kind": "renamed",
+      "notes": "Mailing lists moved to the mailing.* namespace."
+    },
+    {
+      "old_model": "procurement.order",
+      "new_model": "stock.rule",
+      "changed_in": "11.0",
+      "kind": "replaced",
+      "notes": "Procurement orders removed; procurement runs through stock rules and immediate execution."
+    },
+    {
+      "old_model": "stock.pack.operation",
+      "new_model": "stock.move.line",
+      "changed_in": "11.0",
+      "kind": "replaced",
+      "notes": "Detailed picking operations became stock.move.line."
+    },
+    {
+      "old_model": "fleet.vehicle.log.fuel",
+      "new_model": "fleet.vehicle.log.services",
+      "changed_in": "14.0",
+      "kind": "merged",
+      "notes": "Fuel logs merged into vehicle service logs."
+    },
+    {
+      "old_model": "payment.acquirer",
+      "new_model": "payment.provider",
+      "changed_in": "16.0",
+      "kind": "renamed",
+      "notes": "Payment acquirers renamed to payment providers."
+    },
+    {
+      "old_model": "stock.production.lot",
+      "new_model": "stock.lot",
+      "changed_in": "16.0",
+      "kind": "renamed",
+      "notes": "Lots/serial numbers model renamed."
+    },
+    {
+      "old_model": "account.analytic.tag",
+      "new_model": "account.analytic.plan",
+      "changed_in": "16.0",
+      "kind": "replaced",
+      "notes": "Analytic tags removed; use analytic plans and the analytic_distribution JSON field on lines."
+    },
+    {
+      "old_model": "account.analytic.group",
+      "new_model": "account.analytic.plan",
+      "changed_in": "16.0",
+      "kind": "replaced",
+      "notes": "Analytic groups replaced by analytic plans."
+    },
+    {
+      "old_model": "sale.coupon.program",
+      "new_model": "loyalty.program",
+      "changed_in": "16.0",
+      "kind": "replaced",
+      "notes": "Coupon and promotion programs unified into loyalty.program."
+    },
+    {
+      "old_model": "coupon.program",
+      "new_model": "loyalty.program",
+      "changed_in": "16.0",
+      "kind": "replaced",
+      "notes": "Coupon and promotion programs unified into loyalty.program."
+    },
+    {
+      "old_model": "coupon.coupon",
+      "new_model": "loyalty.card",
+      "changed_in": "16.0",
+      "kind": "replaced",
+      "notes": "Coupons became loyalty cards."
+    },
+    {
+      "old_model": "mail.channel",
+      "new_model": "discuss.channel",
+      "changed_in": "17.0",
+      "kind": "renamed",
+      "notes": "Discuss channels moved to the discuss.* namespace."
+    },
+    {
+      "old_model": "mail.channel.member",
+      "new_model": "discuss.channel.member",
+      "changed_in": "17.0",
+      "kind": "renamed",
+      "notes": "Channel membership moved to the discuss.* namespace."
+    },
+    {
+      "old_model": "account.chart.template",
+      "new_model": null,
+      "changed_in": "17.0",
+      "kind": "removed",
+      "notes": "Chart templates are no longer database records; charts load from code/data files."
+    },
+    {
+      "old_model": "account.tax.template",
+      "new_model": null,
+      "changed_in": "17.0",
+      "kind": "removed",
+      "notes": "Tax templates removed with the chart template rework."
+    },
+    {
+      "old_model": "hr.plan",
+      "new_model": "mail.activity.plan",
+      "changed_in": "17.0",
+      "kind": "renamed",
+      "notes": "Onboarding/activity plans generalized into mail activity plans."
+    },
+    {
+      "old_model": "hr.plan.activity.type",
+      "new_model": "mail.activity.plan.template",
+      "changed_in": "17.0",
+      "kind": "renamed",
+      "notes": "Plan activity types became activity plan templates."
+    },
+    {
+      "old_model": "note.note",
+      "new_model": "project.task",
+      "changed_in": "17.0",
+      "kind": "replaced",
+      "notes": "The Notes app became To-do, backed by private project.task records."
+    },
+    {
+      "old_model": "mail.shortcode",
+      "new_model": "mail.canned.response",
+      "changed_in": "18.0",
+      "kind": "renamed",
+      "notes": "Chat shortcodes became canned responses."
+    }
+  ]
+}

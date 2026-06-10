@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- Added `lookup_model_history` tool — resolves outdated model names against a curated rename catalog (`account.invoice` → `account.move`, `mail.channel` → `discuss.channel`, payment acquirers, analytic tags, chart templates, and more) so agents stop hallucinating pre-rename names. Static catalog shipped at `odoo_mcp/data/odoo_renames.json`; never contacts Odoo.
+- Added access-error root-cause classification — `diagnose_access` accepts an `observed_error` argument and `diagnose_odoo_call` reports `error_classification`, mapping Odoo error text to `acl`, `record_rule`, `multi_company`, `authentication`, `db_routing`, or `missing_or_filtered` with a recommended next action.
+- Added field-relevance ranking — `get_model_fields` accepts `relevance="top"` and `max_fields` to return only the most business-relevant fields (required/searchable boosted) on wide models like `res.partner`.
+- Added `server.json` and a `mcp-registry-publish` release job — the server publishes to the official MCP registry (registry.modelcontextprotocol.io) as `io.github.tuanle96/mcp-odoo` via GitHub OIDC after each PyPI release.
+
+### Changed
+- Updated the XML-RPC/JSON-RPC removal timeline to Odoo 22 (fall 2028) following Odoo's postponement from Odoo 20. `diagnose_odoo_call` with `transport="xmlrpc"` now warns (instead of blocking) for Odoo 19–21 targets and errors only for Odoo 22+; `upgrade_risk_report` marks `json2_required` from Odoo 22. The `ODOO20_RPC_REMOVAL` constant is deprecated in favor of `ODOO_RPC_REMOVAL`.
+- README repositioned around version fluency (16 → 22) instead of the obsolete "survives Odoo 20" framing.
+
+### Compatibility
+- Tool count surfaced by `health_check` is now 26 (was 25 in v0.4.0).
+- `upgrade_risk_report` with `target_version="20.0"`/`"21.0"` now returns `blocked: false` with a `json2_migration` warning instead of a blocking `xmlrpc_jsonrpc_removal` error.
+
 ## [0.4.0] - 2026-06-10
 
 ### Added

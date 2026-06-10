@@ -20,11 +20,16 @@ from mcp.types import Annotations, ToolAnnotations
 from pydantic import BaseModel, Field
 
 from .agent_tools import (
+    DEFAULT_MAX_RELEVANT_FIELDS,
     DEFAULT_MAX_SMART_FIELDS,
     build_approval_token,
     build_domain_report,
     build_write_preview_report,
-    business_pack_report as build_business_pack_report,
+)
+from .agent_tools import business_pack_report as build_business_pack_report
+from .agent_tools import (
+    lookup_model_history_report,
+    rank_relevant_fields,
     scan_addons_source_report,
     select_smart_fields,
     validate_write_report,
@@ -32,14 +37,17 @@ from .agent_tools import (
 )
 from .diagnostics import (
     DESTRUCTIVE_METHODS,
+    classify_access_error,
     classify_method_safety,
     diagnose_odoo_call_report,
-    fit_gap_report as build_fit_gap_report,
+)
+from .diagnostics import fit_gap_report as build_fit_gap_report
+from .diagnostics import (
     generate_json2_payload_report,
     inspect_model_relationships_report,
     sanitize_odoo_error,
-    upgrade_risk_report as build_upgrade_risk_report,
 )
+from .diagnostics import upgrade_risk_report as build_upgrade_risk_report
 from .odoo_client import (
     OdooClient,
     get_odoo_client,
@@ -1039,6 +1047,7 @@ def diagnose_access(
     record_ids: Optional[List[int]] = None,
     expected_count: Optional[int] = None,
     include_rules: bool = True,
+    observed_error: Optional[Any] = None,
     limit: int = 50,
     instance: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -1046,7 +1055,9 @@ def diagnose_access(
     Inspect readable ACL/rule metadata for the current Odoo credential.
 
     This tool never uses sudo, never impersonates another user, and only performs
-    read-only metadata/count calls.
+    read-only metadata/count calls. Pass the failing call's error text or JSON
+    as ``observed_error`` to get a root-cause classification (ACL vs record
+    rule vs multi-company vs routing).
     """
     try:
         validate_model_name(model)
@@ -1293,6 +1304,7 @@ def diagnose_access(
                 "applicable": applicable_rules,
             },
             "diagnosis": {"codes": diagnosis_codes},
+            "error_classification": classify_access_error(observed_error),
             "metadata_errors": metadata_errors,
             "metadata_used": {
                 "live_odoo": True,
@@ -1344,6 +1356,27 @@ def upgrade_risk_report(
             }
         )
     return report
+
+
+@mcp.tool(
+    description=(
+        "Look up Odoo model rename/removal history by old or new model name "
+        "(e.g. account.invoice -> account.move)"
+    ),
+    annotations=PREVIEW_TOOL,
+    structured_output=True,
+)
+def lookup_model_history(name: str) -> Dict[str, Any]:
+    """
+    Resolve a possibly outdated model name against a curated rename catalog.
+
+    Call this before assuming a model exists when working across Odoo
+    versions; it is static and never contacts Odoo.
+    """
+    try:
+        return lookup_model_history_report(name)
+    except Exception as e:
+        return {"success": False, "tool": "lookup_model_history", "error": str(e)}
 
 
 @mcp.tool(
@@ -1697,7 +1730,10 @@ def execute_approved_write(
 
         # Execute on the instance named in the approval (single source of truth).
         approval_instance = str(approval.get("instance") or "") or None
-        if approval_instance is None or approval_instance == resolve_default_instance_name():
+        if (
+            approval_instance is None
+            or approval_instance == resolve_default_instance_name()
+        ):
             odoo = app_context.odoo
         else:
             _, odoo = app_context.get_client(approval_instance)
@@ -1976,14 +2012,20 @@ def get_model_fields(
     ctx: Context,
     model: str,
     field_names: Optional[List[str]] = None,
+    relevance: Optional[str] = None,
+    max_fields: int = DEFAULT_MAX_RELEVANT_FIELDS,
     instance: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Read field definitions for a model.
 
     Prefer this read-only tool over execute_method for model introspection.
+    Pass ``relevance="top"`` to rank wide models by business relevance and
+    return only the ``max_fields`` most useful fields (with their scores).
     """
     try:
+        if relevance not in (None, "top"):
+            raise ValueError('relevance must be "top" when provided')
         _, odoo = _resolve_odoo(ctx, instance)
         validate_model_name(model)
         fields = odoo.get_model_fields(model)
@@ -1991,6 +2033,17 @@ def get_model_fields(
             return {"success": False, "error": fields["error"]}
         if field_names:
             fields = {name: fields[name] for name in field_names if name in fields}
+        if relevance == "top":
+            ranking = rank_relevant_fields(fields, max_fields=max_fields)
+            ranked_names = [entry["field"] for entry in ranking]
+            fields = {name: fields[name] for name in ranked_names}
+            return {
+                "success": True,
+                "count": len(fields),
+                "result": fields,
+                "relevance_applied": True,
+                "ranking": ranking,
+            }
         return {"success": True, "count": len(fields), "result": fields}
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -2271,9 +2324,7 @@ def chatter_post(
         if not body_text:
             raise ValueError("body must be a non-empty string")
         if message_type not in {"comment", "notification"}:
-            raise ValueError(
-                "message_type must be 'comment' or 'notification'."
-            )
+            raise ValueError("message_type must be 'comment' or 'notification'.")
 
         canonical = _build_chatter_payload(
             model=model,

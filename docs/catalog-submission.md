@@ -6,6 +6,33 @@ GHCR Docker workflow, and a publish-to-PyPI workflow — what's left is the
 manual registration in each catalog. Smithery in particular requires an
 account and an interactive submit step, so it can't run from CI.
 
+## 0. Official MCP Registry (registry.modelcontextprotocol.io) — automated
+
+The canonical discovery surface. Publishing is automated:
+
+- `server.json` at the repo root describes the server
+  (`io.github.tuanle96/mcp-odoo`, PyPI package `odoo-mcp`).
+- README.md carries the `mcp-name: io.github.tuanle96/mcp-odoo` ownership
+  marker; the registry validates it against the published PyPI long
+  description, so the marker must be in the **released** package.
+- The Dockerfile carries the matching
+  `io.modelcontextprotocol.server.name` label for a future OCI package
+  entry (not yet listed in `server.json` — add it once a labeled image
+  is on GHCR).
+- The `mcp-registry-publish` job in `.github/workflows/publish.yml` runs
+  on every GitHub release after the PyPI upload: it syncs the version
+  from `pyproject.toml`, authenticates via GitHub OIDC
+  (`mcp-publisher login github-oidc`), and publishes.
+
+Note: the first registry publish only succeeds once a PyPI release whose
+README contains the `mcp-name` marker is live (0.5.0+).
+
+After publishing, verify the listing:
+
+```bash
+curl -s "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.tuanle96/mcp-odoo" | jq .
+```
+
 ## 1. modelcontextprotocol/servers (community catalog)
 
 The community list at <https://github.com/modelcontextprotocol/servers>

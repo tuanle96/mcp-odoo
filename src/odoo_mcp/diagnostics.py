@@ -21,7 +21,15 @@ JSON2_POSITIONAL_ARG_MAP: dict[str, tuple[str, ...]] = {
     "name_search": ("name", "domain", "operator", "limit"),
     "fields_get": ("allfields", "attributes"),
     "read_group": ("domain", "fields", "groupby", "offset", "limit", "orderby", "lazy"),
-    "formatted_read_group": ("domain", "groupby", "aggregates", "having", "offset", "limit", "order"),
+    "formatted_read_group": (
+        "domain",
+        "groupby",
+        "aggregates",
+        "having",
+        "offset",
+        "limit",
+        "order",
+    ),
     "message_post": ("ids",),
 }
 
@@ -37,7 +45,12 @@ READ_ONLY_METHODS = {
 }
 DESTRUCTIVE_METHODS = {"create", "write", "unlink"}
 MODEL_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*$")
-ODOO20_RPC_REMOVAL = "Odoo 20 fall 2026"
+ODOO_RPC_REMOVAL = "Odoo 22 fall 2028"
+ODOO_RPC_REMOVAL_MAJOR = 22
+ODOO_RPC_DEPRECATION_MAJOR = 19
+# Deprecated alias kept for backward compatibility; Odoo postponed the
+# XML-RPC/JSON-RPC removal from Odoo 20 to Odoo 22.
+ODOO20_RPC_REMOVAL = ODOO_RPC_REMOVAL
 SIDE_EFFECT_METHOD_PATTERNS = (
     re.compile(r"^action_"),
     re.compile(r"^button_"),
@@ -173,6 +186,119 @@ def sanitize_odoo_error(
         "arguments": payload.get("arguments", []),
         "context": payload.get("context", {}),
         "debug": debug if include_debug and debug is not None else "[redacted]",
+    }
+
+
+# Ordered matchers for classify_access_error. First match wins, so the more
+# specific signatures (database routing, multi-company note) come before the
+# generic ACL/record-rule phrasing they can be embedded in.
+_ACCESS_ERROR_MATCHERS: tuple[
+    tuple[str, tuple[re.Pattern[str], ...], str, str], ...
+] = (
+    (
+        "db_routing",
+        (
+            re.compile(r"database\b.{0,60}does not exist"),
+            re.compile(r"database not found"),
+            re.compile(r"x-odoo-database"),
+        ),
+        "The target database was not found or the request was routed to the wrong database.",
+        "Call list_instances and get_odoo_profile to confirm which database this server is connected to.",
+    ),
+    (
+        "authentication",
+        (
+            re.compile(r"access denied"),
+            re.compile(r"invalid api key"),
+            re.compile(r"session expired"),
+            re.compile(r"authentication failed"),
+        ),
+        "The credential itself was rejected (login/API key), before any model-level check.",
+        "Verify ODOO_USERNAME/ODOO_PASSWORD or the API key, then call health_check.",
+    ),
+    (
+        "multi_company",
+        (
+            re.compile(r"multi-?company"),
+            re.compile(r"incompatible companies"),
+            re.compile(r"unauthorized or invalid companies"),
+        ),
+        "A company-scoped record rule or company check blocked the operation.",
+        "Call diagnose_access with the record IDs and compare the user's company_ids with the records' company_id.",
+    ),
+    (
+        "record_rule",
+        (
+            re.compile(r"security restriction"),
+            re.compile(r"record rule"),
+            re.compile(r"implicitly accessed through"),
+        ),
+        "ACL allows the operation, but an ir.rule domain filters out these specific records.",
+        "Call diagnose_access with record_ids and include_rules=True to see which rule domains apply.",
+    ),
+    (
+        "acl",
+        (
+            re.compile(r"not allowed to"),
+            re.compile(r"access rights"),
+            re.compile(r"operation is allowed for the following groups"),
+        ),
+        "ir.model.access denies this operation for the user's groups.",
+        "Call diagnose_access with the model and operation to list granting ACL rows and the user's groups.",
+    ),
+    (
+        "missing_or_filtered",
+        (re.compile(r"does not exist or has been deleted"),),
+        "The record is deleted, or a record rule hides it so Odoo reports it as missing.",
+        "Search the model by ID with search_records, then call diagnose_access for the same IDs.",
+    ),
+)
+
+
+def classify_access_error(
+    error: str | dict[str, Any] | None,
+    *,
+    include_debug: bool = False,
+) -> dict[str, Any] | None:
+    """Classify an observed Odoo error into a likely access root cause.
+
+    Pure text heuristic over the sanitized error — no Odoo calls. Categories:
+    db_routing, authentication, multi_company, record_rule, acl,
+    missing_or_filtered, unknown.
+    """
+    sanitized = sanitize_odoo_error(error, include_debug=include_debug)
+    if sanitized is None:
+        return None
+
+    text_parts = [
+        str(sanitized.get("name") or ""),
+        str(sanitized.get("message") or ""),
+        " ".join(str(arg) for arg in sanitized.get("arguments") or []),
+    ]
+    text = " ".join(part for part in text_parts if part).lower()
+
+    for category, signatures, explanation, next_action in _ACCESS_ERROR_MATCHERS:
+        matched = [
+            signature.pattern for signature in signatures if signature.search(text)
+        ]
+        if matched:
+            return {
+                "category": category,
+                "confidence": "high" if len(matched) > 1 else "medium",
+                "evidence": matched,
+                "explanation": explanation,
+                "recommended_next_action": next_action,
+            }
+
+    return {
+        "category": "unknown",
+        "confidence": "low",
+        "evidence": [],
+        "explanation": "The error text does not match known Odoo access failure signatures.",
+        "recommended_next_action": (
+            "Call diagnose_odoo_call with this model and method, "
+            "then diagnose_access if the call shape is valid."
+        ),
     }
 
 
@@ -313,21 +439,31 @@ def diagnose_odoo_call_report(
     safety = classify_method_safety(method)
     json2_ready = not any(issue["code"].startswith("json2_") for issue in issues)
     compatibility = _transport_compatibility(transport, json2_ready)
-    if (
-        target_version
-        and _major_version(target_version) >= 20
-        and transport == "xmlrpc"
-    ):
-        issues.append(
-            {
-                "code": "deprecated_rpc_transport",
-                "severity": "error",
-                "message": (
-                    "XML-RPC/JSON-RPC are scheduled for removal in Odoo 20; "
-                    "migrate this call to JSON-2."
-                ),
-            }
-        )
+    if target_version and transport == "xmlrpc":
+        target_major_version = _major_version(target_version)
+        if target_major_version >= ODOO_RPC_REMOVAL_MAJOR:
+            issues.append(
+                {
+                    "code": "deprecated_rpc_transport",
+                    "severity": "error",
+                    "message": (
+                        f"XML-RPC/JSON-RPC are removed in {ODOO_RPC_REMOVAL}; "
+                        "migrate this call to JSON-2."
+                    ),
+                }
+            )
+        elif target_major_version >= ODOO_RPC_DEPRECATION_MAJOR:
+            issues.append(
+                {
+                    "code": "deprecated_rpc_transport",
+                    "severity": "warning",
+                    "message": (
+                        "XML-RPC/JSON-RPC are deprecated since Odoo 19 and "
+                        f"scheduled for removal in {ODOO_RPC_REMOVAL}; "
+                        "plan a JSON-2 migration for this call."
+                    ),
+                }
+            )
 
     return {
         "success": not any(issue["severity"] == "error" for issue in issues),
@@ -346,6 +482,9 @@ def diagnose_odoo_call_report(
             "json2": payload_report if json2_ready else None,
         },
         "observed_error": sanitize_odoo_error(
+            observed_error, include_debug=include_debug
+        ),
+        "error_classification": classify_access_error(
             observed_error, include_debug=include_debug
         ),
         "metadata_used": {
@@ -479,21 +618,24 @@ def upgrade_risk_report(
     """Build an input-driven Odoo upgrade risk report."""
     risks: list[dict[str, str]] = []
     target_major = _major_version(target_version)
-    if target_major >= 20:
+    if target_major >= ODOO_RPC_REMOVAL_MAJOR:
         risks.append(
             {
                 "code": "xmlrpc_jsonrpc_removal",
                 "severity": "error",
-                "evidence": f"Target version {target_version} reaches {ODOO20_RPC_REMOVAL}.",
+                "evidence": f"Target version {target_version} reaches {ODOO_RPC_REMOVAL}.",
                 "recommendation": "Move integrations to External JSON-2 with named arguments.",
             }
         )
-    elif target_major == 19 or source_version:
+    elif target_major >= ODOO_RPC_DEPRECATION_MAJOR or source_version:
         risks.append(
             {
                 "code": "json2_migration",
                 "severity": "warning",
-                "evidence": "Odoo 19 introduces External JSON-2 as the replacement API.",
+                "evidence": (
+                    "Odoo 19 introduces External JSON-2 as the replacement API; "
+                    "XML-RPC stays available but deprecated through Odoo 21."
+                ),
                 "recommendation": "Prefer JSON-2 payload previews and avoid new XML-RPC-only integrations.",
             }
         )
@@ -571,8 +713,8 @@ def upgrade_risk_report(
         },
         "risks": risks,
         "transport": {
-            "xmlrpc_jsonrpc_deprecation": ODOO20_RPC_REMOVAL,
-            "json2_required": target_major >= 20,
+            "xmlrpc_jsonrpc_deprecation": ODOO_RPC_REMOVAL,
+            "json2_required": target_major >= ODOO_RPC_REMOVAL_MAJOR,
         },
         "destructive_methods": destructive_methods,
         "odoo_errors": odoo_errors,

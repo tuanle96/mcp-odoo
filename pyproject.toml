@@ -51,6 +51,9 @@ odoo-mcp = "odoo_mcp.__main__:main"
 package-dir = {"" = "src"}
 packages = ["odoo_mcp"]
 
+[tool.setuptools.package-data]
+odoo_mcp = ["data/*.json"]
+
 [tool.black]
 line-length = 88
 target-version = ["py310"]

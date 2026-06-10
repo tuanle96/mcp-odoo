@@ -120,6 +120,30 @@ jobs:
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
         run: python -m twine upload dist/*
 
+  mcp-registry-publish:
+    runs-on: ubuntu-latest
+    needs:
+      - publish
+    if: github.event_name == 'release' && github.event.action == 'published'
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sync server.json version with pyproject
+        run: |
+          VERSION=$(python3 -c "import re, pathlib; print(re.search(r'(?m)^version = \"([^\"]+)\"$', pathlib.Path('pyproject.toml').read_text()).group(1))")
+          jq --arg v "$VERSION" '.version = $v | (.packages[] | select(.version != null)).version = $v' server.json > server.json.tmp
+          mv server.json.tmp server.json
+          cat server.json
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+      - name: Publish to the official MCP registry
+        run: |
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish
+
   smithery-publish:
     runs-on: ubuntu-latest
     needs:

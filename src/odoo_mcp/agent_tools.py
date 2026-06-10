@@ -12,6 +12,7 @@ import json
 import os
 import re
 import time
+from importlib import resources
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
@@ -927,8 +928,10 @@ def _is_skip_metadata(meta: dict[str, Any]) -> bool:
         return True
     if meta.get("compute") and not meta.get("store", True):
         return True
-    if field_type in {"one2many", "many2many"} and meta.get("compute") and not meta.get(
-        "store", True
+    if (
+        field_type in {"one2many", "many2many"}
+        and meta.get("compute")
+        and not meta.get("store", True)
     ):  # pragma: no cover - already handled by the generic compute+!store branch above
         return True
     return False
@@ -954,6 +957,41 @@ def _smart_field_score(field_name: str, meta: dict[str, Any]) -> int:
     if field_type in {"one2many", "many2many"}:
         return 5
     return 10
+
+
+DEFAULT_MAX_RELEVANT_FIELDS = 30
+
+
+def rank_relevant_fields(
+    fields_metadata: dict[str, Any],
+    max_fields: int = DEFAULT_MAX_RELEVANT_FIELDS,
+) -> list[dict[str, Any]]:
+    """Rank fields by business relevance for schema exploration.
+
+    Builds on the smart-field heuristics and boosts fields that are
+    required or searchable, so agents inspecting wide models (res.partner
+    has hundreds of fields) can start from the ones that matter.
+    """
+    if max_fields <= 0:
+        return []
+
+    scored: list[dict[str, Any]] = []
+    for field_name, raw_meta in fields_metadata.items():
+        if not isinstance(raw_meta, dict):
+            continue
+        if _is_technical_field_name(field_name):
+            continue
+        if _is_skip_metadata(raw_meta):
+            continue
+        score = _smart_field_score(field_name, raw_meta)
+        if raw_meta.get("required"):
+            score += 30
+        if raw_meta.get("searchable"):
+            score += 5
+        scored.append({"field": field_name, "score": score})
+
+    scored.sort(key=lambda item: (-item["score"], item["field"]))
+    return scored[:max_fields]
 
 
 def select_smart_fields(
@@ -997,7 +1035,100 @@ def select_smart_fields(
     for _, name in candidates:
         if len(selected) >= max_fields:
             break
-        if name in selected:  # pragma: no cover - defensive; forced names are pre-filtered from candidates
+        if (
+            name in selected
+        ):  # pragma: no cover - defensive; forced names are pre-filtered from candidates
             continue
         selected.append(name)
     return selected
+
+
+# Model rename history — static catalog of well-known Odoo model renames and
+# removals, so agents stop hallucinating pre-rename names (account.invoice,
+# mail.channel, ...) against modern databases.
+
+_RENAME_CATALOG_CACHE: dict[str, Any] | None = None
+
+
+def load_model_rename_catalog() -> dict[str, Any]:
+    """Load the packaged rename catalog (cached after first read)."""
+    global _RENAME_CATALOG_CACHE
+    if _RENAME_CATALOG_CACHE is None:
+        raw = (
+            resources.files("odoo_mcp")
+            .joinpath("data/odoo_renames.json")
+            .read_text(encoding="utf-8")
+        )
+        _RENAME_CATALOG_CACHE = json.loads(raw)
+    return _RENAME_CATALOG_CACHE
+
+
+def lookup_model_history_report(name: str) -> dict[str, Any]:
+    """Look up rename/removal history for a model name (old or new)."""
+    catalog = load_model_rename_catalog()
+    entries = catalog.get("entries", [])
+    normalized = name.strip().lower()
+    if not normalized:
+        return {
+            "success": False,
+            "tool": "lookup_model_history",
+            "error": "name must be a non-empty model name like 'account.invoice'",
+        }
+
+    exact = [
+        entry
+        for entry in entries
+        if normalized in (entry.get("old_model"), entry.get("new_model"))
+    ]
+    matches = exact
+    match_type = "exact" if exact else "none"
+    if not exact:
+        partial = [
+            entry
+            for entry in entries
+            if normalized in str(entry.get("old_model") or "")
+            or normalized in str(entry.get("new_model") or "")
+        ]
+        if partial:
+            matches = partial
+            match_type = "partial"
+
+    guidance: list[str] = []
+    for entry in matches:
+        if entry.get("old_model") == normalized or match_type == "partial":
+            if entry.get("new_model"):
+                guidance.append(
+                    f"{entry['old_model']} was {entry['kind']} in Odoo "
+                    f"{entry['changed_in']}; use {entry['new_model']} instead."
+                )
+            else:
+                guidance.append(
+                    f"{entry['old_model']} was removed in Odoo "
+                    f"{entry['changed_in']}; {entry.get('notes', '')}".strip()
+                )
+        elif entry.get("new_model") == normalized:
+            guidance.append(
+                f"{normalized} is the current name; it was previously "
+                f"{entry['old_model']} (changed in Odoo {entry['changed_in']})."
+            )
+    if match_type == "none":
+        guidance.append(
+            "No rename history found in the curated catalog. The name may be "
+            "current, custom, or missing from the catalog — verify with "
+            "list_models or schema_catalog."
+        )
+
+    return {
+        "success": True,
+        "tool": "lookup_model_history",
+        "query": name,
+        "match_type": match_type,
+        "matches": matches,
+        "guidance": guidance,
+        "catalog": {
+            "catalog_version": catalog.get("catalog_version"),
+            "entry_count": len(entries),
+            "coverage_note": catalog.get("coverage_note"),
+        },
+        "metadata_used": {"live_odoo": False, "source": "static_catalog"},
+    }

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.tuanle96/mcp-odoo",
+  "description": "Turn any Odoo 16+ database into an MCP server with existing credentials: safe gated writes, access diagnostics, schema discovery, JSON-2 migration helpers, multi-instance routing.",
+  "version": "0.4.0",
+  "websiteUrl": "https://github.com/tuanle96/mcp-odoo#readme",
+  "repository": {
+    "url": "https://github.com/tuanle96/mcp-odoo",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "odoo-mcp",
+      "version": "0.4.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "ODOO_URL",
+          "description": "Odoo server URL, e.g. https://mycompany.odoo.com",
+          "isRequired": true,
+          "isSecret": false
+        },
+        {
+          "name": "ODOO_DB",
+          "description": "Odoo database name",
+          "isRequired": true,
+          "isSecret": false
+        },
+        {
+          "name": "ODOO_USERNAME",
+          "description": "Odoo login (email)",
+          "isRequired": true,
+          "isSecret": false
+        },
+        {
+          "name": "ODOO_PASSWORD",
+          "description": "Odoo password or API key",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}
