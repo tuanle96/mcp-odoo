@@ -46,6 +46,9 @@ Once configured (see [Install](#install) and [Configure](#configure)), ask your 
 | Locale plumbing | `ODOO_LOCALE` injects `context.lang` automatically on every Odoo call (caller can override). |
 | Structured logging | JSON formatter and rotating file handler via `ODOO_MCP_LOG_LEVEL`, `ODOO_MCP_LOG_JSON`, `ODOO_MCP_LOG_FILE`. |
 | Safe writes | Direct `create`, `write`, and `unlink` are blocked; approved writes require live metadata, a same-session token, explicit confirmation, and an env gate. |
+| Human-in-the-loop approval | `ODOO_MCP_ELICIT_WRITES=1` shows a native MCP confirmation form (with a diff summary) before any approved write executes — token flow stays as fallback. |
+| Audit trail | `ODOO_MCP_AUDIT_LOG` appends one JSONL line per write-path event (preview, validate, execute, chatter) with instance and token digest. |
+| Resilience | Read-only calls retry connection errors with exponential backoff; schema caches are TTL- and LRU-bounded; `health_check` flags N+1 read loops. |
 | Real smoke tests | Docker Compose validation boots disposable Odoo 16.0, 17.0, 18.0, and 19.0 stacks, including restricted users, custom record rules, and packaged addon XML install/update. |
 
 ## Why Odoo MCP
@@ -61,6 +64,8 @@ Once configured (see [Install](#install) and [Configure](#configure)), ask your 
 | Agent prompts | 5 ready-made prompts for diagnose / fit-gap / JSON-2 migration / safe-write / module-audit. | Usually none. |
 | HTTP transport security | DNS-rebinding protection, host/origin allowlists, local-bind by default. | Often missing. |
 | Real Odoo smoke tests | Docker Compose harness boots disposable Odoo 16/17/18/19 stacks per release. | Often mock-based only. |
+| Framework examples | Copy-paste adapters for Cursor, Claude Code, OpenAI Agents, LangGraph, CrewAI, and n8n in [`examples/`](./examples/). | None. |
+| Audit & approval UX | JSONL audit trail + native elicitation confirm forms — without installing anything in Odoo. | Audit features usually require an Odoo-side module. |
 
 ## Install
 
@@ -125,7 +130,14 @@ Optional environment variables:
 | `ODOO_MCP_LOG_FILE` | unset | Path → enable rotating file handler (10MB × 3 backups). |
 | `ODOO_MCP_ENABLE_WRITES` | `0` | Required for `execute_approved_write`. |
 | `ODOO_MCP_ALLOWED_SIDE_EFFECT_METHODS` | empty | Exact `model.method` allowlist (e.g. `sale.order.action_confirm`). |
+| `ODOO_MCP_POLICY_FILE` | `./odoo_mcp_policy.json` if present | Version-controllable side-effect allowlist with review metadata (see `odoo_mcp_policy.json.example`); merged with the env allowlist. |
 | `ODOO_MCP_ALLOW_UNKNOWN_METHODS` | `0` | Broad mode for `execute_method`. Prefer the exact allowlist above. |
+| `ODOO_MCP_AUDIT_LOG` | unset | Path → append one JSONL line per write-path event (preview/validate/execute/chatter), tokens stored as digests. |
+| `ODOO_MCP_ELICIT_WRITES` | `0` | Truthy → `execute_approved_write` asks the human via MCP elicitation (native confirm form with a diff summary) before executing; falls back to the token flow when the client cannot elicit. |
+| `ODOO_MCP_RETRY_ATTEMPTS` | `2` | Extra attempts for read-only calls on connection errors (0–5). Writes never retry. |
+| `ODOO_MCP_RETRY_BACKOFF` | `0.5` | Base retry backoff seconds; doubles per retry. |
+| `ODOO_MCP_SCHEMA_CACHE_TTL` | `600` | Schema cache entry lifetime in seconds. |
+| `ODOO_MCP_SCHEMA_CACHE_MAX` | `256` | Max schema cache entries (LRU eviction). |
 | `MCP_CHATTER_DIRECT` | `0` | Truthy → `chatter_post` skips the approval token gate and posts immediately. |
 | `MCP_ALLOW_REMOTE_HTTP` | `0` | Truthy → permit non-local HTTP binds (still requires external auth/TLS). |
 | `MCP_ALLOWED_HOSTS` / `MCP_ALLOWED_ORIGINS` | local | CSV allowlists for HTTP transports. |
@@ -340,6 +352,19 @@ Use an absolute Python path because GUI apps may not inherit your shell `PATH`:
 
 More examples are in [docs/client-configs.md](./docs/client-configs.md).
 
+### Framework examples
+
+Copy-paste-runnable integrations live in [`examples/`](./examples/):
+
+| Client | Example |
+| --- | --- |
+| Cursor | [`examples/cursor/`](./examples/cursor/) — `.cursor/mcp.json` + agent rules |
+| Claude Code / Codex CLI | snippets in [`examples/README.md`](./examples/README.md) |
+| OpenAI Agents SDK | [`examples/openai-agents/`](./examples/openai-agents/) — local + hosted variants |
+| LangGraph | [`examples/langgraph/`](./examples/langgraph/) — `langchain-mcp-adapters` |
+| CrewAI | [`examples/crewai/`](./examples/crewai/) — native `mcps=[...]` agent |
+| n8n | [`examples/n8n/`](./examples/n8n/) — importable workflow JSON |
+
 ## Docker
 
 Use the prebuilt GHCR image:
@@ -426,6 +451,17 @@ uv run --python 3.12 --with-editable . scripts/odoo_multi_instance_smoke.py
 ## Compatibility
 
 XML-RPC remains the default transport for broad compatibility. Odoo 19 supports External JSON-2 through `ODOO_TRANSPORT=json2`. XML-RPC and JSON-RPC are deprecated since Odoo 19 and scheduled for removal in Odoo 22 (fall 2028), so new integrations should plan for JSON-2.
+
+## Documentation
+
+| Guide | Covers |
+| --- | --- |
+| [docs/architecture.md](./docs/architecture.md) | System shape, transports, safety boundaries |
+| [docs/multi-instance.md](./docs/multi-instance.md) | Multi-database config, routing, isolation model |
+| [docs/troubleshooting.md](./docs/troubleshooting.md) | From error text to root cause (ACL, record rules, routing) |
+| [docs/performance.md](./docs/performance.md) | Cache/retry knobs, batching patterns, N+1 detection |
+| [docs/client-configs.md](./docs/client-configs.md) | Claude Desktop, Docker, Streamable HTTP setups |
+| [docs/testing.md](./docs/testing.md) | Local gates and the Docker Compose smoke harness |
 
 ## Contributing
 

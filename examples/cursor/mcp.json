@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "odoo": {
+      "command": "uvx",
+      "args": ["odoo-mcp"],
+      "env": {
+        "ODOO_URL": "${env:ODOO_URL}",
+        "ODOO_DB": "${env:ODOO_DB}",
+        "ODOO_USERNAME": "${env:ODOO_USERNAME}",
+        "ODOO_PASSWORD": "${env:ODOO_PASSWORD}"
+      }
+    },
+    "odoo-http": {
+      "url": "http://localhost:8000/mcp"
+    }
+  }
+}

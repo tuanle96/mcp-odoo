@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- Framework adapter examples in `examples/` — copy-paste integrations for Cursor (`.cursor/mcp.json` + rules), Claude Code, Codex CLI, OpenAI Agents SDK (local `MCPServerStreamableHttp` + `HostedMCPTool`), LangGraph (`langchain-mcp-adapters>=0.2.2`), CrewAI (native `mcps=[...]`), and an importable n8n workflow using the official MCP Client Tool node. Index with a transport matrix at `examples/README.md`.
+- Audit logging trail — `ODOO_MCP_AUDIT_LOG=<path>` appends one JSONL line per write-path event (`preview`, `validate`, `execute`, `elicit`, `chatter_post`) with model, operation, record IDs, instance, outcome, and a token digest (never the token itself). Fail-open with a warning; posture surfaced in `health_check`.
+- Elicitation-based write approval — `ODOO_MCP_ELICIT_WRITES=1` makes `execute_approved_write` ask the human through MCP elicitation (native confirm form showing a diff summary) before executing; clients without elicitation support fall back to the unchanged token flow. Declines are audited.
+- Side-effect policy file — reviewed `execute_method` side-effect methods can now live in a version-controllable JSON file (`ODOO_MCP_POLICY_FILE`, default `./odoo_mcp_policy.json` when present; see `odoo_mcp_policy.json.example`) with reviewer metadata, merged with the `ODOO_MCP_ALLOWED_SIDE_EFFECT_METHODS` env allowlist. Broken policy files fail closed and surface their error in `health_check`.
+- Reliability hardening — read-only Odoo calls retry connection-level failures with exponential backoff (`ODOO_MCP_RETRY_ATTEMPTS`, `ODOO_MCP_RETRY_BACKOFF`; writes never retry); the schema cache is now TTL- and LRU-bounded (`ODOO_MCP_SCHEMA_CACHE_TTL`, `ODOO_MCP_SCHEMA_CACHE_MAX`); `health_check` reports models hit by N+1 `read_record` loops (`runtime.n_plus_one`).
+- New guides: `docs/troubleshooting.md` (error-classifier categories → fixes), `docs/multi-instance.md`, `docs/performance.md`.
+
+### Compatibility
+- No breaking changes. Tool count stays 26; elicitation, audit logging, and the policy file are all opt-in; retry/caching defaults preserve existing behavior envelopes.
+
 ## [0.5.0] - 2026-06-10
 
 ### Added

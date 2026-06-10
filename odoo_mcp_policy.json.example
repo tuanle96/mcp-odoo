@@ -1,0 +1,12 @@
+{
+  "comment": "Reviewed side-effect methods for execute_method. Commit this file to git so every allowlist change goes through PR review. Activate by copying to ./odoo_mcp_policy.json or pointing ODOO_MCP_POLICY_FILE at it.",
+  "allowed_side_effect_methods": [
+    {
+      "method": "sale.order.action_confirm",
+      "reviewed_by": "your-name",
+      "date": "2026-06-10",
+      "reason": "Sales team needs agents to confirm quotations after human approval in chat."
+    },
+    "stock.picking.button_validate"
+  ]
+}

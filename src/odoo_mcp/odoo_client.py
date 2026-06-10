@@ -12,15 +12,40 @@ import re
 import socket
 import ssl
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import xmlrpc.client
 from typing import Any, cast
 
-from .diagnostics import JSON2_POSITIONAL_ARG_MAP, sanitize_odoo_error
+from .diagnostics import (
+    JSON2_POSITIONAL_ARG_MAP,
+    READ_ONLY_METHODS,
+    sanitize_odoo_error,
+)
 
 SUPPORTED_TRANSPORTS = {"xmlrpc", "json2"}
+
+
+def _retry_attempts() -> int:
+    """Extra attempts for read-only calls that hit connection errors (0-5)."""
+    raw = os.environ.get("ODOO_MCP_RETRY_ATTEMPTS", "").strip()
+    try:
+        value = int(raw) if raw else 2
+    except ValueError:
+        value = 2
+    return max(0, min(value, 5))
+
+
+def _retry_backoff_seconds() -> float:
+    """Base backoff delay in seconds; doubles per retry (capped at 10s)."""
+    raw = os.environ.get("ODOO_MCP_RETRY_BACKOFF", "").strip()
+    try:
+        value = float(raw) if raw else 0.5
+    except ValueError:
+        value = 0.5
+    return max(0.0, min(value, 10.0))
 
 
 class OdooJson2Error(ValueError):
@@ -187,8 +212,44 @@ class OdooClient:
         return merged
 
     def _execute(self, model: str, method: str, *args: Any, **kwargs: Any) -> Any:
-        """Execute a method on an Odoo model."""
+        """Execute a method on an Odoo model.
+
+        Read-only ORM methods retry on connection-level failures with
+        exponential backoff (ODOO_MCP_RETRY_ATTEMPTS / ODOO_MCP_RETRY_BACKOFF).
+        Anything that may mutate data is never retried.
+        """
         kwargs = self._apply_lang_context(kwargs)
+        extra_attempts = _retry_attempts() if method in READ_ONLY_METHODS else 0
+        last_error: Exception | None = None
+        for attempt in range(1 + extra_attempts):
+            if attempt:
+                delay = _retry_backoff_seconds() * (2 ** (attempt - 1))
+                print(
+                    f"Retrying {model}.{method} after connection error "
+                    f"(attempt {attempt + 1}, waiting {delay:.1f}s)",
+                    file=sys.stderr,
+                )
+                time.sleep(delay)
+            try:
+                return self._execute_once(model, method, args, kwargs)
+            except (
+                ConnectionError,
+                TimeoutError,
+                socket.error,
+                xmlrpc.client.ProtocolError,
+            ) as exc:
+                last_error = exc
+        assert last_error is not None
+        raise last_error
+
+    def _execute_once(
+        self,
+        model: str,
+        method: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+    ) -> Any:
+        """Single transport-level execution without retry logic."""
         if self.transport == "json2":
             payload = self._build_json2_payload(model, method, args, kwargs)
             return self._json2_call(model, method, payload)

@@ -35,6 +35,7 @@ from .agent_tools import (
     validate_write_report,
     verify_write_approval,
 )
+from .audit import audit_posture, record_write_event
 from .diagnostics import (
     DESTRUCTIVE_METHODS,
     classify_access_error,
@@ -60,6 +61,87 @@ MODEL_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)
 METHOD_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 MAX_SEARCH_LIMIT = 100
 WRITE_APPROVAL_TTL_SECONDS = 10 * 60
+DEFAULT_SCHEMA_CACHE_MAX_ENTRIES = 256
+DEFAULT_SCHEMA_CACHE_TTL_SECONDS = 10 * 60
+
+
+def _schema_cache_settings() -> tuple[int, float]:
+    """Read schema cache bounds from env with safe defaults."""
+    raw_max = os.environ.get("ODOO_MCP_SCHEMA_CACHE_MAX", "").strip()
+    raw_ttl = os.environ.get("ODOO_MCP_SCHEMA_CACHE_TTL", "").strip()
+    try:
+        max_entries = int(raw_max) if raw_max else DEFAULT_SCHEMA_CACHE_MAX_ENTRIES
+    except ValueError:
+        max_entries = DEFAULT_SCHEMA_CACHE_MAX_ENTRIES
+    try:
+        ttl = float(raw_ttl) if raw_ttl else DEFAULT_SCHEMA_CACHE_TTL_SECONDS
+    except ValueError:
+        ttl = DEFAULT_SCHEMA_CACHE_TTL_SECONDS
+    return max(1, max_entries), max(1.0, ttl)
+
+
+class BoundedTTLCache:
+    """Dict-compatible cache with per-entry TTL and LRU size bound.
+
+    Replaces the previously unbounded schema cache so long-lived servers
+    fronting many instances cannot grow without limit.
+    """
+
+    def __init__(
+        self,
+        max_entries: int = DEFAULT_SCHEMA_CACHE_MAX_ENTRIES,
+        ttl_seconds: float = DEFAULT_SCHEMA_CACHE_TTL_SECONDS,
+    ) -> None:
+        self.max_entries = max_entries
+        self.ttl_seconds = ttl_seconds
+        self._entries: Dict[str, tuple[float, Any]] = {}
+        self._lock = threading.Lock()
+
+    def _purge_locked(self, key: str) -> Any:
+        expires_at, value = self._entries[key]
+        if time.time() >= expires_at:
+            del self._entries[key]
+            raise KeyError(key)
+        # Refresh LRU position.
+        del self._entries[key]
+        self._entries[key] = (expires_at, value)
+        return value
+
+    def __contains__(self, key: object) -> bool:
+        try:
+            self[str(key)]
+            return True
+        except KeyError:
+            return False
+
+    def __getitem__(self, key: str) -> Any:
+        with self._lock:
+            if key not in self._entries:
+                raise KeyError(key)
+            return self._purge_locked(key)
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        with self._lock:
+            self._entries.pop(key, None)
+            self._entries[key] = (time.time() + self.ttl_seconds, value)
+            while len(self._entries) > self.max_entries:
+                oldest = next(iter(self._entries))
+                del self._entries[oldest]
+
+    def get(self, key: str, default: Any = None) -> Any:
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._entries)
+
+
+def _build_schema_cache() -> BoundedTTLCache:
+    max_entries, ttl = _schema_cache_settings()
+    return BoundedTTLCache(max_entries=max_entries, ttl_seconds=ttl)
 
 
 @dataclass
@@ -72,7 +154,7 @@ class AppContext:
     _odoo: OdooClient | None = None
     _clients: Dict[str, OdooClient] = field(default_factory=dict)
     _clients_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
-    schema_cache: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    schema_cache: Any = field(default_factory=_build_schema_cache)
     write_approvals: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
     @property
@@ -590,10 +672,58 @@ def writes_enabled() -> bool:
     return truthy_env("ODOO_MCP_ENABLE_WRITES")
 
 
+POLICY_FILE_ENV = "ODOO_MCP_POLICY_FILE"
+DEFAULT_POLICY_FILENAME = "odoo_mcp_policy.json"
+
+
+def policy_file_path() -> Optional[str]:
+    """Return the side-effect policy file path, or None when not configured."""
+    explicit = os.environ.get(POLICY_FILE_ENV, "").strip()
+    if explicit:
+        return explicit
+    if os.path.exists(DEFAULT_POLICY_FILENAME):
+        return DEFAULT_POLICY_FILENAME
+    return None
+
+
+def load_side_effect_policy() -> Dict[str, Any]:
+    """Load reviewed side-effect methods from the version-controllable policy file.
+
+    Entries may be plain strings ("sale.order.action_confirm") or objects with
+    a "method" key plus free-form review metadata (reviewed_by, date, reason).
+    A broken policy file contributes no methods (fail closed) and surfaces its
+    error in the runtime posture.
+    """
+    path = policy_file_path()
+    if path is None:
+        return {"path": None, "methods": [], "error": None}
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {"path": path, "methods": [], "error": str(exc)}
+    methods: List[str] = []
+    for entry in data.get("allowed_side_effect_methods", []) or []:
+        if isinstance(entry, str):
+            name = entry.strip()
+        elif isinstance(entry, dict):
+            name = str(entry.get("method", "")).strip()
+        else:
+            name = ""
+        if name:
+            methods.append(name)
+    return {"path": path, "methods": methods, "error": None}
+
+
 def allowed_side_effect_methods() -> List[str]:
-    """Return exact model.method names configured for reviewed side effects."""
+    """Return exact model.method names reviewed for side effects (env + policy file)."""
     raw_value = os.environ.get("ODOO_MCP_ALLOWED_SIDE_EFFECT_METHODS", "")
-    return [item.strip() for item in raw_value.split(",") if item.strip()]
+    from_env = [item.strip() for item in raw_value.split(",") if item.strip()]
+    from_file = load_side_effect_policy()["methods"]
+    merged: List[str] = []
+    for name in [*from_env, *from_file]:
+        if name not in merged:
+            merged.append(name)
+    return merged
 
 
 def side_effect_method_allowed(model: str, method: str) -> bool:
@@ -620,6 +750,7 @@ def runtime_security_report() -> Dict[str, Any]:
         "unknown_execute_method_enabled": broad_unknown_enabled,
         "chatter_direct_enabled": chatter_direct_enabled(),
         "allowed_side_effect_methods": allowed_side_effect_methods(),
+        "side_effect_policy": _side_effect_policy_posture(),
         "broad_unknown_method_mode": {
             "enabled": broad_unknown_enabled,
             "risk": ("broad" if broad_unknown_enabled else "off"),
@@ -631,11 +762,75 @@ def runtime_security_report() -> Dict[str, Any]:
         "allowed_hosts": getattr(security, "allowed_hosts", None),
         "allowed_origins": getattr(security, "allowed_origins", None),
         "odoo_instances": instance_posture(),
+        "audit_log": audit_posture(),
+        "n_plus_one": n_plus_one_report(),
         "notes": [
             "HTTP transports are local-only by default in the CLI entry point.",
             "execute_approved_write requires ODOO_MCP_ENABLE_WRITES and confirm=true.",
             "execute_method blocks standard destructive methods and unreviewed side-effect methods by default.",
         ],
+    }
+
+
+N_PLUS_ONE_WINDOW_SECONDS = 60
+N_PLUS_ONE_WARN_THRESHOLD = 10
+_single_read_lock = threading.Lock()
+_single_read_events: Dict[tuple[str, str], List[float]] = {}
+
+
+def note_single_record_read(instance: str, model: str) -> None:
+    """Track read_record calls so health_check can flag N+1 loops."""
+    now = time.time()
+    cutoff = now - N_PLUS_ONE_WINDOW_SECONDS
+    with _single_read_lock:
+        events = _single_read_events.setdefault((instance, model), [])
+        events.append(now)
+        while events and events[0] < cutoff:
+            events.pop(0)
+
+
+def n_plus_one_report() -> Dict[str, Any]:
+    """Summarize models hammered by repeated single-record reads."""
+    cutoff = time.time() - N_PLUS_ONE_WINDOW_SECONDS
+    hot_models: List[Dict[str, Any]] = []
+    with _single_read_lock:
+        for (instance, model), events in list(_single_read_events.items()):
+            recent = [stamp for stamp in events if stamp >= cutoff]
+            if recent:
+                _single_read_events[(instance, model)] = recent
+            else:
+                del _single_read_events[(instance, model)]
+                continue
+            if len(recent) >= N_PLUS_ONE_WARN_THRESHOLD:
+                hot_models.append(
+                    {
+                        "instance": instance,
+                        "model": model,
+                        "reads_in_window": len(recent),
+                        "recommendation": (
+                            "Batch with search_records using an "
+                            '["id", "in", [...]] domain instead of looping '
+                            "read_record."
+                        ),
+                    }
+                )
+    return {
+        "window_seconds": N_PLUS_ONE_WINDOW_SECONDS,
+        "warn_threshold": N_PLUS_ONE_WARN_THRESHOLD,
+        "hot_models": hot_models,
+    }
+
+
+def _side_effect_policy_posture() -> Dict[str, Any]:
+    """Summarize where reviewed side-effect methods come from."""
+    policy = load_side_effect_policy()
+    raw_env = os.environ.get("ODOO_MCP_ALLOWED_SIDE_EFFECT_METHODS", "")
+    env_methods = [item.strip() for item in raw_env.split(",") if item.strip()]
+    return {
+        "file": policy["path"],
+        "file_method_count": len(policy["methods"]),
+        "env_method_count": len(env_methods),
+        "error": policy["error"],
     }
 
 
@@ -1563,7 +1758,7 @@ def preview_write(
     """Build a canonical approval token for a later approved write."""
     try:
         validate_model_name(model)
-        return build_write_preview_report(
+        report = build_write_preview_report(
             model=model,
             operation=operation,
             values=values,
@@ -1571,6 +1766,16 @@ def preview_write(
             context=context,
             instance=resolve_instance_name(instance),
         )
+        record_write_event(
+            "preview",
+            outcome="success" if report.get("success") else "rejected",
+            model=model,
+            operation=str(operation).strip().lower(),
+            record_ids=[int(rid) for rid in record_ids or []],
+            instance=resolve_instance_name(instance),
+            token=str((report.get("approval") or {}).get("token") or "") or None,
+        )
+        return report
     except Exception as e:
         return {"success": False, "tool": "preview_write", "error": str(e)}
 
@@ -1652,22 +1857,142 @@ def validate_write(
                     "live Odoo fields_get metadata"
                 ),
             }
+        record_write_event(
+            "validate",
+            outcome=(
+                "approved" if report["approval_status"].get("stored") else "rejected"
+            ),
+            model=model,
+            operation=str(operation).strip().lower(),
+            record_ids=[int(rid) for rid in record_ids or []],
+            instance=instance_name,
+            token=str((report.get("approval") or {}).get("token") or "") or None,
+            detail=None if report.get("success") else "validation issues present",
+        )
         return report
     except Exception as e:
         return {"success": False, "tool": "validate_write", "error": str(e)}
 
 
+ELICIT_WRITES_ENV = "ODOO_MCP_ELICIT_WRITES"
+
+
+class WriteConfirmation(BaseModel):
+    """Elicitation schema for human write approval (primitive fields only)."""
+
+    approve: bool = Field(description="Approve executing this Odoo write?")
+
+
+def _write_elicitation_message(approval: Dict[str, Any]) -> str:
+    """Render a human-readable summary of the pending write."""
+    operation = str(approval.get("operation") or "?")
+    model = str(approval.get("model") or "?")
+    record_ids = approval.get("record_ids") or []
+    values = approval.get("values") or {}
+    instance = str(approval.get("instance") or "default")
+    lines = [f"Odoo write pending approval: {operation} on {model}"]
+    if record_ids:
+        lines.append(f"Records: {record_ids}")
+    if values:
+        changes = ", ".join(
+            f"{key} -> {json.dumps(value, default=str)[:80]}"
+            for key, value in sorted(values.items())
+        )
+        lines.append(f"Changes: {changes}")
+    lines.append(f"Instance: {instance}")
+    return "\n".join(lines)
+
+
+async def _elicit_write_confirmation(
+    ctx: Context, approval: Dict[str, Any]
+) -> tuple[str, Optional[str]]:
+    """Ask the human via MCP elicitation when ODOO_MCP_ELICIT_WRITES=1.
+
+    Returns (decision, detail): "skipped" (gate off), "approved",
+    "declined", or "unsupported" (client cannot elicit — fall back to the
+    token flow).
+    """
+    if not truthy_env(ELICIT_WRITES_ENV):
+        return "skipped", None
+    try:
+        result = await ctx.elicit(
+            message=_write_elicitation_message(approval),
+            schema=WriteConfirmation,
+        )
+    except Exception as exc:
+        return "unsupported", str(exc)
+    data = getattr(result, "data", None)
+    if (
+        getattr(result, "action", None) == "accept"
+        and data is not None
+        and data.approve
+    ):
+        return "approved", None
+    return "declined", str(getattr(result, "action", "declined"))
+
+
 @mcp.tool(
+    name="execute_approved_write",
     description="Execute a previously previewed and confirmed standard write",
     annotations=DESTRUCTIVE_TOOL,
     structured_output=True,
 )
+async def execute_approved_write_tool(
+    ctx: Context,
+    approval: Dict[str, Any],
+    confirm: bool = False,
+) -> Dict[str, Any]:
+    """Tool entry point: optional human elicitation gate, then the sync gates."""
+    decision, detail = await _elicit_write_confirmation(ctx, approval)
+    if decision == "declined":
+        record_write_event(
+            "elicit",
+            outcome="declined",
+            model=str(approval.get("model") or "") or None,
+            operation=str(approval.get("operation") or "") or None,
+            instance=str(approval.get("instance") or "") or None,
+            token=str(approval.get("token") or "") or None,
+            detail=detail,
+        )
+        return {
+            "success": False,
+            "tool": "execute_approved_write",
+            "error": "write declined by the human reviewer via elicitation",
+        }
+    return execute_approved_write(ctx, approval, confirm)
+
+
 def execute_approved_write(
     ctx: Context,
     approval: Dict[str, Any],
     confirm: bool = False,
 ) -> Dict[str, Any]:
     """Execute create/write/unlink only after token, confirm, and env gates pass."""
+    report = _execute_approved_write_gated(ctx, approval, confirm)
+    safe_record_ids = [
+        int(rid)
+        for rid in approval.get("record_ids") or []
+        if isinstance(rid, (int, str)) and str(rid).isdigit()
+    ]
+    record_write_event(
+        "execute",
+        outcome="success" if report.get("success") else "denied",
+        model=str(approval.get("model") or "") or None,
+        operation=str(approval.get("operation") or "") or None,
+        record_ids=safe_record_ids,
+        instance=str(approval.get("instance") or "") or None,
+        token=str(approval.get("token") or "") or None,
+        detail=report.get("error"),
+    )
+    return report
+
+
+def _execute_approved_write_gated(
+    ctx: Context,
+    approval: Dict[str, Any],
+    confirm: bool,
+) -> Dict[str, Any]:
+    """Run every write gate and the final execution; audit-free inner body."""
     try:
         is_valid, _ = verify_write_approval(approval)
         if not is_valid:
@@ -2128,6 +2453,7 @@ def read_record(
             app_context, odoo, model, fields, instance_name
         )
         records = odoo.read_records(model, [record_id], fields=resolved_fields)
+        note_single_record_read(instance_name, model)
         if not records:
             return {
                 "success": False,
@@ -2346,6 +2672,15 @@ def chatter_post(
                 [record_id],
                 **canonical["kwargs"],
             )
+            record_write_event(
+                "chatter_post",
+                outcome="success",
+                model=model,
+                operation="message_post",
+                record_ids=[record_id],
+                instance=instance_name,
+                detail="direct mode",
+            )
             return {
                 "success": True,
                 "mode": "direct",
@@ -2383,6 +2718,15 @@ def chatter_post(
             "message_post",
             [record_id],
             **canonical["kwargs"],
+        )
+        record_write_event(
+            "chatter_post",
+            outcome="success",
+            model=model,
+            operation="message_post",
+            record_ids=[record_id],
+            instance=instance_name,
+            token=provided_token,
         )
         return {
             "success": True,

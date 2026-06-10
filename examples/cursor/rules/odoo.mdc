@@ -1,0 +1,19 @@
+---
+description: Conventions when working with Odoo via the odoo-mcp server
+alwaysApply: false
+---
+
+- Before guessing any Odoo schema, call `get_model_fields` (use
+  `relevance="top"` on wide models) or `inspect_model_relationships`.
+- If a model name might be outdated (e.g. `account.invoice`), check it with
+  `lookup_model_history` first.
+- Never call `unlink`/`write`/`create` directly through `execute_method` —
+  use the gated workflow: `preview_write` → `validate_write` →
+  `execute_approved_write`.
+- When several Odoo instances are configured, pass the `instance` argument
+  on every tool call; run `list_instances` to discover them.
+- Prefer `search_records` with explicit field lists over full-record
+  fetches; use `aggregate_records` for counts and sums instead of reading
+  rows and adding them up yourself.
+- When a call fails with a permission error, pass the error text to
+  `diagnose_access` as `observed_error` instead of retrying blindly.
