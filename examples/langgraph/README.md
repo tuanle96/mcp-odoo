@@ -51,4 +51,4 @@ prompt ("using the `client_a` instance, …") — every odoo-mcp tool accepts
 an `instance` argument the agent will fill in.
 
 ---
-Last verified: 2026-06-10 against `langchain-mcp-adapters>=0.2.2` API (`MultiServerMCPClient` + `create_agent`).
+Last verified: 2026-06-10 — ran end-to-end against `langchain==1.3.6`, `langchain-mcp-adapters==0.2.2`, `langgraph==1.2.4`, odoo-mcp Streamable HTTP, a live Odoo 19 (Docker), and DeepSeek (`OPENAI_BASE_URL` + `OPENAI_MODEL=deepseek-chat`).

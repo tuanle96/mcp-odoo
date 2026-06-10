@@ -8,9 +8,14 @@ Prerequisites:
 
 Run:
   python odoo_agent.py
+
+Any OpenAI-compatible provider works — e.g. DeepSeek:
+  export OPENAI_BASE_URL=https://api.deepseek.com
+  export OPENAI_MODEL=deepseek-chat
 """
 
 import asyncio
+import os
 
 from langchain.agents import create_agent
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -26,12 +31,13 @@ async def main() -> None:
         }
     )
     tools = await client.get_tools()
-    agent = create_agent("openai:gpt-4.1", tools)
+    model_name = os.environ.get("OPENAI_MODEL", "gpt-4.1")
+    agent = create_agent(f"openai:{model_name}", tools)
     out = await agent.ainvoke(
         {
             "messages": (
-                "List 5 draft sale orders. If sale.order is not readable, "
-                "diagnose why with diagnose_access."
+                "List up to 5 sale orders in draft state. If sale.order is not "
+                "readable, diagnose why with diagnose_access."
             )
         }
     )

@@ -35,4 +35,4 @@ for `sale.order`.
   arguments — just say which instance you mean in the prompt.
 
 ---
-Last verified: 2026-06-10 against `openai-agents` MCP docs (Streamable HTTP + HostedMCPTool current APIs).
+Last verified: 2026-06-10 — ran end-to-end against `openai-agents==0.17.4`, odoo-mcp Streamable HTTP, a live Odoo 19 (Docker), and DeepSeek (`OPENAI_BASE_URL` + `OPENAI_MODEL=deepseek-chat`). HostedMCPTool variant is config-checked only (needs a public server URL).

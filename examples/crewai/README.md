@@ -46,4 +46,4 @@ with MCPServerAdapter(server_params) as tools:
   task description; tools accept an `instance` argument.
 
 ---
-Last verified: 2026-06-10 against CrewAI native MCP wiring (`mcps=[...]`, late-2025 API); fallback adapter documented for older pins.
+Last verified: 2026-06-10 — ran end-to-end against `crewai==1.14.6` (native `mcps=[...]` + `crewai.mcp.MCPServerHTTP` confirmed real), odoo-mcp Streamable HTTP, a live Odoo 19 (Docker), and DeepSeek (`ODOO_MCP_EXAMPLE_LLM=deepseek/deepseek-chat`). Fallback adapter documented for older pins.

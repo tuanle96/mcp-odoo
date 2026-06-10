@@ -38,4 +38,4 @@ With a multi-instance `odoo_config.json`, edit the AI Agent prompt:
 `instance="client_a"` in tool arguments.
 
 ---
-Last verified: 2026-06-10 against the n8n built-in MCP Client Tool node docs (import re-verification recommended on n8n upgrades — the node UX is still maturing).
+Last verified: 2026-06-10 — workflow JSON imports cleanly via `n8n import:workflow` on n8n 2.25.7 (Docker). End-to-end agent execution still needs your own n8n UI run with an LLM credential — the node UX is still maturing, re-verify on n8n upgrades.

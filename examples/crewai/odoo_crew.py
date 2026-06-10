@@ -11,7 +11,13 @@ Run:
 
 If your pinned CrewAI version does not have native `mcps=[...]` yet, use
 the MCPServerAdapter fallback shown in README.md.
+
+Any litellm-supported model works — e.g. DeepSeek:
+  export ODOO_MCP_EXAMPLE_LLM=deepseek/deepseek-chat
+  export DEEPSEEK_API_KEY=...
 """
+
+import os
 
 from crewai import Agent, Crew, Task
 from crewai.mcp import MCPServerHTTP
@@ -31,6 +37,11 @@ analyst = Agent(
         "preview/validate/execute workflow."
     ),
     mcps=[odoo],
+    **(
+        {"llm": os.environ["ODOO_MCP_EXAMPLE_LLM"]}
+        if os.environ.get("ODOO_MCP_EXAMPLE_LLM")
+        else {}
+    ),
 )
 
 task = Task(
@@ -43,4 +54,5 @@ task = Task(
 )
 
 if __name__ == "__main__":
-    Crew(agents=[analyst], tasks=[task]).kickoff()
+    result = Crew(agents=[analyst], tasks=[task]).kickoff()
+    print(result)
