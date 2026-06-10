@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+## [0.4.0] - 2026-06-10
 
 ### Added
 - Multi-instance support — configure several named Odoo instances in one config file via an `instances` map plus a `default` key. Every Odoo-facing tool accepts an optional `instance` parameter (omitted → default instance). Clients connect lazily per instance.
