@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.5.0] - 2026-06-10
 
 ### Added
 - Added `lookup_model_history` tool — resolves outdated model names against a curated rename catalog (`account.invoice` → `account.move`, `mail.channel` → `discuss.channel`, payment acquirers, analytic tags, chart templates, and more) so agents stop hallucinating pre-rename names. Static catalog shipped at `odoo_mcp/data/odoo_renames.json`; never contacts Odoo.
