@@ -67,13 +67,17 @@ Once configured (see [Install](#install) and [Configure](#configure)), ask your 
 | Framework examples | Copy-paste adapters for Cursor, Claude Code, OpenAI Agents, LangGraph, CrewAI, and n8n in [`examples/`](./examples/). | None. |
 | Audit & approval UX | JSONL audit trail + native elicitation confirm forms — without installing anything in Odoo. | Audit features usually require an Odoo-side module. |
 
+Comparing specific projects? See the per-project breakdown in [docs/comparison.md](./docs/comparison.md).
+
 ## Install
 
 The fastest path is `uvx`, which fetches the package on demand:
 
 ```bash
-uvx odoo-mcp --health
+uvx odoo-mcp --setup
 ```
+
+The interactive wizard asks for your Odoo URL, database, and credentials, tests the connection live, writes the config file, and prints ready-to-paste snippets for Claude Code, Cursor, and Claude Desktop. Prefer a quick smoke check instead? `uvx odoo-mcp --health`.
 
 Or install into your environment:
 
@@ -470,6 +474,7 @@ XML-RPC remains the default transport for broad compatibility. Odoo 19 supports 
 
 | Guide | Covers |
 | --- | --- |
+| [docs/comparison.md](./docs/comparison.md) | How Odoo MCP compares to other Odoo MCP bridges |
 | [docs/architecture.md](./docs/architecture.md) | System shape, transports, safety boundaries |
 | [docs/multi-instance.md](./docs/multi-instance.md) | Multi-database config, routing, isolation model |
 | [docs/troubleshooting.md](./docs/troubleshooting.md) | From error text to root cause (ACL, record rules, routing) |

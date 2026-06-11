@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- Free-text `query` parameter on `search_records` — the server builds an OR `ilike` domain over the model's searchable text fields (identifier columns like `name`, `ref`, `email` first; capped at 5) and ANDs it with any explicit `domain`. Falls back to `display_name` when field metadata is unavailable. The response reports `query_fields_used`.
+- Interactive setup wizard — `odoo-mcp --setup` prompts for connection details, tests the connection, writes `odoo_config.json`, and prints ready-to-paste client snippets (Claude Code, Cursor, Claude Desktop).
+- `docs/comparison.md` — an honest feature comparison of Odoo MCP bridges (setup, write safety, transports, multi-instance, diagnostics, testing), linked from the README.
+
+### Changed
+- Internal refactor: extracted pure helpers from `server.py` (3,050 → ~2,400 lines) into `tool_helpers.py` (validation, domain normalization, request models, version parsing), `schema_cache.py` (BoundedTTLCache), `access_helpers.py` (ACL/record-rule analysis), and `write_policy.py` (write flags + side-effect policy). All names remain importable from `odoo_mcp.server`; no behavior change.
+
 ## [0.7.0] - 2026-06-11
 
 ### Added
