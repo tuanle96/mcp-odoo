@@ -4,52 +4,176 @@ MCP server for Odoo integration
 Provides MCP tools and resources for interacting with Odoo ERP systems
 """
 
-import json
-import os
-import threading
-import time
-from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Any, AsyncIterator, Callable, Dict, List, Optional, cast
+# ruff: noqa: F401  — this module is the public re-export surface; all imports are intentional.
 
-from mcp.server.fastmcp import Context, FastMCP
-from mcp.types import Annotations, ToolAnnotations
-from pydantic import BaseModel, Field
+# Import core first (creates mcp instance, AppContext, resources)
+from .server_core import (
+    DESTRUCTIVE_TOOL,
+    ELICIT_WRITES_ENV,
+    N_PLUS_ONE_WARN_THRESHOLD,
+    N_PLUS_ONE_WINDOW_SECONDS,
+    PREVIEW_TOOL,
+    READ_ONLY_TOOL,
+    RESOURCE_HINT,
+    WRITE_APPROVAL_TTL_SECONDS,
+    AppContext,
+    WriteConfirmation,
+    _cached_fields_metadata,
+    _is_relative_to,
+    _resolve_odoo,
+    _side_effect_policy_posture,
+    _single_read_events,
+    _single_read_lock,
+    app_lifespan,
+    configured_addons_roots,
+    get_model_info,
+    get_models,
+    get_record,
+    instance_posture,
+    mcp,
+    mcp_surface_counts,
+    n_plus_one_report,
+    note_single_record_read,
+    register_write_approval,
+    require_validated_write_approval,
+    resolve_default_instance_name,
+    resolve_instance_name,
+    resolve_read_fields,
+    restrict_addons_paths,
+    runtime_security_report,
+    search_records_resource,
+    write_approval_payload,
+)
 
+# Re-export patchable symbols from odoo_client so monkeypatches on this module work
+from .odoo_client import (
+    OdooClient,
+    get_odoo_client,
+    get_odoo_client_for,
+    list_configured_instances,
+    load_instances_config,
+)
+
+# Re-export build_domain_report so monkeypatches on server.build_domain_report work
 from .agent_tools import (
-    DEFAULT_MAX_RELEVANT_FIELDS,
-    DEFAULT_MAX_SMART_FIELDS,
     build_approval_token,
     build_domain_report,
-    build_write_preview_report,
-)
-from .agent_tools import business_pack_report as build_business_pack_report
-from .agent_tools import (
-    build_text_query_domain,
-    lookup_model_history_report,
-    rank_relevant_fields,
-    scan_addons_source_report,
     select_smart_fields,
-    validate_write_report,
     verify_write_approval,
 )
-from .audit import audit_posture, record_write_event
-from .auth import auth_posture as oauth_posture
-from .diagnostics import (
-    DESTRUCTIVE_METHODS,
-    classify_access_error,
-    classify_method_safety,
-    diagnose_odoo_call_report,
+
+# Import tool/prompt modules — side-effect: registers @mcp.tool / @mcp.prompt decorators
+from . import tools_diagnostics
+from . import tools_read
+from . import tools_write
+from . import tools_knowledge
+from . import tools_accounting
+from . import tools_async
+from . import prompts
+
+# Re-export write tool functions
+from .tools_write import (
+    _build_chatter_payload,
+    _elicit_write_confirmation,
+    _execute_approved_write_gated,
+    _write_elicitation_message,
+    chatter_post,
+    execute_approved_write,
+    execute_approved_write_tool,
+    execute_method,
+    preview_write,
+    validate_write,
 )
-from .diagnostics import fit_gap_report as build_fit_gap_report
-from .diagnostics import (
-    generate_json2_payload_report,
-    inspect_model_relationships_report,
-    sanitize_odoo_error,
+
+# Re-export read tool functions
+from .tools_read import (
+    aggregate_records,
+    get_model_fields,
+    get_odoo_profile,
+    health_check,
+    list_instances,
+    list_models,
+    read_attachment,
+    read_record,
+    schema_catalog,
+    search_employee,
+    search_holidays,
+    search_records,
 )
-from .diagnostics import upgrade_risk_report as build_upgrade_risk_report
+
+# Re-export diagnostics tool functions
+from .tools_diagnostics import (
+    build_domain,
+    business_pack_report,
+    diagnose_access,
+    diagnose_odoo_call,
+    fit_gap_report,
+    generate_json2_payload,
+    inspect_model_relationships,
+    lookup_model_history,
+    scan_addons_source,
+    upgrade_risk_report,
+)
+
+# Re-export knowledge tool functions
+from .tools_knowledge import (
+    index_knowledge,
+    knowledge_stats,
+    search_knowledge,
+)
+
+# Re-export accounting tool functions
+from .tools_accounting import (
+    accounting_health_summary,
+    receivable_payable_aging,
+)
+
+# Re-export async task tool functions
+from .tools_async import (
+    cancel_async_task,
+    get_async_task,
+    list_async_tasks,
+    submit_async_task,
+)
+
+# Re-export prompt functions
+from .prompts import (
+    prompt_custom_module_audit,
+    prompt_diagnose_failed_odoo_call,
+    prompt_fit_gap_workshop,
+    prompt_json2_migration_plan,
+    prompt_safe_write_review,
+)
+
+# Re-export legacy / backwards-compat symbols
+from .schema_cache import (
+    DEFAULT_SCHEMA_CACHE_MAX_ENTRIES,
+    DEFAULT_SCHEMA_CACHE_TTL_SECONDS,
+    BoundedTTLCache,
+    _build_schema_cache,
+    _schema_cache_settings,
+)
+from .tool_helpers import (
+    _AGGREGATION_FUNCTIONS,
+    ATTACHMENT_BYTES_HARD_CAP,
+    DEFAULT_MAX_ATTACHMENT_BYTES,
+    DEFAULT_MAX_SMART_FIELDS,
+    MAX_SEARCH_LIMIT,
+    METHOD_NAME_RE,
+    MODEL_NAME_RE,
+    DomainCondition,
+    SearchDomain,
+    clamp_limit,
+    max_attachment_bytes,
+    max_smart_fields,
+    normalize_domain_input,
+    odoo_major_version,
+    parse_measure_spec,
+    parse_odoo_major_version,
+    truthy_env,
+    validate_method_name,
+    validate_model_name,
+)
 from .access_helpers import (
     _access_diagnosis_codes,
     _acl_row_applies,
@@ -63,45 +187,6 @@ from .access_helpers import (
     _safe_odoo_read,
     access_permission_field,
 )
-from .odoo_client import (
-    OdooClient,
-    get_odoo_client,
-    get_odoo_client_for,
-    list_configured_instances,
-    load_instances_config,
-)
-from .schema_cache import (
-    DEFAULT_SCHEMA_CACHE_MAX_ENTRIES,
-    DEFAULT_SCHEMA_CACHE_TTL_SECONDS,
-    BoundedTTLCache,
-    _build_schema_cache,
-    _schema_cache_settings,
-)
-from .tool_helpers import (
-    _AGGREGATION_FUNCTIONS,
-    ATTACHMENT_BYTES_HARD_CAP,
-    DEFAULT_MAX_ATTACHMENT_BYTES,
-    MAX_SEARCH_LIMIT,
-    METHOD_NAME_RE,
-    MODEL_NAME_RE,
-    DomainCondition,
-    EmployeeSearchResult,
-    Holiday,
-    SearchDomain,
-    SearchEmployeeResponse,
-    SearchHolidaysResponse,
-    clamp_limit,
-    formatted_read_group_missing,
-    max_attachment_bytes,
-    max_smart_fields,
-    normalize_domain_input,
-    odoo_major_version,
-    parse_measure_spec,
-    parse_odoo_major_version,
-    truthy_env,
-    validate_method_name,
-    validate_model_name,
-)
 from .write_policy import (
     DEFAULT_POLICY_FILENAME,
     POLICY_FILE_ENV,
@@ -113,2441 +198,156 @@ from .write_policy import (
     writes_enabled,
 )
 
-# Re-exported for backwards compatibility: these names lived in this module
-# before the split into schema_cache / tool_helpers / access_helpers /
-# write_policy, and tests plus downstream code import them from here.
 __all__ = [
+    # Core infra
+    "AppContext",
+    "WriteConfirmation",
+    "mcp",
+    "app_lifespan",
+    "WRITE_APPROVAL_TTL_SECONDS",
+    "ELICIT_WRITES_ENV",
+    # Tool annotations
+    "READ_ONLY_TOOL",
+    "PREVIEW_TOOL",
+    "DESTRUCTIVE_TOOL",
+    "RESOURCE_HINT",
+    # Instance resolution
+    "resolve_default_instance_name",
+    "resolve_instance_name",
+    # odoo_client re-exports (patchable surface)
+    "OdooClient",
+    "get_odoo_client",
+    "get_odoo_client_for",
+    "list_configured_instances",
+    "load_instances_config",
+    # agent_tools re-exports (patchable: build_domain_report)
+    "build_approval_token",
+    "build_domain_report",
+    "select_smart_fields",
+    "verify_write_approval",
+    # Resources
+    "get_models",
+    "get_model_info",
+    "get_record",
+    "search_records_resource",
+    # Write tools
+    "preview_write",
+    "validate_write",
+    "execute_approved_write",
+    "execute_approved_write_tool",
+    "chatter_post",
+    "execute_method",
+    # Read tools
+    "list_models",
+    "get_model_fields",
+    "search_records",
+    "read_record",
+    "read_attachment",
+    "aggregate_records",
+    "schema_catalog",
+    "search_employee",
+    "search_holidays",
+    "list_instances",
+    "get_odoo_profile",
+    "health_check",
+    # Diagnostics tools
+    "diagnose_odoo_call",
+    "generate_json2_payload",
+    "inspect_model_relationships",
+    "diagnose_access",
+    "upgrade_risk_report",
+    "lookup_model_history",
+    "fit_gap_report",
+    "scan_addons_source",
+    "build_domain",
+    "business_pack_report",
+    # Knowledge tools
+    "index_knowledge",
+    "search_knowledge",
+    "knowledge_stats",
+    # Accounting tools
+    "receivable_payable_aging",
+    "accounting_health_summary",
+    # Async task tools
+    "submit_async_task",
+    "get_async_task",
+    "cancel_async_task",
+    "list_async_tasks",
+    # Prompts
+    "prompt_diagnose_failed_odoo_call",
+    "prompt_fit_gap_workshop",
+    "prompt_json2_migration_plan",
+    "prompt_safe_write_review",
+    "prompt_custom_module_audit",
+    # Schema cache
+    "BoundedTTLCache",
+    "DEFAULT_SCHEMA_CACHE_MAX_ENTRIES",
+    "DEFAULT_SCHEMA_CACHE_TTL_SECONDS",
+    "_build_schema_cache",
+    "_schema_cache_settings",
+    # Tool helpers
+    "_AGGREGATION_FUNCTIONS",
     "ATTACHMENT_BYTES_HARD_CAP",
     "DEFAULT_MAX_ATTACHMENT_BYTES",
     "DEFAULT_MAX_SMART_FIELDS",
-    "DEFAULT_POLICY_FILENAME",
-    "DEFAULT_SCHEMA_CACHE_MAX_ENTRIES",
-    "DEFAULT_SCHEMA_CACHE_TTL_SECONDS",
     "MAX_SEARCH_LIMIT",
     "METHOD_NAME_RE",
     "MODEL_NAME_RE",
-    "POLICY_FILE_ENV",
-    "BoundedTTLCache",
     "DomainCondition",
     "SearchDomain",
-    "_AGGREGATION_FUNCTIONS",
-    "_build_schema_cache",
-    "_m2o_id",
-    "_schema_cache_settings",
+    "clamp_limit",
+    "max_attachment_bytes",
+    "max_smart_fields",
+    "normalize_domain_input",
+    "odoo_major_version",
+    "parse_measure_spec",
     "parse_odoo_major_version",
+    "truthy_env",
+    "validate_method_name",
+    "validate_model_name",
+    # Access helpers
+    "_access_diagnosis_codes",
+    "_acl_row_applies",
+    "_available_user_read_fields",
+    "_field_names",
+    "_group_field_names",
+    "_m2m_ids",
+    "_m2o_id",
+    "_record_id_domain",
+    "_rule_applies",
+    "_safe_odoo_read",
+    "access_permission_field",
+    # Write policy
+    "DEFAULT_POLICY_FILENAME",
+    "POLICY_FILE_ENV",
+    "allowed_side_effect_methods",
+    "chatter_direct_enabled",
+    "load_side_effect_policy",
     "policy_file_path",
+    "side_effect_method_allowed",
+    "writes_enabled",
+    # Misc infra
+    "N_PLUS_ONE_WARN_THRESHOLD",
+    "N_PLUS_ONE_WINDOW_SECONDS",
+    "configured_addons_roots",
+    "instance_posture",
+    "mcp_surface_counts",
+    "n_plus_one_report",
+    "note_single_record_read",
+    "register_write_approval",
+    "require_validated_write_approval",
+    "resolve_read_fields",
+    "restrict_addons_paths",
+    "runtime_security_report",
+    "_cached_fields_metadata",
+    "_is_relative_to",
+    "_resolve_odoo",
+    "_side_effect_policy_posture",
+    "_single_read_events",
+    "_single_read_lock",
+    # Write internals
+    "_build_chatter_payload",
+    "_elicit_write_confirmation",
+    "_execute_approved_write_gated",
+    "_write_elicitation_message",
 ]
-
-WRITE_APPROVAL_TTL_SECONDS = 10 * 60
-
-
-@dataclass
-class AppContext:
-    """Application context with lazy Odoo client access."""
-
-    odoo_factory: Callable[[], OdooClient] = field(
-        default_factory=lambda: get_odoo_client
-    )
-    _odoo: OdooClient | None = None
-    _clients: Dict[str, OdooClient] = field(default_factory=dict)
-    _clients_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
-    schema_cache: Any = field(default_factory=_build_schema_cache)
-    write_approvals: Dict[str, Dict[str, Any]] = field(default_factory=dict)
-
-    @property
-    def odoo(self) -> OdooClient:
-        """Resolve the Odoo client only when a live Odoo tool needs it."""
-        if self._odoo is None:
-            self._odoo = self.odoo_factory()
-        return self._odoo
-
-    def get_client(self, instance: Optional[str] = None) -> tuple[str, OdooClient]:
-        """Resolve a named Odoo instance, lazily connecting and caching per name."""
-        if not instance:
-            return resolve_default_instance_name(), self.odoo
-        # FastMCP runs sync tools in a thread pool: guard the lazy build so two
-        # concurrent calls cannot authenticate the same instance twice.
-        with self._clients_lock:
-            if instance not in self._clients:
-                name, client = get_odoo_client_for(instance)
-                self._clients[name] = client
-            return instance, self._clients[instance]
-
-
-def resolve_default_instance_name() -> str:
-    """Resolve the configured default instance name; fall back to 'default'."""
-    try:
-        default_name, _ = load_instances_config()
-        return default_name
-    except FileNotFoundError:
-        return "default"
-
-
-def _resolve_odoo(ctx: Context, instance: Optional[str]) -> tuple[str, OdooClient]:
-    """Resolve the Odoo client for a tool call, honoring the optional instance name."""
-    app_context = ctx.request_context.lifespan_context
-    if not instance:
-        # Fast path: default instance via the lazy singleton. Cache the resolved
-        # name on the lifespan context to avoid re-reading config per call.
-        name = getattr(app_context, "_default_instance_name", None)
-        if name is None:
-            name = resolve_default_instance_name()
-            app_context._default_instance_name = name
-        return name, app_context.odoo
-    return cast("tuple[str, OdooClient]", app_context.get_client(instance))
-
-
-def resolve_instance_name(instance: Optional[str]) -> str:
-    """Resolve and validate an instance name from config without building a client."""
-    if not instance:
-        return resolve_default_instance_name()
-    try:
-        _, instances = load_instances_config()
-    except FileNotFoundError:
-        # No config available (offline preview): accept the name as-is.
-        return instance
-    if instance not in instances:
-        raise ValueError(
-            f"Unknown Odoo instance {instance!r}. "
-            f"Available instances: {sorted(instances)}"
-        )
-    return instance
-
-
-@asynccontextmanager
-async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
-    """
-    Application lifespan for initialization and cleanup
-    """
-    yield AppContext()
-
-
-# Create MCP server
-mcp = FastMCP(
-    "Odoo MCP Server",
-    instructions="MCP Server for interacting with Odoo ERP systems",
-    dependencies=["requests"],
-    lifespan=app_lifespan,
-)
-
-READ_ONLY_TOOL = ToolAnnotations(
-    readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
-)
-PREVIEW_TOOL = ToolAnnotations(
-    readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
-)
-DESTRUCTIVE_TOOL = ToolAnnotations(
-    readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=True
-)
-RESOURCE_HINT = Annotations(audience=["assistant"], priority=0.8)
-
-
-# ----- MCP Resources -----
-
-
-@mcp.resource(
-    "odoo://models",
-    description="List all available models in the Odoo system (default Odoo instance)",
-    mime_type="application/json",
-    annotations=RESOURCE_HINT,
-)
-def get_models() -> str:
-    """Lists all available models in the Odoo system"""
-    odoo_client = get_odoo_client()
-    models = odoo_client.get_models()
-    return json.dumps(models, indent=2)
-
-
-@mcp.resource(
-    "odoo://model/{model_name}",
-    description="Get detailed information about a specific model including fields (default Odoo instance)",
-    mime_type="application/json",
-    annotations=RESOURCE_HINT,
-)
-def get_model_info(model_name: str) -> str:
-    """
-    Get information about a specific model
-
-    Parameters:
-        model_name: Name of the Odoo model (e.g., 'res.partner')
-    """
-    odoo_client = get_odoo_client()
-    try:
-        validate_model_name(model_name)
-        # Get model info
-        model_info = odoo_client.get_model_info(model_name)
-
-        # Get field definitions
-        fields = odoo_client.get_model_fields(model_name)
-        model_info["fields"] = fields
-
-        return json.dumps(model_info, indent=2)
-    except Exception as e:
-        return json.dumps({"error": str(e)}, indent=2)
-
-
-@mcp.resource(
-    "odoo://record/{model_name}/{record_id}",
-    description="Get detailed information of a specific record by ID (default Odoo instance)",
-    mime_type="application/json",
-    annotations=RESOURCE_HINT,
-)
-def get_record(model_name: str, record_id: str) -> str:
-    """
-    Get a specific record by ID
-
-    Parameters:
-        model_name: Name of the Odoo model (e.g., 'res.partner')
-        record_id: ID of the record
-    """
-    odoo_client = get_odoo_client()
-    try:
-        validate_model_name(model_name)
-        record_id_int = int(record_id)
-        if record_id_int < 1:
-            raise ValueError("record_id must be greater than 0")
-        record = odoo_client.read_records(model_name, [record_id_int])
-        if not record:
-            return json.dumps(
-                {"error": f"Record not found: {model_name} ID {record_id}"}, indent=2
-            )
-        return json.dumps(record[0], indent=2)
-    except Exception as e:
-        return json.dumps({"error": str(e)}, indent=2)
-
-
-@mcp.resource(
-    "odoo://search/{model_name}/{domain}",
-    description="Search for records matching the domain (default Odoo instance)",
-    mime_type="application/json",
-    annotations=RESOURCE_HINT,
-)
-def search_records_resource(model_name: str, domain: str) -> str:
-    """
-    Search for records that match a domain
-
-    Parameters:
-        model_name: Name of the Odoo model (e.g., 'res.partner')
-        domain: Search domain in JSON format (e.g., '[["name", "ilike", "test"]]')
-    """
-    odoo_client = get_odoo_client()
-    try:
-        validate_model_name(model_name)
-        # Parse domain from JSON string
-        domain_list = json.loads(domain)
-        if not isinstance(domain_list, list):
-            raise ValueError("domain must decode to an Odoo domain list")
-
-        # Set a reasonable default limit
-        limit = 10
-
-        # Perform search_read for efficiency
-        results = odoo_client.search_read(model_name, domain_list, limit=limit)
-
-        return json.dumps(results, indent=2)
-    except Exception as e:
-        return json.dumps({"error": str(e)}, indent=2)
-
-
-def _cached_fields_metadata(
-    app_context: AppContext,
-    odoo: OdooClient,
-    model: str,
-    instance_name: str = "default",
-) -> Dict[str, Any]:
-    """Return fields_get metadata for ``model`` using the lifespan cache."""
-    cache_key = f"{instance_name}:{model}"
-    cached = app_context.schema_cache.get(cache_key)
-    if isinstance(cached, dict):
-        return cached
-    fields_metadata = odoo.get_model_fields(model)
-    if isinstance(fields_metadata, dict) and "error" not in fields_metadata:
-        app_context.schema_cache[cache_key] = fields_metadata
-        return fields_metadata
-    return {}
-
-
-def resolve_read_fields(
-    app_context: AppContext,
-    odoo: OdooClient,
-    model: str,
-    fields: Optional[List[str]],
-    instance_name: str = "default",
-) -> Optional[List[str]]:
-    """Pick the field list for read-only tools.
-
-    - ``fields=None`` → smart selection (cap via ODOO_MCP_MAX_SMART_FIELDS).
-    - ``fields=["*"]`` → caller wants every field; return None to skip filtering.
-    - Otherwise return the caller list unchanged.
-    """
-    if fields is None:
-        metadata = _cached_fields_metadata(app_context, odoo, model, instance_name)
-        if not metadata:
-            return None
-        return select_smart_fields(metadata, max_fields=max_smart_fields())
-    if len(fields) == 1 and fields[0] == "*":
-        return None
-    return fields
-
-
-def runtime_security_report() -> Dict[str, Any]:
-    """Expose MCP runtime safety posture without including secrets."""
-    security = getattr(mcp.settings, "transport_security", None)
-    broad_unknown_enabled = truthy_env("ODOO_MCP_ALLOW_UNKNOWN_METHODS")
-    return {
-        "transport": os.environ.get("MCP_TRANSPORT", "stdio"),
-        "host": getattr(mcp.settings, "host", None),
-        "port": getattr(mcp.settings, "port", None),
-        "streamable_http_path": getattr(mcp.settings, "streamable_http_path", None),
-        "remote_http_allowed": truthy_env("MCP_ALLOW_REMOTE_HTTP"),
-        "write_execution_enabled": writes_enabled(),
-        "unknown_execute_method_enabled": broad_unknown_enabled,
-        "chatter_direct_enabled": chatter_direct_enabled(),
-        "allowed_side_effect_methods": allowed_side_effect_methods(),
-        "side_effect_policy": _side_effect_policy_posture(),
-        "broad_unknown_method_mode": {
-            "enabled": broad_unknown_enabled,
-            "risk": ("broad" if broad_unknown_enabled else "off"),
-            "recommendation": (
-                "Prefer ODOO_MCP_ALLOWED_SIDE_EFFECT_METHODS exact entries over "
-                "ODOO_MCP_ALLOW_UNKNOWN_METHODS=1."
-            ),
-        },
-        "allowed_hosts": getattr(security, "allowed_hosts", None),
-        "allowed_origins": getattr(security, "allowed_origins", None),
-        "odoo_instances": instance_posture(),
-        "audit_log": audit_posture(),
-        "oauth": oauth_posture(),
-        "n_plus_one": n_plus_one_report(),
-        "notes": [
-            "HTTP transports are local-only by default in the CLI entry point.",
-            "execute_approved_write requires ODOO_MCP_ENABLE_WRITES and confirm=true.",
-            "execute_method blocks standard destructive methods and unreviewed side-effect methods by default.",
-        ],
-    }
-
-
-N_PLUS_ONE_WINDOW_SECONDS = 60
-N_PLUS_ONE_WARN_THRESHOLD = 10
-_single_read_lock = threading.Lock()
-_single_read_events: Dict[tuple[str, str], List[float]] = {}
-
-
-def note_single_record_read(instance: str, model: str) -> None:
-    """Track read_record calls so health_check can flag N+1 loops."""
-    now = time.time()
-    cutoff = now - N_PLUS_ONE_WINDOW_SECONDS
-    with _single_read_lock:
-        events = _single_read_events.setdefault((instance, model), [])
-        events.append(now)
-        while events and events[0] < cutoff:
-            events.pop(0)
-
-
-def n_plus_one_report() -> Dict[str, Any]:
-    """Summarize models hammered by repeated single-record reads."""
-    cutoff = time.time() - N_PLUS_ONE_WINDOW_SECONDS
-    hot_models: List[Dict[str, Any]] = []
-    with _single_read_lock:
-        for (instance, model), events in list(_single_read_events.items()):
-            recent = [stamp for stamp in events if stamp >= cutoff]
-            if recent:
-                _single_read_events[(instance, model)] = recent
-            else:
-                del _single_read_events[(instance, model)]
-                continue
-            if len(recent) >= N_PLUS_ONE_WARN_THRESHOLD:
-                hot_models.append(
-                    {
-                        "instance": instance,
-                        "model": model,
-                        "reads_in_window": len(recent),
-                        "recommendation": (
-                            "Batch with search_records using an "
-                            '["id", "in", [...]] domain instead of looping '
-                            "read_record."
-                        ),
-                    }
-                )
-    return {
-        "window_seconds": N_PLUS_ONE_WINDOW_SECONDS,
-        "warn_threshold": N_PLUS_ONE_WARN_THRESHOLD,
-        "hot_models": hot_models,
-    }
-
-
-def _side_effect_policy_posture() -> Dict[str, Any]:
-    """Summarize where reviewed side-effect methods come from."""
-    policy = load_side_effect_policy()
-    raw_env = os.environ.get("ODOO_MCP_ALLOWED_SIDE_EFFECT_METHODS", "")
-    env_methods = [item.strip() for item in raw_env.split(",") if item.strip()]
-    return {
-        "file": policy["path"],
-        "file_method_count": len(policy["methods"]),
-        "env_method_count": len(env_methods),
-        "error": policy["error"],
-    }
-
-
-def instance_posture() -> Dict[str, Any]:
-    """Summarize configured Odoo instances without touching the network."""
-    try:
-        default_name, instances = load_instances_config()
-        return {"instance_count": len(instances), "default_instance": default_name}
-    except Exception:
-        return {"instance_count": 0, "default_instance": None}
-
-
-def mcp_surface_counts() -> Dict[str, int]:
-    """Read current registered MCP surface counts from FastMCP managers."""
-    tool_manager = getattr(mcp, "_tool_manager", None)
-    resource_manager = getattr(mcp, "_resource_manager", None)
-    prompt_manager = getattr(mcp, "_prompt_manager", None)
-    resources = getattr(resource_manager, "_resources", {})
-    templates = getattr(resource_manager, "_templates", {})
-    return {
-        "tool_count": len(getattr(tool_manager, "_tools", {})),
-        "resource_count": len(resources) + len(templates),
-        "prompt_count": len(getattr(prompt_manager, "_prompts", {})),
-    }
-
-
-def register_write_approval(app_context: AppContext, report: Dict[str, Any]) -> bool:
-    """Persist validated write approvals inside the current server lifespan."""
-    approval = report.get("approval")
-    if not report.get("success") or not isinstance(approval, dict):
-        return False
-    token = str(approval.get("token", ""))
-    if not token:
-        return False
-    now = time.time()
-    app_context.write_approvals[token] = {
-        "approval": dict(approval),
-        "payload": write_approval_payload(approval),
-        "validated_at": now,
-        "expires_at": now + WRITE_APPROVAL_TTL_SECONDS,
-    }
-    approval["validated_at"] = now
-    approval["expires_at"] = now + WRITE_APPROVAL_TTL_SECONDS
-    return True
-
-
-def require_validated_write_approval(
-    app_context: AppContext, approval: Dict[str, Any]
-) -> Dict[str, Any] | None:
-    """Return a server-side validation record or None when it is missing/expired."""
-    token = str(approval.get("token", ""))
-    record = app_context.write_approvals.get(token)
-    if record is None:
-        return None
-    if time.time() > float(record.get("expires_at", 0)):
-        app_context.write_approvals.pop(token, None)
-        return None
-    return record
-
-
-def write_approval_payload(approval: Dict[str, Any]) -> Dict[str, Any]:
-    """Return the canonical approval payload fields used for execution."""
-    payload = {
-        "model": approval.get("model"),
-        "operation": approval.get("operation"),
-        "record_ids": approval.get("record_ids") or [],
-        "values": approval.get("values") or {},
-        "context": approval.get("context") or {},
-        "instance": approval.get("instance") or "default",
-    }
-    if approval.get("values_list") is not None:
-        payload["values_list"] = approval.get("values_list")
-    return payload
-
-
-def configured_addons_roots() -> List[Path]:
-    """Return trusted local addon roots configured by the operator."""
-    roots: List[Path] = []
-    for raw_path in os.environ.get("ODOO_ADDONS_PATHS", "").split(os.pathsep):
-        if not raw_path:
-            continue
-        roots.append(Path(raw_path).expanduser().resolve(strict=False))
-    return roots
-
-
-def restrict_addons_paths(addons_paths: Optional[List[str]]) -> Optional[List[str]]:
-    """Restrict source scans to ODOO_ADDONS_PATHS roots."""
-    if addons_paths is None:
-        return None
-    roots = configured_addons_roots()
-    if not roots:
-        raise ValueError(
-            "scan_addons_source requires ODOO_ADDONS_PATHS when addons_paths are provided."
-        )
-
-    restricted_paths: List[str] = []
-    for raw_path in addons_paths:
-        candidate = Path(raw_path).expanduser().resolve(strict=False)
-        if not any(
-            candidate == root or _is_relative_to(candidate, root) for root in roots
-        ):
-            raise ValueError(
-                f"{candidate} is outside configured ODOO_ADDONS_PATHS roots."
-            )
-        restricted_paths.append(str(candidate))
-    return restricted_paths
-
-
-def _is_relative_to(path: Path, root: Path) -> bool:
-    try:
-        path.relative_to(root)
-        return True
-    except ValueError:
-        return False
-
-
-# ----- MCP Tools -----
-
-
-@mcp.tool(
-    description="Diagnose an Odoo model call without executing it",
-    annotations=PREVIEW_TOOL,
-    structured_output=True,
-)
-def diagnose_odoo_call(
-    model: str,
-    method: str,
-    args: Optional[List[Any]] = None,
-    kwargs: Optional[Dict[str, Any]] = None,
-    transport: str = "auto",
-    target_version: Optional[str] = None,
-    observed_error: Optional[Any] = None,
-    include_debug: bool = False,
-    metadata: Optional[Dict[str, Any]] = None,
-    use_live_metadata: bool = False,
-) -> Dict[str, Any]:
-    """
-    Diagnose model/method/payload issues without executing the candidate call.
-    """
-    report = diagnose_odoo_call_report(
-        model=model,
-        method=method,
-        args=args,
-        kwargs=kwargs,
-        transport=transport,
-        target_version=target_version,
-        observed_error=observed_error,
-        include_debug=include_debug,
-        metadata=metadata,
-    )
-    if use_live_metadata:
-        report["issues"].append(
-            {
-                "code": "live_metadata_not_used",
-                "severity": "info",
-                "message": (
-                    "diagnose_odoo_call is preview-only; pass metadata explicitly "
-                    "or use inspect_model_relationships for live fields_get metadata."
-                ),
-            }
-        )
-    return report
-
-
-@mcp.tool(
-    description="Build a JSON-2 request preview without network access",
-    annotations=PREVIEW_TOOL,
-    structured_output=True,
-)
-def generate_json2_payload(
-    model: str,
-    method: str,
-    args: Optional[List[Any]] = None,
-    kwargs: Optional[Dict[str, Any]] = None,
-    base_url: Optional[str] = None,
-    database: Optional[str] = None,
-    include_database_header: bool = True,
-) -> Dict[str, Any]:
-    """
-    Generate a JSON-2 endpoint, headers, and named JSON body.
-    """
-    return generate_json2_payload_report(
-        model=model,
-        method=method,
-        args=args,
-        kwargs=kwargs,
-        base_url=base_url,
-        database=database,
-        include_database_header=include_database_header,
-    )
-
-
-@mcp.tool(
-    description="Inspect model relationships and required field metadata",
-    annotations=READ_ONLY_TOOL,
-    structured_output=True,
-)
-def inspect_model_relationships(
-    ctx: Context,
-    model: str,
-    fields_metadata: Optional[Dict[str, Any]] = None,
-    include_readonly: bool = True,
-    include_computed: bool = True,
-    use_live_metadata: bool = True,
-    instance: Optional[str] = None,
-) -> Dict[str, Any]:
-    """
-    Summarize relationship fields using provided metadata or bounded fields_get.
-    """
-    try:
-        validate_model_name(model)
-        metadata_source = "input" if fields_metadata is not None else "none"
-        metadata_error = None
-        if fields_metadata is None and use_live_metadata:
-            metadata_source = "server"
-            try:
-                _, odoo = _resolve_odoo(ctx, instance)
-                fields_metadata = odoo.get_model_fields(model)
-                if "error" in fields_metadata:
-                    metadata_error = str(fields_metadata["error"])
-                    fields_metadata = None
-            except Exception as exc:
-                metadata_error = str(exc)
-                fields_metadata = None
-        return inspect_model_relationships_report(
-            model=model,
-            fields_metadata=fields_metadata,
-            metadata_source=metadata_source,
-            metadata_error=metadata_error,
-            include_readonly=include_readonly,
-            include_computed=include_computed,
-        )
-    except Exception as e:
-        return {
-            "success": False,
-            "tool": "inspect_model_relationships",
-            "error": str(e),
-        }
-
-
-@mcp.tool(
-    description="Diagnose ACL and record-rule visibility for an Odoo model",
-    annotations=READ_ONLY_TOOL,
-    structured_output=True,
-)
-def diagnose_access(
-    ctx: Context,
-    model: str,
-    operation: str = "read",
-    domain: Optional[Any] = None,
-    record_ids: Optional[List[int]] = None,
-    expected_count: Optional[int] = None,
-    include_rules: bool = True,
-    observed_error: Optional[Any] = None,
-    limit: int = 50,
-    instance: Optional[str] = None,
-) -> Dict[str, Any]:
-    """
-    Inspect readable ACL/rule metadata for the current Odoo credential.
-
-    This tool never uses sudo, never impersonates another user, and only performs
-    read-only metadata/count calls. Pass the failing call's error text or JSON
-    as ``observed_error`` to get a root-cause classification (ACL vs record
-    rule vs multi-company vs routing).
-    """
-    try:
-        validate_model_name(model)
-        limit = clamp_limit(limit, maximum=500)
-        if expected_count is not None and expected_count < 0:
-            raise ValueError("expected_count must be greater than or equal to 0")
-        normalized_record_ids = [
-            int(record_id) for record_id in record_ids or [] if int(record_id) > 0
-        ]
-        permission_field = access_permission_field(operation)
-        normalized_domain = normalize_domain_input(domain)
-        count_domain = (
-            _record_id_domain(normalized_record_ids)
-            if normalized_record_ids
-            else normalized_domain
-        )
-
-        _, odoo = _resolve_odoo(ctx, instance)
-        metadata_errors: list[Dict[str, Any]] = []
-
-        model_rows, error = _safe_odoo_read(
-            "ir.model",
-            lambda: odoo.execute_method(
-                "ir.model",
-                "search_read",
-                [["model", "=", model]],
-                fields=["id", "name", "model"],
-                limit=1,
-            ),
-        )
-        if error:
-            metadata_errors.append(error)
-            model_rows = []
-        model_record = (
-            model_rows[0] if isinstance(model_rows, list) and model_rows else None
-        )
-        model_id = (
-            int(model_record["id"])
-            if isinstance(model_record, dict) and model_record.get("id")
-            else None
-        )
-        if model_id is None:
-            metadata_errors.append(
-                {
-                    "stage": "ir.model",
-                    "error": {"message": f"Model metadata not found for {model}."},
-                }
-            )
-
-        user_context, error = _safe_odoo_read(
-            "res.users.context_get",
-            lambda: (
-                odoo.get_user_context()
-                if hasattr(odoo, "get_user_context")
-                else odoo.execute_method("res.users", "context_get")
-            ),
-        )
-        if error:
-            metadata_errors.append(error)
-            user_context = {}
-        if isinstance(user_context, dict) and user_context.get("error"):
-            metadata_errors.append(
-                {
-                    "stage": "res.users.context_get",
-                    "error": sanitize_odoo_error(str(user_context["error"])),
-                }
-            )
-            user_context = {}
-
-        uid = getattr(odoo, "uid", None)
-        if uid is None and isinstance(user_context, dict):
-            uid = user_context.get("uid")
-        current_user: Dict[str, Any] = {
-            "uid": uid,
-            "context": user_context if isinstance(user_context, dict) else {},
-            "record": None,
-            "group_ids": None,
-            "direct_group_ids": None,
-            "group_field": None,
-            "all_group_field": None,
-        }
-        user_group_ids: set[int] | None = None
-        if isinstance(uid, int) and uid > 0:
-            user_fields, error = _safe_odoo_read(
-                "res.users.fields_get",
-                lambda: odoo.execute_method(
-                    "res.users",
-                    "fields_get",
-                    [],
-                    attributes=["type", "relation", "string"],
-                ),
-            )
-            if error:
-                metadata_errors.append(error)
-            available_user_fields = _field_names(user_fields)
-            user_rows, error = _safe_odoo_read(
-                "res.users.read",
-                lambda: odoo.execute_method(
-                    "res.users",
-                    "read",
-                    [uid],
-                    fields=_available_user_read_fields(available_user_fields),
-                ),
-            )
-            if error:
-                metadata_errors.append(error)
-            elif isinstance(user_rows, list) and user_rows:
-                current_user["record"] = user_rows[0]
-                direct_group_field, all_group_field = _group_field_names(user_rows[0])
-                current_user["group_field"] = direct_group_field
-                current_user["all_group_field"] = all_group_field
-                direct_group_ids = (
-                    _m2m_ids(user_rows[0].get(direct_group_field))
-                    if direct_group_field
-                    else set()
-                )
-                all_group_ids = (
-                    _m2m_ids(user_rows[0].get(all_group_field))
-                    if all_group_field
-                    else set()
-                )
-                user_group_ids = all_group_ids or direct_group_ids
-                current_user["group_ids"] = sorted(user_group_ids)
-                current_user["direct_group_ids"] = sorted(direct_group_ids)
-
-        acl_rows: list[Dict[str, Any]] = []
-        if model_id is not None:
-            acl_rows_raw, error = _safe_odoo_read(
-                "ir.model.access",
-                lambda: odoo.execute_method(
-                    "ir.model.access",
-                    "search_read",
-                    [["model_id", "=", model_id]],
-                    fields=[
-                        "id",
-                        "name",
-                        "model_id",
-                        "group_id",
-                        "perm_read",
-                        "perm_write",
-                        "perm_create",
-                        "perm_unlink",
-                    ],
-                    limit=limit,
-                ),
-            )
-            if error:
-                metadata_errors.append(error)
-            elif isinstance(acl_rows_raw, list):
-                acl_rows = [row for row in acl_rows_raw if isinstance(row, dict)]
-
-        active_rules: list[Dict[str, Any]] = []
-        global_rules: list[Dict[str, Any]] = []
-        group_bound_rules: list[Dict[str, Any]] = []
-        applicable_rules: list[Dict[str, Any]] = []
-        if include_rules and model_id is not None:
-            rules_raw, error = _safe_odoo_read(
-                "ir.rule",
-                lambda: odoo.execute_method(
-                    "ir.rule",
-                    "search_read",
-                    [["model_id", "=", model_id]],
-                    fields=[
-                        "id",
-                        "name",
-                        "model_id",
-                        "domain_force",
-                        "groups",
-                        "active",
-                        "perm_read",
-                        "perm_write",
-                        "perm_create",
-                        "perm_unlink",
-                    ],
-                    limit=limit,
-                ),
-            )
-            if error:
-                metadata_errors.append(error)
-            elif isinstance(rules_raw, list):
-                for rule in rules_raw:
-                    if not isinstance(rule, dict):
-                        continue
-                    if not rule.get("active", True) or not rule.get(
-                        permission_field, True
-                    ):
-                        continue
-                    active_rules.append(rule)
-                    if _m2m_ids(rule.get("groups")):
-                        group_bound_rules.append(rule)
-                    else:
-                        global_rules.append(rule)
-                    if _rule_applies(rule, user_group_ids):
-                        applicable_rules.append(rule)
-
-        actual_count: int | None = None
-        if expected_count is not None or normalized_record_ids:
-            count_value, error = _safe_odoo_read(
-                f"{model}.search_count",
-                lambda: odoo.execute_method(model, "search_count", count_domain),
-            )
-            if error:
-                metadata_errors.append(error)
-            elif isinstance(count_value, int):
-                actual_count = count_value
-
-        granting_acl_rows = [
-            row
-            for row in acl_rows
-            if bool(row.get(permission_field)) and _acl_row_applies(row, user_group_ids)
-        ]
-        diagnosis_codes = _access_diagnosis_codes(
-            metadata_errors=metadata_errors,
-            acl_rows=acl_rows,
-            granting_acl_rows=granting_acl_rows,
-            active_rules=active_rules,
-            applicable_rules=applicable_rules,
-            actual_count=actual_count,
-            expected_count=expected_count,
-            record_ids=normalized_record_ids,
-        )
-        return {
-            "success": True,
-            "tool": "diagnose_access",
-            "model": model,
-            "operation": operation,
-            "permission_field": permission_field,
-            "domain": normalized_domain,
-            "record_ids": normalized_record_ids,
-            "expected_count": expected_count,
-            "actual_count": actual_count,
-            "model_metadata": {"record": model_record},
-            "current_user": current_user,
-            "access": {
-                "rows": acl_rows,
-                "granting_rows": granting_acl_rows,
-                "granting_count": len(granting_acl_rows),
-            },
-            "rules": {
-                "included": include_rules,
-                "active": active_rules,
-                "global": global_rules,
-                "group_bound": group_bound_rules,
-                "applicable": applicable_rules,
-            },
-            "diagnosis": {"codes": diagnosis_codes},
-            "error_classification": classify_access_error(observed_error),
-            "metadata_errors": metadata_errors,
-            "metadata_used": {
-                "live_odoo": True,
-                "acl": bool(acl_rows),
-                "rules": include_rules,
-                "current_user": current_user["record"] is not None,
-                "sudo": False,
-                "impersonation": False,
-            },
-        }
-    except Exception as e:
-        return {"success": False, "tool": "diagnose_access", "error": str(e)}
-
-
-@mcp.tool(
-    description="Report Odoo upgrade and JSON-2 migration risks",
-    annotations=PREVIEW_TOOL,
-    structured_output=True,
-)
-def upgrade_risk_report(
-    source_version: Optional[str] = None,
-    target_version: Optional[str] = None,
-    modules: Optional[List[Dict[str, Any]]] = None,
-    methods: Optional[List[Dict[str, Any]]] = None,
-    source_findings: Optional[List[Dict[str, Any]]] = None,
-    observed_errors: Optional[List[Any]] = None,
-    use_live_metadata: bool = False,
-    include_debug: bool = False,
-) -> Dict[str, Any]:
-    """
-    Build an input-driven upgrade risk report without executing Odoo calls.
-    """
-    report = build_upgrade_risk_report(
-        source_version=source_version,
-        target_version=target_version,
-        modules=modules,
-        methods=methods,
-        source_findings=source_findings,
-        observed_errors=observed_errors,
-        include_debug=include_debug,
-    )
-    if use_live_metadata:
-        report["risks"].append(
-            {
-                "code": "live_metadata_not_used",
-                "severity": "info",
-                "evidence": "upgrade_risk_report is input-driven in this release.",
-                "recommendation": "Pass module/method/source findings explicitly.",
-            }
-        )
-    return report
-
-
-@mcp.tool(
-    description=(
-        "Look up Odoo model rename/removal history by old or new model name "
-        "(e.g. account.invoice -> account.move)"
-    ),
-    annotations=PREVIEW_TOOL,
-    structured_output=True,
-)
-def lookup_model_history(name: str) -> Dict[str, Any]:
-    """
-    Resolve a possibly outdated model name against a curated rename catalog.
-
-    Call this before assuming a model exists when working across Odoo
-    versions; it is static and never contacts Odoo.
-    """
-    try:
-        return lookup_model_history_report(name)
-    except Exception as e:
-        return {"success": False, "tool": "lookup_model_history", "error": str(e)}
-
-
-@mcp.tool(
-    description="Classify Odoo requirements into fit/gap implementation buckets",
-    annotations=PREVIEW_TOOL,
-    structured_output=True,
-)
-def fit_gap_report(
-    requirements: List[Any],
-    available_models: Optional[List[str]] = None,
-    available_fields: Optional[Dict[str, Any]] = None,
-    installed_modules: Optional[List[Any]] = None,
-    business_context: Optional[Dict[str, Any]] = None,
-    use_live_metadata: bool = False,
-) -> Dict[str, Any]:
-    """
-    Normalize requirements into standard/config/Studio/custom/avoid/unknown buckets.
-    """
-    report = build_fit_gap_report(
-        requirements=requirements,
-        available_models=available_models,
-        available_fields=available_fields,
-        installed_modules=installed_modules,
-        business_context=business_context,
-    )
-    if use_live_metadata:
-        report["assumptions"].append(
-            "fit_gap_report is input-driven in this release; use list_models/get_model_fields first."
-        )
-    return report
-
-
-@mcp.tool(
-    description="Read a bounded profile of the connected Odoo environment",
-    annotations=READ_ONLY_TOOL,
-    structured_output=True,
-)
-def get_odoo_profile(
-    ctx: Context,
-    include_modules: bool = True,
-    module_limit: int = 100,
-    instance: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Return server, user-context, transport, and installed-module metadata."""
-    try:
-        module_limit = clamp_limit(module_limit, maximum=500)
-        _, odoo = _resolve_odoo(ctx, instance)
-        if include_modules:
-            profile = odoo.get_profile(module_limit=module_limit)
-        else:
-            profile = {
-                "url": getattr(odoo, "url", None),
-                "hostname": getattr(odoo, "hostname", None),
-                "database": getattr(odoo, "db", None),
-                "username": getattr(odoo, "username", None),
-                "transport": getattr(odoo, "transport", None),
-                "timeout": getattr(odoo, "timeout", None),
-                "verify_ssl": getattr(odoo, "verify_ssl", None),
-                "json2_database_header": getattr(odoo, "json2_database_header", None),
-                "server_version": odoo.get_server_version(),
-                "user_context": odoo.get_user_context(),
-                "installed_modules": [],
-                "installed_module_count": None,
-            }
-        return {
-            "success": True,
-            "tool": "get_odoo_profile",
-            "profile": profile,
-            "metadata_used": {
-                "live_odoo": True,
-                "installed_modules": include_modules,
-            },
-        }
-    except Exception as e:
-        return {"success": False, "tool": "get_odoo_profile", "error": str(e)}
-
-
-@mcp.tool(
-    description="Build and cache a bounded Odoo model schema catalog",
-    annotations=READ_ONLY_TOOL,
-    structured_output=True,
-)
-def schema_catalog(
-    ctx: Context,
-    query: Optional[str] = None,
-    models: Optional[List[str]] = None,
-    include_fields: bool = False,
-    refresh: bool = False,
-    limit: int = 50,
-    instance: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Return a cached catalog of model names, labels, and optional fields."""
-    try:
-        limit = clamp_limit(limit, maximum=500)
-        if models:
-            for model_name in models:
-                validate_model_name(model_name)
-
-        app_context = ctx.request_context.lifespan_context
-        instance_name = resolve_instance_name(instance)
-        cache_key = json.dumps(
-            {
-                "query": query,
-                "models": sorted(models or []),
-                "include_fields": include_fields,
-                "limit": limit,
-                "instance": instance_name,
-            },
-            sort_keys=True,
-        )
-        if not refresh and cache_key in app_context.schema_cache:
-            cached = dict(app_context.schema_cache[cache_key])
-            cached["metadata_used"] = {**cached["metadata_used"], "cache_hit": True}
-            return cached
-
-        _, odoo = _resolve_odoo(ctx, instance)
-        raw_models = odoo.get_models()
-        if "error" in raw_models:
-            return {
-                "success": False,
-                "tool": "schema_catalog",
-                "error": raw_models["error"],
-            }
-
-        model_names = list(raw_models.get("model_names", []))
-        model_details = raw_models.get("models_details", {})
-        if models:
-            model_filter = set(models)
-            model_names = [name for name in model_names if name in model_filter]
-        if query:
-            query_lower = query.lower()
-            model_names = [
-                name
-                for name in model_names
-                if query_lower in name.lower()
-                or query_lower
-                in str(model_details.get(name, {}).get("name", "")).lower()
-            ]
-
-        records: List[Dict[str, Any]] = []
-        for model_name in model_names[:limit]:
-            record: Dict[str, Any] = {
-                "model": model_name,
-                "name": model_details.get(model_name, {}).get("name", ""),
-            }
-            if include_fields:
-                fields = odoo.get_model_fields(model_name)
-                record["fields"] = fields if "error" not in fields else {}
-                record["field_error"] = (
-                    fields.get("error") if "error" in fields else None
-                )
-            records.append(record)
-
-        report = {
-            "success": True,
-            "tool": "schema_catalog",
-            "count": len(records),
-            "result": records,
-            "metadata_used": {
-                "live_odoo": True,
-                "fields_get": include_fields,
-                "cache_hit": False,
-            },
-        }
-        app_context.schema_cache[cache_key] = dict(report)
-        return report
-    except Exception as e:
-        return {"success": False, "tool": "schema_catalog", "error": str(e)}
-
-
-@mcp.tool(
-    description="Preview create, write, or unlink without executing it",
-    annotations=PREVIEW_TOOL,
-    structured_output=True,
-)
-def preview_write(
-    model: str,
-    operation: str,
-    values: Optional[Dict[str, Any]] = None,
-    values_list: Optional[List[Dict[str, Any]]] = None,
-    record_ids: Optional[List[int]] = None,
-    context: Optional[Dict[str, Any]] = None,
-    instance: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Build a canonical approval token for a later approved write.
-
-    Batch create: pass ``values_list`` (one dict per record, max 100) —
-    executes as a single atomic Odoo ``create(vals_list)`` call.
-    """
-    try:
-        validate_model_name(model)
-        report = build_write_preview_report(
-            model=model,
-            operation=operation,
-            values=values,
-            values_list=values_list,
-            record_ids=record_ids,
-            context=context,
-            instance=resolve_instance_name(instance),
-        )
-        record_write_event(
-            "preview",
-            outcome="success" if report.get("success") else "rejected",
-            model=model,
-            operation=str(operation).strip().lower(),
-            record_ids=[int(rid) for rid in record_ids or []],
-            instance=resolve_instance_name(instance),
-            token=str((report.get("approval") or {}).get("token") or "") or None,
-        )
-        return report
-    except Exception as e:
-        return {"success": False, "tool": "preview_write", "error": str(e)}
-
-
-@mcp.tool(
-    description="Validate a standard write payload against optional fields_get metadata",
-    annotations=READ_ONLY_TOOL,
-    structured_output=True,
-)
-def validate_write(
-    ctx: Context,
-    model: str,
-    operation: str,
-    values: Optional[Dict[str, Any]] = None,
-    values_list: Optional[List[Dict[str, Any]]] = None,
-    record_ids: Optional[List[int]] = None,
-    context: Optional[Dict[str, Any]] = None,
-    fields_metadata: Optional[Dict[str, Any]] = None,
-    use_live_metadata: bool = True,
-    instance: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Validate write shape and return an approval payload when safe."""
-    try:
-        validate_model_name(model)
-        instance_name = resolve_instance_name(instance)
-        metadata_source = "input" if fields_metadata is not None else "none"
-        if fields_metadata is None and use_live_metadata:
-            metadata_source = "server"
-            _, odoo = _resolve_odoo(ctx, instance)
-            fields_metadata = odoo.get_model_fields(model)
-            if "error" in fields_metadata:
-                return {
-                    "success": False,
-                    "tool": "validate_write",
-                    "error": fields_metadata["error"],
-                    "metadata_used": {"fields_get": False, "source": metadata_source},
-                }
-            if not fields_metadata:
-                return {
-                    "success": False,
-                    "tool": "validate_write",
-                    "error": "live fields_get metadata was empty; refusing to approve writes",
-                    "metadata_used": {"fields_get": False, "source": metadata_source},
-                    "approval_status": {
-                        "stored": False,
-                        "source": metadata_source,
-                        "reason": "trusted live metadata was empty",
-                    },
-                }
-        report = validate_write_report(
-            model=model,
-            operation=operation,
-            values=values,
-            values_list=values_list,
-            record_ids=record_ids,
-            context=context,
-            fields_metadata=fields_metadata,
-            metadata_source=metadata_source,
-            instance=instance_name,
-        )
-        trusted_live_metadata = (
-            metadata_source == "server"
-            and isinstance(fields_metadata, dict)
-            and bool(fields_metadata)
-        )
-        if trusted_live_metadata:
-            stored = register_write_approval(
-                ctx.request_context.lifespan_context, report
-            )
-            report["approval_status"] = {
-                "stored": stored,
-                "expires_in_seconds": WRITE_APPROVAL_TTL_SECONDS,
-                "source": metadata_source,
-            }
-        else:
-            report["approval_status"] = {
-                "stored": False,
-                "source": metadata_source,
-                "reason": (
-                    "execute_approved_write requires validation against trusted "
-                    "live Odoo fields_get metadata"
-                ),
-            }
-        record_write_event(
-            "validate",
-            outcome=(
-                "approved" if report["approval_status"].get("stored") else "rejected"
-            ),
-            model=model,
-            operation=str(operation).strip().lower(),
-            record_ids=[int(rid) for rid in record_ids or []],
-            instance=instance_name,
-            token=str((report.get("approval") or {}).get("token") or "") or None,
-            detail=None if report.get("success") else "validation issues present",
-        )
-        return report
-    except Exception as e:
-        return {"success": False, "tool": "validate_write", "error": str(e)}
-
-
-ELICIT_WRITES_ENV = "ODOO_MCP_ELICIT_WRITES"
-
-
-class WriteConfirmation(BaseModel):
-    """Elicitation schema for human write approval (primitive fields only)."""
-
-    approve: bool = Field(description="Approve executing this Odoo write?")
-
-
-def _write_elicitation_message(approval: Dict[str, Any]) -> str:
-    """Render a human-readable summary of the pending write."""
-    operation = str(approval.get("operation") or "?")
-    model = str(approval.get("model") or "?")
-    record_ids = approval.get("record_ids") or []
-    values = approval.get("values") or {}
-    instance = str(approval.get("instance") or "default")
-    lines = [f"Odoo write pending approval: {operation} on {model}"]
-    if record_ids:
-        lines.append(f"Records: {record_ids}")
-    if values:
-        changes = ", ".join(
-            f"{key} -> {json.dumps(value, default=str)[:80]}"
-            for key, value in sorted(values.items())
-        )
-        lines.append(f"Changes: {changes}")
-    lines.append(f"Instance: {instance}")
-    return "\n".join(lines)
-
-
-async def _elicit_write_confirmation(
-    ctx: Context, approval: Dict[str, Any]
-) -> tuple[str, Optional[str]]:
-    """Ask the human via MCP elicitation when ODOO_MCP_ELICIT_WRITES=1.
-
-    Returns (decision, detail): "skipped" (gate off), "approved",
-    "declined", or "unsupported" (client cannot elicit — fall back to the
-    token flow).
-    """
-    if not truthy_env(ELICIT_WRITES_ENV):
-        return "skipped", None
-    try:
-        result = await ctx.elicit(
-            message=_write_elicitation_message(approval),
-            schema=WriteConfirmation,
-        )
-    except Exception as exc:
-        return "unsupported", str(exc)
-    data = getattr(result, "data", None)
-    if (
-        getattr(result, "action", None) == "accept"
-        and data is not None
-        and data.approve
-    ):
-        return "approved", None
-    return "declined", str(getattr(result, "action", "declined"))
-
-
-@mcp.tool(
-    name="execute_approved_write",
-    description="Execute a previously previewed and confirmed standard write",
-    annotations=DESTRUCTIVE_TOOL,
-    structured_output=True,
-)
-async def execute_approved_write_tool(
-    ctx: Context,
-    approval: Dict[str, Any],
-    confirm: bool = False,
-) -> Dict[str, Any]:
-    """Tool entry point: optional human elicitation gate, then the sync gates."""
-    decision, detail = await _elicit_write_confirmation(ctx, approval)
-    if decision == "declined":
-        record_write_event(
-            "elicit",
-            outcome="declined",
-            model=str(approval.get("model") or "") or None,
-            operation=str(approval.get("operation") or "") or None,
-            instance=str(approval.get("instance") or "") or None,
-            token=str(approval.get("token") or "") or None,
-            detail=detail,
-        )
-        return {
-            "success": False,
-            "tool": "execute_approved_write",
-            "error": "write declined by the human reviewer via elicitation",
-        }
-    return execute_approved_write(ctx, approval, confirm)
-
-
-def execute_approved_write(
-    ctx: Context,
-    approval: Dict[str, Any],
-    confirm: bool = False,
-) -> Dict[str, Any]:
-    """Execute create/write/unlink only after token, confirm, and env gates pass."""
-    report = _execute_approved_write_gated(ctx, approval, confirm)
-    safe_record_ids = [
-        int(rid)
-        for rid in approval.get("record_ids") or []
-        if isinstance(rid, (int, str)) and str(rid).isdigit()
-    ]
-    record_write_event(
-        "execute",
-        outcome="success" if report.get("success") else "denied",
-        model=str(approval.get("model") or "") or None,
-        operation=str(approval.get("operation") or "") or None,
-        record_ids=safe_record_ids,
-        instance=str(approval.get("instance") or "") or None,
-        token=str(approval.get("token") or "") or None,
-        detail=report.get("error"),
-    )
-    return report
-
-
-def _execute_approved_write_gated(
-    ctx: Context,
-    approval: Dict[str, Any],
-    confirm: bool,
-) -> Dict[str, Any]:
-    """Run every write gate and the final execution; audit-free inner body."""
-    try:
-        is_valid, _ = verify_write_approval(approval)
-        if not is_valid:
-            # Never echo the expected token: it would be a token-minting oracle
-            # for arbitrary (including cross-instance) payloads.
-            return {
-                "success": False,
-                "tool": "execute_approved_write",
-                "error": (
-                    "approval token does not match the canonical payload; "
-                    "re-run preview_write and validate_write"
-                ),
-            }
-        app_context = ctx.request_context.lifespan_context
-        validation_record = require_validated_write_approval(app_context, approval)
-        if validation_record is None:
-            return {
-                "success": False,
-                "tool": "execute_approved_write",
-                "error": (
-                    "approval token has not been validated in this server session "
-                    "or has expired; call validate_write first"
-                ),
-            }
-        if write_approval_payload(approval) != validation_record.get("payload"):
-            return {
-                "success": False,
-                "tool": "execute_approved_write",
-                "error": "approval payload does not match the stored validation record",
-            }
-        if not confirm:
-            return {
-                "success": False,
-                "tool": "execute_approved_write",
-                "error": "confirm=true is required for destructive execution",
-            }
-        if not writes_enabled():
-            return {
-                "success": False,
-                "tool": "execute_approved_write",
-                "error": "write execution disabled; set ODOO_MCP_ENABLE_WRITES=1 to enable",
-            }
-
-        model = str(approval.get("model", ""))
-        operation = str(approval.get("operation", "")).strip().lower()
-        validate_model_name(model)
-        if operation not in {"create", "write", "unlink"}:
-            raise ValueError("operation must be one of create, write, or unlink")
-
-        values = dict(approval.get("values") or {})
-        values_list = approval.get("values_list")
-        record_ids = [int(record_id) for record_id in approval.get("record_ids") or []]
-        context = dict(approval.get("context") or {})
-        kwargs = {"context": context} if context else {}
-        if operation == "create" and values_list is not None:
-            # Batch create: Odoo's native vals_list — one atomic call.
-            args: List[Any] = [list(values_list)]
-        elif operation == "create":
-            args = [values]
-        elif operation == "write":
-            args = [record_ids, values]
-        else:
-            args = [record_ids]
-
-        # Execute on the instance named in the approval (single source of truth).
-        approval_instance = str(approval.get("instance") or "") or None
-        if (
-            approval_instance is None
-            or approval_instance == resolve_default_instance_name()
-        ):
-            odoo = app_context.odoo
-        else:
-            _, odoo = app_context.get_client(approval_instance)
-
-        result = odoo.execute_method(model, operation, *args, **kwargs)
-        app_context.write_approvals.pop(str(approval.get("token", "")), None)
-        return {
-            "success": True,
-            "tool": "execute_approved_write",
-            "model": model,
-            "operation": operation,
-            "result": result,
-            "instance": approval_instance or resolve_default_instance_name(),
-        }
-    except Exception as e:
-        return {"success": False, "tool": "execute_approved_write", "error": str(e)}
-
-
-@mcp.tool(
-    description="Scan local Odoo addon source without importing addon code",
-    annotations=PREVIEW_TOOL,
-    structured_output=True,
-)
-def scan_addons_source(
-    addons_paths: Optional[List[str]] = None,
-    max_files: int = 200,
-    max_file_bytes: int = 300_000,
-) -> Dict[str, Any]:
-    """Summarize manifests, custom models, risky methods, views, and ACL files."""
-    try:
-        max_files = clamp_limit(max_files, maximum=1000)
-        if max_file_bytes < 1:
-            raise ValueError("max_file_bytes must be greater than 0")
-        return scan_addons_source_report(
-            addons_paths=restrict_addons_paths(addons_paths),
-            max_files=max_files,
-            max_file_bytes=max_file_bytes,
-        )
-    except Exception as e:
-        return {"success": False, "tool": "scan_addons_source", "error": str(e)}
-
-
-@mcp.tool(
-    description="Build a validated Odoo domain from structured conditions",
-    annotations=PREVIEW_TOOL,
-    structured_output=True,
-)
-def build_domain(
-    conditions: List[Dict[str, Any]],
-    logical_operator: str = "and",
-    fields_metadata: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    """Build safe domain arrays for search_records and Odoo ORM calls."""
-    try:
-        return build_domain_report(
-            conditions=conditions,
-            logical_operator=logical_operator,
-            fields_metadata=fields_metadata,
-        )
-    except Exception as e:
-        return {"success": False, "tool": "build_domain", "error": str(e)}
-
-
-@mcp.tool(
-    description="Report expected modules, models, and safe discovery calls for a business pack",
-    annotations=READ_ONLY_TOOL,
-    structured_output=True,
-)
-def business_pack_report(
-    ctx: Context,
-    pack: str,
-    use_live_metadata: bool = True,
-    instance: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Summarize a domain pack such as sales, crm, inventory, accounting, or hr."""
-    try:
-        available_models: List[str] | None = None
-        installed_modules: List[str] | None = None
-        if use_live_metadata:
-            _, odoo = _resolve_odoo(ctx, instance)
-            models_report = odoo.get_models()
-            if "error" not in models_report:
-                available_models = list(models_report.get("model_names", []))
-            installed_modules = [
-                str(module.get("name"))
-                for module in odoo.get_installed_modules(limit=200)
-                if module.get("name")
-            ]
-        return build_business_pack_report(
-            pack=pack,
-            available_models=available_models,
-            installed_modules=installed_modules,
-        )
-    except Exception as e:
-        return {"success": False, "tool": "business_pack_report", "error": str(e)}
-
-
-@mcp.tool(
-    description="Report this MCP server's non-secret runtime safety posture",
-    annotations=PREVIEW_TOOL,
-    structured_output=True,
-)
-def health_check() -> Dict[str, Any]:
-    """Return local process health and hardening flags without opening Odoo."""
-    surface_counts = mcp_surface_counts()
-    return {
-        "success": True,
-        "tool": "health_check",
-        "server": {
-            "name": mcp.name,
-            "instructions": mcp.instructions,
-            **surface_counts,
-        },
-        "runtime": runtime_security_report(),
-    }
-
-
-@mcp.tool(
-    description="List configured Odoo instance names without credentials",
-    annotations=PREVIEW_TOOL,
-    structured_output=True,
-)
-def list_instances() -> Dict[str, Any]:
-    """List configured Odoo instances (name, url, db, transport) — never credentials."""
-    try:
-        instances = list_configured_instances()
-        default_name = next(
-            (name for name, entry in instances.items() if entry.get("is_default")),
-            None,
-        )
-        return {
-            "success": True,
-            "tool": "list_instances",
-            "default": default_name,
-            "instance_count": len(instances),
-            "instances": [
-                {"name": name, **entry} for name, entry in sorted(instances.items())
-            ],
-        }
-    except Exception as e:
-        return {"success": False, "tool": "list_instances", "error": str(e)}
-
-
-@mcp.tool(
-    description="Execute a custom method on an Odoo model",
-    annotations=DESTRUCTIVE_TOOL,
-    structured_output=True,
-)
-def execute_method(
-    ctx: Context,
-    model: str,
-    method: str,
-    args: Optional[List[Any]] = None,
-    kwargs: Optional[Dict[str, Any]] = None,
-    instance: Optional[str] = None,
-) -> Dict[str, Any]:
-    """
-    Execute a custom method on an Odoo model
-
-    Parameters:
-        model: The model name (e.g., 'res.partner')
-        method: Method name to execute
-        args: Positional arguments
-        kwargs: Keyword arguments
-
-    Returns:
-        Dictionary containing:
-        - success: Boolean indicating success
-        - result: Result of the method (if success)
-        - error: Error message (if failure)
-    """
-    try:
-        validate_model_name(model)
-        validate_method_name(method)
-        safety = classify_method_safety(method)
-        if method in DESTRUCTIVE_METHODS:
-            return {
-                "success": False,
-                "error": (
-                    "Direct execute_method blocks create/write/unlink. Use "
-                    "preview_write -> validate_write -> execute_approved_write."
-                ),
-            }
-        review_required = safety["safety"] in {"side_effect", "unknown"}
-        if (
-            review_required
-            and not side_effect_method_allowed(model, method)
-            and not truthy_env("ODOO_MCP_ALLOW_UNKNOWN_METHODS")
-        ):
-            return {
-                "success": False,
-                "error": (
-                    "Unreviewed side-effect methods are blocked by default. Review "
-                    "custom source and allow exact methods through "
-                    "ODOO_MCP_ALLOWED_SIDE_EFFECT_METHODS=model.method, or set "
-                    "ODOO_MCP_ALLOW_UNKNOWN_METHODS=1 only for trusted deployments."
-                ),
-                "classification": safety,
-            }
-        args = args or []
-        kwargs = kwargs or {}
-
-        # Special handling for search methods like search, search_count, search_read
-        search_methods = ["search", "search_count", "search_read"]
-        if method in search_methods and args:
-            # Search methods usually have domain as the first parameter
-            # args: [[domain], limit, offset, ...] or [domain, limit, offset, ...]
-            normalized_args = list(
-                args
-            )  # Create a copy to avoid affecting the original args
-
-            if len(normalized_args) > 0:
-                normalized_args[0] = normalize_domain_input(normalized_args[0])
-                args = normalized_args
-
-        _, odoo = _resolve_odoo(ctx, instance)
-        result = odoo.execute_method(model, method, *args, **kwargs)
-        return {"success": True, "result": result}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
-@mcp.tool(
-    description="List Odoo models with optional name filtering",
-    annotations=READ_ONLY_TOOL,
-    structured_output=True,
-)
-def list_models(
-    ctx: Context,
-    query: Optional[str] = None,
-    limit: int = 100,
-    instance: Optional[str] = None,
-) -> Dict[str, Any]:
-    """
-    List available Odoo model technical names and display names.
-
-    Prefer this read-only tool over execute_method when discovering models.
-    """
-    try:
-        _, odoo = _resolve_odoo(ctx, instance)
-        limit = clamp_limit(limit, maximum=500)
-        models = odoo.get_models()
-        if "error" in models:
-            return {"success": False, "error": models["error"]}
-
-        model_names = models.get("model_names", [])
-        models_details = models.get("models_details", {})
-        if query:
-            query_lower = query.lower()
-            model_names = [
-                model_name
-                for model_name in model_names
-                if query_lower in model_name.lower()
-                or query_lower
-                in str(models_details.get(model_name, {}).get("name", "")).lower()
-            ]
-
-        records = [
-            {
-                "model": model_name,
-                "name": models_details.get(model_name, {}).get("name", ""),
-            }
-            for model_name in model_names[:limit]
-        ]
-        return {"success": True, "count": len(records), "result": records}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
-@mcp.tool(
-    description="Get field metadata for a specific Odoo model",
-    annotations=READ_ONLY_TOOL,
-    structured_output=True,
-)
-def get_model_fields(
-    ctx: Context,
-    model: str,
-    field_names: Optional[List[str]] = None,
-    relevance: Optional[str] = None,
-    max_fields: int = DEFAULT_MAX_RELEVANT_FIELDS,
-    instance: Optional[str] = None,
-) -> Dict[str, Any]:
-    """
-    Read field definitions for a model.
-
-    Prefer this read-only tool over execute_method for model introspection.
-    Pass ``relevance="top"`` to rank wide models by business relevance and
-    return only the ``max_fields`` most useful fields (with their scores).
-    """
-    try:
-        if relevance not in (None, "top"):
-            raise ValueError('relevance must be "top" when provided')
-        _, odoo = _resolve_odoo(ctx, instance)
-        validate_model_name(model)
-        fields = odoo.get_model_fields(model)
-        if "error" in fields:
-            return {"success": False, "error": fields["error"]}
-        if field_names:
-            fields = {name: fields[name] for name in field_names if name in fields}
-        if relevance == "top":
-            ranking = rank_relevant_fields(fields, max_fields=max_fields)
-            ranked_names = [entry["field"] for entry in ranking]
-            fields = {name: fields[name] for name in ranked_names}
-            return {
-                "success": True,
-                "count": len(fields),
-                "result": fields,
-                "relevance_applied": True,
-                "ranking": ranking,
-            }
-        return {"success": True, "count": len(fields), "result": fields}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
-@mcp.tool(
-    description=(
-        "Search Odoo records with read-only search_read; optional free-text "
-        "`query` matches across name/ref/email-like fields"
-    ),
-    annotations=READ_ONLY_TOOL,
-    structured_output=True,
-)
-def search_records(
-    ctx: Context,
-    model: str,
-    domain: Optional[Any] = None,
-    fields: Optional[List[str]] = None,
-    limit: int = 10,
-    offset: int = 0,
-    order: Optional[str] = None,
-    query: Optional[str] = None,
-    instance: Optional[str] = None,
-) -> Dict[str, Any]:
-    """
-    Search and read records with bounded read-only semantics.
-
-    Domain accepts standard Odoo domain arrays, a JSON string, or
-    {"conditions": [{"field": ..., "operator": ..., "value": ...}]}.
-
-    ``query`` is a free-text shortcut: the server builds an OR ``ilike``
-    domain over the model's searchable text fields (name, ref, email, ...)
-    and ANDs it with ``domain``, so agents don't have to hand-craft
-    fuzzy-match domains.
-    """
-    app_context = ctx.request_context.lifespan_context
-    try:
-        instance_name, odoo = _resolve_odoo(ctx, instance)
-        validate_model_name(model)
-        limit = clamp_limit(limit)
-        if offset < 0:
-            raise ValueError("offset must be greater than or equal to 0")
-        normalized_domain = normalize_domain_input(domain)
-        query_fields_used: Optional[List[str]] = None
-        if query is not None and str(query).strip():
-            metadata = _cached_fields_metadata(
-                app_context, odoo, model, instance_name
-            )
-            query_domain, query_fields_used = build_text_query_domain(
-                query, metadata
-            )
-            normalized_domain = query_domain + normalized_domain
-        resolved_fields = resolve_read_fields(
-            app_context, odoo, model, fields, instance_name
-        )
-        records = odoo.search_read(
-            model_name=model,
-            domain=normalized_domain,
-            fields=resolved_fields,
-            offset=offset,
-            limit=limit,
-            order=order,
-        )
-        report = {
-            "success": True,
-            "count": len(records),
-            "result": records,
-            "smart_fields_applied": fields is None,
-            "fields_used": resolved_fields,
-        }
-        if query_fields_used is not None:
-            report["query_fields_used"] = query_fields_used
-        return report
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
-@mcp.tool(
-    description="Read a single Odoo record by model and ID",
-    annotations=READ_ONLY_TOOL,
-    structured_output=True,
-)
-def read_record(
-    ctx: Context,
-    model: str,
-    record_id: int,
-    fields: Optional[List[str]] = None,
-    instance: Optional[str] = None,
-) -> Dict[str, Any]:
-    """
-    Read one record by ID with bounded read-only semantics.
-
-    When ``fields`` is omitted the server picks a curated subset
-    (business identifiers + state + relations) to keep LLM context small.
-    Pass ``fields=["*"]`` to fetch every available field.
-    """
-    app_context = ctx.request_context.lifespan_context
-    try:
-        instance_name, odoo = _resolve_odoo(ctx, instance)
-        validate_model_name(model)
-        if record_id < 1:
-            raise ValueError("record_id must be greater than 0")
-        resolved_fields = resolve_read_fields(
-            app_context, odoo, model, fields, instance_name
-        )
-        records = odoo.read_records(model, [record_id], fields=resolved_fields)
-        note_single_record_read(instance_name, model)
-        if not records:
-            return {
-                "success": False,
-                "error": f"Record not found: {model} ID {record_id}",
-            }
-        return {
-            "success": True,
-            "result": records[0],
-            "smart_fields_applied": fields is None,
-            "fields_used": resolved_fields,
-        }
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
-@mcp.tool(
-    description=("Read an ir.attachment's metadata and size-capped base64 content"),
-    annotations=READ_ONLY_TOOL,
-    structured_output=True,
-)
-def read_attachment(
-    ctx: Context,
-    attachment_id: int,
-    include_data: bool = True,
-    instance: Optional[str] = None,
-) -> Dict[str, Any]:
-    """
-    Read one ir.attachment record: metadata always, base64 content when it
-    fits under the cap (ODOO_MCP_MAX_ATTACHMENT_BYTES, default 1 MiB).
-    URL-type attachments return their URL instead of content.
-    """
-    try:
-        _, odoo = _resolve_odoo(ctx, instance)
-        if attachment_id < 1:
-            raise ValueError("attachment_id must be greater than 0")
-        rows = odoo.execute_method(
-            "ir.attachment",
-            "read",
-            [attachment_id],
-            fields=[
-                "name",
-                "mimetype",
-                "file_size",
-                "type",
-                "url",
-                "res_model",
-                "res_id",
-                "checksum",
-                "create_date",
-            ],
-        )
-        if not isinstance(rows, list) or not rows:
-            return {
-                "success": False,
-                "tool": "read_attachment",
-                "error": f"Attachment not found: ir.attachment ID {attachment_id}",
-            }
-        attachment = rows[0]
-        warnings: List[str] = []
-        data_base64: Optional[str] = None
-        cap = max_attachment_bytes()
-        file_size = int(attachment.get("file_size") or 0)
-        is_binary = str(attachment.get("type") or "binary") == "binary"
-
-        if include_data and is_binary:
-            if file_size > cap:
-                warnings.append(
-                    f"Attachment is {file_size} bytes; cap is {cap} "
-                    "(raise ODOO_MCP_MAX_ATTACHMENT_BYTES to fetch it)."
-                )
-            else:
-                data_rows = odoo.execute_method(
-                    "ir.attachment", "read", [attachment_id], fields=["datas"]
-                )
-                raw = (
-                    data_rows[0].get("datas")
-                    if isinstance(data_rows, list) and data_rows
-                    else None
-                )
-                if isinstance(raw, str) and raw:
-                    # Defense in depth: file_size comes from the same record,
-                    # so re-check the decoded size of what actually arrived.
-                    if (len(raw) * 3) // 4 > cap:
-                        warnings.append(
-                            "Attachment content exceeded the cap when fetched; "
-                            "content omitted."
-                        )
-                    else:
-                        data_base64 = raw
-        elif include_data and not is_binary:
-            warnings.append("URL-type attachment; fetch the url field directly.")
-
-        return {
-            "success": True,
-            "tool": "read_attachment",
-            "attachment": attachment,
-            "data_base64": data_base64,
-            "data_included": data_base64 is not None,
-            "max_bytes": cap,
-            "warnings": warnings,
-        }
-    except Exception as e:
-        return {"success": False, "tool": "read_attachment", "error": str(e)}
-
-
-@mcp.tool(
-    description=(
-        "Aggregate Odoo records server-side using Postgres groupby/sum/count. "
-        "Uses formatted_read_group on Odoo 19+ and read_group on earlier versions."
-    ),
-    annotations=READ_ONLY_TOOL,
-    structured_output=True,
-)
-def aggregate_records(
-    ctx: Context,
-    model: str,
-    group_by: List[str],
-    measures: Optional[List[str]] = None,
-    domain: Optional[Any] = None,
-    lazy: bool = False,
-    limit: Optional[int] = None,
-    offset: int = 0,
-    order: Optional[str] = None,
-    instance: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Group records server-side and aggregate measures.
-
-    ``measures`` are ``"field:agg"`` strings (default agg ``sum``).
-    Allowed aggregators: sum, avg, min, max, count, count_distinct,
-    array_agg, bool_and, bool_or.
-
-    Returns ``rows`` (list of dicts) plus the chosen ``method`` and
-    detected Odoo ``major_version``. Limit is capped at ``MAX_SEARCH_LIMIT``
-    when provided.
-    """
-    try:
-        _, odoo = _resolve_odoo(ctx, instance)
-        validate_model_name(model)
-        if not group_by:
-            raise ValueError("group_by must include at least one field")
-        if offset < 0:
-            raise ValueError("offset must be greater than or equal to 0")
-        clamped_limit = clamp_limit(limit) if limit is not None else None
-        normalized_domain = normalize_domain_input(domain)
-        normalized_measures: List[str] = []
-        parsed_measures: List[tuple[str, str]] = []
-        for spec in measures or []:
-            field, agg = parse_measure_spec(spec)
-            normalized_measures.append(f"{field}:{agg}")
-            parsed_measures.append((field, agg))
-
-        major = odoo_major_version(odoo)
-        method_used = "read_group"
-        rows: list[dict[str, Any]]
-        fallback_reason = ""
-
-        formatted_kwargs: Dict[str, Any] = {
-            "domain": normalized_domain,
-            "groupby": group_by,
-            "aggregates": normalized_measures,
-        }
-        if offset:
-            formatted_kwargs["offset"] = offset
-        if clamped_limit is not None:
-            formatted_kwargs["limit"] = clamped_limit
-        if order:
-            formatted_kwargs["order"] = order
-
-        legacy_kwargs: Dict[str, Any] = {
-            "domain": normalized_domain,
-            "fields": normalized_measures,
-            "groupby": group_by,
-            "lazy": lazy,
-        }
-        if offset:
-            legacy_kwargs["offset"] = offset
-        if clamped_limit is not None:
-            legacy_kwargs["limit"] = clamped_limit
-        if order:
-            legacy_kwargs["orderby"] = order
-
-        if major is not None and major >= 19:
-            method_used = "formatted_read_group"
-            rows = odoo.execute_method(
-                model, "formatted_read_group", **formatted_kwargs
-            )
-        elif major is not None:
-            rows = odoo.execute_method(model, "read_group", **legacy_kwargs)
-        else:
-            method_used = "formatted_read_group"
-            try:
-                rows = odoo.execute_method(
-                    model, "formatted_read_group", **formatted_kwargs
-                )
-            except Exception as exc:
-                if not formatted_read_group_missing(exc):
-                    raise
-                method_used = "read_group"
-                rows = odoo.execute_method(model, "read_group", **legacy_kwargs)
-                fallback_reason = str(exc)
-
-        return {
-            "success": True,
-            "method": method_used,
-            "major_version": major,
-            "fallback_reason": fallback_reason or None,
-            "model": model,
-            "group_by": group_by,
-            "measures": normalized_measures,
-            "row_count": len(rows),
-            "rows": rows,
-        }
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
-def _build_chatter_payload(
-    *,
-    model: str,
-    record_id: int,
-    body: str,
-    message_type: str,
-    subtype_xmlid: Optional[str],
-    partner_ids: Optional[List[int]],
-    attachment_ids: Optional[List[int]],
-    instance: str = "default",
-) -> Dict[str, Any]:
-    """Build the canonical message_post call payload (deterministic ordering)."""
-    kwargs: Dict[str, Any] = {"body": body, "message_type": message_type}
-    if subtype_xmlid:
-        kwargs["subtype_xmlid"] = subtype_xmlid
-    if partner_ids:
-        kwargs["partner_ids"] = [int(pid) for pid in partner_ids]
-    if attachment_ids:
-        kwargs["attachment_ids"] = [int(aid) for aid in attachment_ids]
-    return {
-        "model": model,
-        "method": "message_post",
-        "record_ids": [int(record_id)],
-        "kwargs": kwargs,
-        "instance": instance or "default",
-    }
-
-
-@mcp.tool(
-    description=(
-        "Post a chatter message on a mail.thread record. Default mode requires "
-        "an approval token returned from a preview call; set MCP_CHATTER_DIRECT=1 "
-        "to bypass and post immediately."
-    ),
-    annotations=DESTRUCTIVE_TOOL,
-    structured_output=True,
-)
-def chatter_post(
-    ctx: Context,
-    model: str,
-    record_id: int,
-    body: str,
-    message_type: str = "comment",
-    subtype_xmlid: Optional[str] = None,
-    partner_ids: Optional[List[int]] = None,
-    attachment_ids: Optional[List[int]] = None,
-    approval: Optional[Dict[str, Any]] = None,
-    confirm: bool = False,
-    instance: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Post a message on the chatter of a mail.thread-derived record.
-
-    Modes:
-    - Default (gated): first call returns ``mode=preview`` with an approval
-      token. Re-call with the same arguments plus ``approval`` and
-      ``confirm=true`` to send.
-    - Direct (``MCP_CHATTER_DIRECT=1``): the message is posted on the first
-      call without a token.
-
-    Allowed ``message_type`` values: ``comment`` (default), ``notification``.
-    """
-    try:
-        instance_name, odoo = _resolve_odoo(ctx, instance)
-        validate_model_name(model)
-        if record_id < 1:
-            raise ValueError("record_id must be greater than 0")
-        body_text = (body or "").strip()
-        if not body_text:
-            raise ValueError("body must be a non-empty string")
-        if message_type not in {"comment", "notification"}:
-            raise ValueError("message_type must be 'comment' or 'notification'.")
-
-        canonical = _build_chatter_payload(
-            model=model,
-            record_id=record_id,
-            body=body_text,
-            message_type=message_type,
-            subtype_xmlid=subtype_xmlid,
-            partner_ids=partner_ids,
-            attachment_ids=attachment_ids,
-            instance=instance_name,
-        )
-        token = build_approval_token(canonical)
-
-        direct_mode = chatter_direct_enabled()
-        if direct_mode:
-            result = odoo.execute_method(
-                model,
-                "message_post",
-                [record_id],
-                **canonical["kwargs"],
-            )
-            record_write_event(
-                "chatter_post",
-                outcome="success",
-                model=model,
-                operation="message_post",
-                record_ids=[record_id],
-                instance=instance_name,
-                detail="direct mode",
-            )
-            return {
-                "success": True,
-                "mode": "direct",
-                "model": model,
-                "record_id": record_id,
-                "approval_required": False,
-                "result": result,
-            }
-
-        if approval is None:
-            return {
-                "success": True,
-                "mode": "preview",
-                "model": model,
-                "record_id": record_id,
-                "approval": {**canonical, "token": token},
-                "warnings": [
-                    "Preview only. Re-call chatter_post with the returned approval "
-                    "and confirm=true to actually post."
-                ],
-            }
-
-        provided_token = str(approval.get("token", ""))
-        if provided_token != token:
-            raise ValueError(
-                "Approval token does not match the chatter payload — re-run preview."
-            )
-        if not confirm:
-            raise ValueError(
-                "confirm=true is required to execute an approved chatter post."
-            )
-
-        result = odoo.execute_method(
-            model,
-            "message_post",
-            [record_id],
-            **canonical["kwargs"],
-        )
-        record_write_event(
-            "chatter_post",
-            outcome="success",
-            model=model,
-            operation="message_post",
-            record_ids=[record_id],
-            instance=instance_name,
-            token=provided_token,
-        )
-        return {
-            "success": True,
-            "mode": "execute",
-            "model": model,
-            "record_id": record_id,
-            "approval_required": True,
-            "result": result,
-        }
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
-@mcp.tool(
-    description="Search for employees by name",
-    annotations=READ_ONLY_TOOL,
-    structured_output=True,
-)
-def search_employee(
-    ctx: Context,
-    name: str,
-    limit: int = 20,
-    instance: Optional[str] = None,
-) -> SearchEmployeeResponse:
-    """
-    Search for employees by name using Odoo's name_search method.
-
-    Parameters:
-        name: The name (or part of the name) to search for.
-        limit: The maximum number of results to return (default 20).
-
-    Returns:
-        SearchEmployeeResponse containing results or error information.
-    """
-    model = "hr.employee"
-    method = "name_search"
-
-    args: List[Any] = []
-    kwargs: Dict[str, Any] = {"name": name, "limit": limit}
-
-    try:
-        _, odoo = _resolve_odoo(ctx, instance)
-        result = odoo.execute_method(model, method, *args, **kwargs)
-        parsed_result = [
-            EmployeeSearchResult(id=item[0], name=item[1]) for item in result
-        ]
-        return SearchEmployeeResponse(success=True, result=parsed_result)
-    except Exception as e:
-        return SearchEmployeeResponse(success=False, error=str(e))
-
-
-@mcp.tool(
-    description="Search for holidays within a date range",
-    annotations=READ_ONLY_TOOL,
-    structured_output=True,
-)
-def search_holidays(
-    ctx: Context,
-    start_date: str,
-    end_date: str,
-    employee_id: Optional[int] = None,
-    instance: Optional[str] = None,
-) -> SearchHolidaysResponse:
-    """
-    Searches for holidays within a specified date range.
-
-    Parameters:
-        start_date: Start date in YYYY-MM-DD format.
-        end_date: End date in YYYY-MM-DD format.
-        employee_id: Optional employee ID to filter holidays.
-
-    Returns:
-        SearchHolidaysResponse:  Object containing the search results.
-    """
-    # Validate date format using datetime
-    try:
-        datetime.strptime(start_date, "%Y-%m-%d")
-    except ValueError:
-        return SearchHolidaysResponse(
-            success=False, error="Invalid start_date format. Use YYYY-MM-DD."
-        )
-    try:
-        datetime.strptime(end_date, "%Y-%m-%d")
-    except ValueError:
-        return SearchHolidaysResponse(
-            success=False, error="Invalid end_date format. Use YYYY-MM-DD."
-        )
-
-    # Calculate adjusted start_date (subtract one day)
-    start_date_dt = datetime.strptime(start_date, "%Y-%m-%d")
-    adjusted_start_date_dt = start_date_dt - timedelta(days=1)
-    adjusted_start_date = adjusted_start_date_dt.strftime("%Y-%m-%d")
-
-    # Build the domain
-    domain: List[Any] = [
-        "&",
-        ["start_datetime", "<=", f"{end_date} 22:59:59"],
-        # Use adjusted date
-        ["stop_datetime", ">=", f"{adjusted_start_date} 23:00:00"],
-    ]
-    if employee_id:
-        domain.append(
-            ["employee_id", "=", employee_id],
-        )
-
-    try:
-        _, odoo = _resolve_odoo(ctx, instance)
-        holidays = odoo.search_read(
-            model_name="hr.leave.report.calendar",
-            domain=domain,
-        )
-        parsed_holidays = [Holiday(**holiday) for holiday in holidays]
-        return SearchHolidaysResponse(success=True, result=parsed_holidays)
-
-    except Exception as e:
-        return SearchHolidaysResponse(success=False, error=str(e))
-
-
-# ----- MCP Prompts -----
-
-
-@mcp.prompt(
-    name="diagnose_failed_odoo_call",
-    description="Guide an assistant through diagnosing a failed Odoo model call.",
-)
-def prompt_diagnose_failed_odoo_call(
-    model: str,
-    method: str,
-    error: str = "",
-) -> str:
-    """Prompt for root-causing failed Odoo calls using the safe tools first."""
-    return (
-        "Diagnose this Odoo call without retrying destructive methods first.\n"
-        f"Model: {model}\n"
-        f"Method: {method}\n"
-        f"Observed error: {error or '<not provided>'}\n\n"
-        "Use diagnose_odoo_call, diagnose_access, inspect_model_relationships, "
-        "and get_model_fields before execute_method. Preserve Odoo error details, "
-        "but do not expose secrets."
-    )
-
-
-@mcp.prompt(
-    name="fit_gap_workshop",
-    description="Structure an Odoo fit/gap workshop from raw requirements.",
-)
-def prompt_fit_gap_workshop(requirement: str) -> str:
-    """Prompt for classifying a business requirement safely."""
-    return (
-        "Classify this requirement into standard Odoo, configuration, Studio, "
-        "custom module, avoid, or unknown.\n"
-        f"Requirement: {requirement}\n\n"
-        "Use fit_gap_report first, then schema_catalog/list_models for evidence. "
-        "Recommend the smallest Odoo-native implementation path."
-    )
-
-
-@mcp.prompt(
-    name="json2_migration_plan",
-    description="Plan migration from XML-RPC/JSON-RPC style calls to Odoo JSON-2.",
-)
-def prompt_json2_migration_plan(model: str, method: str) -> str:
-    """Prompt for JSON-2 named-argument and transaction migration planning."""
-    return (
-        "Prepare a JSON-2 migration plan for this Odoo call.\n"
-        f"Model: {model}\n"
-        f"Method: {method}\n\n"
-        "Use generate_json2_payload and upgrade_risk_report. Call out named "
-        "arguments, per-call transaction behavior, database header expectations, "
-        "and destructive-method safeguards."
-    )
-
-
-@mcp.prompt(
-    name="safe_write_review",
-    description="Review a proposed create/write/unlink before execution.",
-)
-def prompt_safe_write_review(model: str, operation: str) -> str:
-    """Prompt for approval-token write review."""
-    return (
-        "Review this proposed Odoo write before any execution.\n"
-        f"Model: {model}\n"
-        f"Operation: {operation}\n\n"
-        "Use preview_write and validate_write. Only execute through "
-        "execute_approved_write when the approval token matches, confirm=true is "
-        "explicit, and the runtime has ODOO_MCP_ENABLE_WRITES=1."
-    )
-
-
-@mcp.prompt(
-    name="custom_module_audit",
-    description="Guide a local source audit for custom Odoo addons.",
-)
-def prompt_custom_module_audit(addons_path: str) -> str:
-    """Prompt for local custom-addon review without importing code."""
-    return (
-        "Audit local Odoo addon source without importing addon modules.\n"
-        f"Addons path: {addons_path}\n\n"
-        "Use scan_addons_source, upgrade_risk_report, and business_pack_report. "
-        "Prioritize manifest dependencies, computed field dependencies, overridden "
-        "create/write/unlink methods, sudo usage, automated actions, custom views, "
-        "and security CSV files."
-    )

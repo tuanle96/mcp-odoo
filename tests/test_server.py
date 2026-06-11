@@ -95,9 +95,18 @@ def test_server_registers_expected_tools_and_resources_without_lifespan():
         "list_instances",
         "lookup_model_history",
         "read_attachment",
+        "index_knowledge",
+        "search_knowledge",
+        "knowledge_stats",
+        "receivable_payable_aging",
+        "accounting_health_summary",
+        "submit_async_task",
+        "get_async_task",
+        "cancel_async_task",
+        "list_async_tasks",
     }
     assert expected_tools <= tools
-    assert len(tools) == 27
+    assert len(tools) == 36
     assert "odoo://models" in resources
     assert {
         "odoo://model/{model_name}",
@@ -752,7 +761,7 @@ def test_profile_health_and_prompts_are_available():
 
     health = call_tool_json(server, "health_check", {})
     assert health["success"] is True
-    assert health["server"]["tool_count"] == 27
+    assert health["server"]["tool_count"] == 36
     assert health["runtime"]["chatter_direct_enabled"] is False
     assert health["runtime"]["broad_unknown_method_mode"]["enabled"] is False
 
@@ -1763,7 +1772,7 @@ def test_max_smart_fields_invalid_env_falls_back_to_default(monkeypatch):
 def test_mcp_surface_counts_reports_v030_totals():
     server = importlib.import_module("odoo_mcp.server")
     counts = server.mcp_surface_counts()
-    assert counts["tool_count"] == 27
+    assert counts["tool_count"] == 36
     assert counts["prompt_count"] == 5
     # 1 fixed resource + 3 templates = 4
     assert counts["resource_count"] == 4
