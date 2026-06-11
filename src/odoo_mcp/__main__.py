@@ -202,6 +202,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Print non-secret runtime health JSON and exit.",
     )
+    parser.add_argument(
+        "--setup",
+        action="store_true",
+        help=(
+            "Interactive wizard: prompt for connection details, test them, "
+            "write a config file, and print client snippets."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -288,6 +296,10 @@ def main() -> int:
     """
     try:
         args = parse_args()
+        if args.setup:
+            from .setup_wizard import run_setup
+
+            return run_setup()
         setup_logging()
         configure_mcp_runtime(args)
         if args.health:
