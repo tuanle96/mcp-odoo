@@ -83,7 +83,7 @@ uses GitHub OIDC (ephemeral token tied to the repo identity).
 
 ### Current status
 
-Not yet submitted. Requires a PR to `github.com/docker/mcp-registry`.
+Submitted 2026-06-11: [docker/mcp-registry#3928](https://github.com/docker/mcp-registry/pull/3928) (pinned to the v0.9.0 commit). Listing appears on `hub.docker.com/mcp` ~24h after merge.
 
 ### About the catalog
 
@@ -241,10 +241,10 @@ If Smithery asks for an API key for CI publishing, store it as the
 > JSON-2 APIs through the Model Context Protocol with approval-gated writes,
 > schema discovery, and multi-instance routing.
 >
-> It's on PyPI (odoo-mcp), Smithery, Glama, and PulseMCP, and I'm submitting
-> it to the official MCP Registry this week. I'd love to explore featuring it
-> on OEC.sh if there's a good fit — happy to provide docs, a demo, or a guest
-> post. Let me know if you're interested.
+> It's on PyPI (odoo-mcp), the official MCP Registry, Smithery, Glama, and
+> PulseMCP, with a Docker MCP Catalog listing in review. I'd love to explore
+> featuring it on OEC.sh if there's a good fit — happy to provide docs, a
+> demo, or a guest post. Let me know if you're interested.
 >
 > Best,  
 > Tuan Le
