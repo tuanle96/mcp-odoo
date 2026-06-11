@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.8.0] - 2026-06-11
 
 ### Added
 - Free-text `query` parameter on `search_records` — the server builds an OR `ilike` domain over the model's searchable text fields (identifier columns like `name`, `ref`, `email` first; capped at 5) and ANDs it with any explicit `domain`. Falls back to `name` when field metadata is unavailable. The response reports `query_fields_used`.
