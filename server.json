@@ -3,7 +3,7 @@
   "name": "io.github.tuanle96/mcp-odoo",
   "description": "Odoo MCP server: safe gated writes, access diagnostics, schema discovery, multi-instance routing.",
   "version": "0.8.0",
-  "websiteUrl": "https://github.com/tuanle96/mcp-odoo#readme",
+  "websiteUrl": "https://tuanle96.github.io/mcp-odoo/",
   "repository": {
     "url": "https://github.com/tuanle96/mcp-odoo",
     "source": "github"

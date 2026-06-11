@@ -26,7 +26,7 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/tuanle96/mcp-odoo"
+Homepage = "https://tuanle96.github.io/mcp-odoo/"
 Source = "https://github.com/tuanle96/mcp-odoo"
 Documentation = "https://github.com/tuanle96/mcp-odoo#readme"
 Changelog = "https://github.com/tuanle96/mcp-odoo/blob/main/CHANGELOG.md"

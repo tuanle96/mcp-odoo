@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Odoo MCP — The Odoo MCP that is fluent in every Odoo version</title>
+<meta name="description" content="Turn any Odoo 16+ database into a Model Context Protocol server. Five-minute install, zero Odoo-side setup, safe writes, real diagnostics, JSON-2 ready.">
+<meta property="og:title" content="Odoo MCP">
+<meta property="og:description" content="The Odoo MCP that is fluent in every Odoo version. Zero Odoo-side setup, safe writes, JSON-2 ready.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://tuanle96.github.io/mcp-odoo/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23714B67'/%3E%3Ctext x='7' y='23' font-family='monospace' font-size='17' fill='%23ece7dd'%3E%E2%80%BA_%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&family=Instrument+Serif:ital@0;1&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink: #151513;
+  --ink-2: #1c1c1a;
+  --panel: #201f1c;
+  --line: #35332e;
+  --line-soft: #2a2925;
+  --paper: #ece7dd;
+  --muted: #9b958a;
+  --faint: #6d685f;
+  --plum: #c08bab;
+  --plum-deep: #714B67;
+  --green: #9dc17a;
+  --amber: #d9a441;
+  --serif: "Instrument Serif", Georgia, serif;
+  --sans: "Instrument Sans", -apple-system, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--sans);
+  font-size: 17px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+body::before {
+  content: "";
+  position: fixed; inset: 0;
+  background-image:
+    linear-gradient(var(--line-soft) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line-soft) 1px, transparent 1px);
+  background-size: 72px 72px;
+  opacity: .25;
+  pointer-events: none;
+  z-index: 0;
+  mask-image: radial-gradient(ellipse 90% 60% at 50% 0%, black 30%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse 90% 60% at 50% 0%, black 30%, transparent 75%);
+}
+body::after {
+  content: "";
+  position: fixed; inset: -50%;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 100;
+}
+main, header, footer { position: relative; z-index: 1; }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+a { color: inherit; }
+
+/* ---------- nav ---------- */
+nav {
+  position: sticky; top: 0; z-index: 50;
+  background: color-mix(in srgb, var(--ink) 88%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line-soft);
+}
+.nav-inner {
+  display: flex; align-items: center; justify-content: space-between;
+  height: 60px;
+}
+.brand {
+  font-family: var(--mono); font-size: 15px; font-weight: 500;
+  text-decoration: none; display: flex; align-items: center; gap: 10px;
+}
+.brand .mark {
+  width: 26px; height: 26px; border-radius: 6px;
+  background: var(--plum-deep); color: var(--paper);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px;
+}
+.nav-links { display: flex; gap: 28px; align-items: center; }
+.nav-links a {
+  font-family: var(--mono); font-size: 13px; color: var(--muted);
+  text-decoration: none; transition: color .2s;
+}
+.nav-links a:hover { color: var(--paper); }
+.nav-links a.gh {
+  color: var(--paper); border: 1px solid var(--line);
+  padding: 6px 14px; border-radius: 99px; transition: border-color .2s, background .2s;
+}
+.nav-links a.gh:hover { border-color: var(--plum); background: var(--ink-2); }
+@media (max-width: 720px) { .nav-links a:not(.gh) { display: none; } }
+
+/* ---------- hero ---------- */
+.hero { padding: 96px 0 72px; }
+.kicker {
+  font-family: var(--mono); font-size: 13px; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--plum);
+  display: flex; align-items: center; gap: 12px;
+}
+.kicker::before { content: ""; width: 36px; height: 1px; background: var(--plum); }
+h1 {
+  font-family: var(--serif); font-weight: 400;
+  font-size: clamp(44px, 7.2vw, 84px);
+  line-height: 1.02; letter-spacing: -0.01em;
+  margin: 24px 0 0; max-width: 880px;
+}
+h1 em { font-style: italic; color: var(--plum); }
+.hero-sub {
+  margin-top: 28px; max-width: 560px;
+  color: var(--muted); font-size: 19px;
+}
+.hero-sub strong { color: var(--paper); font-weight: 500; }
+.hero-cta { margin-top: 40px; display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+.cmd {
+  display: inline-flex; align-items: center; gap: 14px;
+  font-family: var(--mono); font-size: 15px;
+  background: var(--panel); border: 1px solid var(--line);
+  padding: 13px 18px; border-radius: 10px;
+  cursor: pointer; transition: border-color .2s;
+}
+.cmd:hover { border-color: var(--plum); }
+.cmd .dollar { color: var(--green); user-select: none; }
+.cmd .copy-hint { color: var(--faint); font-size: 12px; transition: color .2s; }
+.cmd:hover .copy-hint { color: var(--plum); }
+.btn-ghost {
+  font-family: var(--mono); font-size: 14px; color: var(--muted);
+  text-decoration: none; border-bottom: 1px solid var(--line);
+  padding-bottom: 2px; transition: color .2s, border-color .2s;
+}
+.btn-ghost:hover { color: var(--paper); border-color: var(--paper); }
+
+/* ---------- terminal ---------- */
+.term {
+  margin-top: 72px;
+  background: var(--ink-2); border: 1px solid var(--line);
+  border-radius: 14px; overflow: hidden;
+  box-shadow: 0 30px 80px -30px rgba(0,0,0,.8), 0 0 0 1px rgba(192,139,171,.04);
+}
+.term-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 16px; border-bottom: 1px solid var(--line-soft);
+}
+.term-bar .dot { width: 11px; height: 11px; border-radius: 50%; background: var(--line); }
+.term-bar .dot:first-child { background: #5a4a44; }
+.term-title { font-family: var(--mono); font-size: 12px; color: var(--faint); margin-left: 10px; }
+.term-body { padding: 24px 26px 28px; font-family: var(--mono); font-size: 14px; line-height: 1.9; }
+.t-user { color: var(--paper); }
+.t-user::before { content: "❯ "; color: var(--plum); }
+.t-tool { color: var(--muted); }
+.t-tool::before { content: "⏺ "; color: var(--amber); }
+.t-tool b { color: var(--paper); font-weight: 500; }
+.t-ok { color: var(--green); }
+.t-ok::before { content: "✓ "; }
+.t-dim { color: var(--faint); }
+.t-gap { height: 14px; }
+@media (max-width: 720px) { .term-body { font-size: 12.5px; padding: 18px; } }
+
+/* ---------- ledger stats ---------- */
+.ledger {
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  margin-top: 88px;
+}
+.ledger-grid {
+  display: grid; grid-template-columns: repeat(5, 1fr);
+}
+.ledger-cell {
+  padding: 28px 20px; border-left: 1px solid var(--line-soft);
+  text-align: left;
+}
+.ledger-cell:first-child { border-left: none; }
+.ledger-num {
+  font-family: var(--serif); font-size: 40px; line-height: 1; color: var(--paper);
+}
+.ledger-num em { font-style: italic; color: var(--plum); }
+.ledger-label {
+  font-family: var(--mono); font-size: 11.5px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--faint); margin-top: 10px;
+}
+@media (max-width: 840px) {
+  .ledger-grid { grid-template-columns: repeat(2, 1fr); }
+  .ledger-cell { border-top: 1px solid var(--line-soft); }
+  .ledger-cell:nth-child(-n+2) { border-top: none; }
+  .ledger-cell:nth-child(odd) { border-left: none; }
+}
+
+/* ---------- sections ---------- */
+section { padding: 96px 0 0; }
+.sec-head { display: flex; align-items: baseline; gap: 20px; margin-bottom: 48px; }
+.sec-no {
+  font-family: var(--mono); font-size: 13px; color: var(--plum);
+  letter-spacing: .1em; white-space: nowrap;
+}
+h2 {
+  font-family: var(--serif); font-weight: 400;
+  font-size: clamp(30px, 4.4vw, 46px); line-height: 1.1;
+}
+h2 em { font-style: italic; color: var(--plum); }
+.sec-intro { color: var(--muted); max-width: 600px; margin: -28px 0 48px; }
+
+/* ---------- features ---------- */
+.feat-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  border-top: 1px solid var(--line); border-left: 1px solid var(--line);
+}
+.feat {
+  border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  padding: 30px 26px 34px;
+  background: transparent; transition: background .25s;
+  position: relative;
+}
+.feat:hover { background: var(--ink-2); }
+.feat-icon {
+  font-family: var(--mono); font-size: 13px; color: var(--plum);
+  border: 1px solid var(--line); border-radius: 6px;
+  width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
+  margin-bottom: 18px;
+}
+.feat h3 { font-family: var(--sans); font-size: 17px; font-weight: 600; margin-bottom: 10px; }
+.feat p { font-size: 14.5px; color: var(--muted); line-height: 1.65; }
+.feat p code {
+  font-family: var(--mono); font-size: 12.5px; color: var(--paper);
+  background: var(--panel); padding: 1px 6px; border-radius: 4px;
+}
+@media (max-width: 920px) { .feat-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 600px) { .feat-grid { grid-template-columns: 1fr; } }
+
+/* ---------- safety ---------- */
+.safety {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: start;
+}
+.safety-copy p { color: var(--muted); margin-bottom: 18px; }
+.safety-copy p strong { color: var(--paper); font-weight: 500; }
+.flow { border-left: 1px solid var(--line); }
+.flow-step { display: flex; gap: 18px; padding: 0 0 30px 0; position: relative; }
+.flow-step::before {
+  content: attr(data-n);
+  font-family: var(--mono); font-size: 12px; color: var(--plum);
+  border: 1px solid var(--line); background: var(--ink);
+  border-radius: 50%; width: 30px; height: 30px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  margin-left: -15.5px;
+}
+.flow-step:last-child { padding-bottom: 0; }
+.flow-step h4 { font-family: var(--mono); font-size: 14px; font-weight: 500; margin-bottom: 4px; }
+.flow-step p { font-size: 14px; color: var(--muted); }
+@media (max-width: 840px) { .safety { grid-template-columns: 1fr; gap: 40px; } }
+
+/* ---------- compare table ---------- */
+.cmp { width: 100%; border-collapse: collapse; border: 1px solid var(--line); font-size: 14.5px; }
+.cmp th, .cmp td { padding: 16px 20px; border-bottom: 1px solid var(--line-soft); text-align: left; vertical-align: top; }
+.cmp th {
+  font-family: var(--mono); font-size: 12px; letter-spacing: .08em;
+  text-transform: uppercase; font-weight: 500; color: var(--faint);
+  border-bottom: 1px solid var(--line);
+}
+.cmp th.us { color: var(--plum); }
+.cmp td:first-child { color: var(--muted); font-family: var(--mono); font-size: 13px; width: 22%; }
+.cmp td.us { color: var(--paper); background: color-mix(in srgb, var(--plum-deep) 10%, transparent); }
+.cmp td.them { color: var(--muted); }
+.cmp tr:last-child td { border-bottom: none; }
+.cmp-note { font-family: var(--mono); font-size: 13px; color: var(--faint); margin-top: 16px; }
+.cmp-note a { color: var(--muted); }
+@media (max-width: 720px) {
+  .cmp td:first-child { width: auto; }
+  .cmp th, .cmp td { padding: 12px 12px; font-size: 13px; }
+}
+
+/* ---------- clients ---------- */
+.clients { display: flex; flex-wrap: wrap; gap: 12px; }
+.client {
+  font-family: var(--mono); font-size: 14px; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 99px;
+  padding: 10px 22px; text-decoration: none;
+  transition: color .2s, border-color .2s, background .2s;
+}
+.client:hover { color: var(--paper); border-color: var(--plum); background: var(--ink-2); }
+
+/* ---------- install ---------- */
+.install-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+.install-card {
+  border: 1px solid var(--line); border-radius: 14px;
+  padding: 32px 30px; background: var(--ink-2);
+}
+.install-card .tag {
+  font-family: var(--mono); font-size: 11.5px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--plum); margin-bottom: 16px; display: block;
+}
+.install-card h3 { font-family: var(--serif); font-size: 27px; font-weight: 400; margin-bottom: 12px; }
+.install-card > p { font-size: 14.5px; color: var(--muted); margin-bottom: 22px; }
+.codebox {
+  position: relative;
+  background: var(--ink); border: 1px solid var(--line-soft);
+  border-radius: 10px; padding: 16px 18px;
+  font-family: var(--mono); font-size: 13.5px; line-height: 1.7;
+  overflow-x: auto; white-space: pre; color: var(--paper);
+  cursor: pointer;
+}
+.codebox .c { color: var(--faint); }
+.codebox .g { color: var(--green); }
+.codebox::after {
+  content: "copy"; position: absolute; top: 10px; right: 12px;
+  font-size: 11px; color: var(--faint); transition: color .2s;
+}
+.codebox:hover::after { color: var(--plum); }
+.codebox.copied::after { content: "copied ✓"; color: var(--green); }
+.cmd.copied .copy-hint { color: var(--green); }
+.install-more { font-family: var(--mono); font-size: 13px; color: var(--faint); margin-top: 18px; }
+.install-more a { color: var(--muted); }
+@media (max-width: 840px) { .install-grid { grid-template-columns: 1fr; } }
+
+/* ---------- footer ---------- */
+footer { margin-top: 120px; border-top: 1px solid var(--line); }
+.foot-inner {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  padding: 48px 0 64px; gap: 40px; flex-wrap: wrap;
+}
+.foot-brand { font-family: var(--serif); font-size: 28px; }
+.foot-brand em { font-style: italic; color: var(--plum); }
+.foot-sub { font-family: var(--mono); font-size: 12.5px; color: var(--faint); margin-top: 10px; }
+.foot-cols { display: flex; gap: 64px; flex-wrap: wrap; }
+.foot-col h5 {
+  font-family: var(--mono); font-size: 11.5px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--faint); margin-bottom: 14px; font-weight: 500;
+}
+.foot-col a {
+  display: block; font-family: var(--mono); font-size: 13.5px;
+  color: var(--muted); text-decoration: none; margin-bottom: 9px; transition: color .2s;
+}
+.foot-col a:hover { color: var(--paper); }
+
+/* ---------- reveal ---------- */
+.reveal { opacity: 0; transform: translateY(22px); transition: opacity .7s cubic-bezier(.2,.7,.3,1), transform .7s cubic-bezier(.2,.7,.3,1); }
+.reveal.in { opacity: 1; transform: none; }
+.hero .reveal { transition-delay: calc(var(--d, 0) * 90ms); }
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; transition: none; }
+  html { scroll-behavior: auto; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap nav-inner">
+    <a class="brand" href="#"><span class="mark">›_</span>odoo-mcp</a>
+    <div class="nav-links">
+      <a href="#tools">Tools</a>
+      <a href="#safety">Safety</a>
+      <a href="#compare">Compare</a>
+      <a href="#install">Install</a>
+      <a class="gh" href="https://github.com/tuanle96/mcp-odoo">GitHub ↗</a>
+    </div>
+  </div>
+</nav>
+
+<main>
+<header class="hero wrap">
+  <p class="kicker reveal in" style="--d:0">MCP server · Odoo 16 → 19+</p>
+  <h1 class="reveal in" style="--d:1">The Odoo MCP that is <em>fluent</em> in every Odoo version.</h1>
+  <p class="hero-sub reveal in" style="--d:2">
+    Turn any Odoo 16+ database into a Model Context Protocol server with credentials you already have.
+    <strong>No App Store module. No permission setup. No admin access.</strong>
+    Safe writes, real diagnostics, JSON-2 ready years before the Odoo 22 XML-RPC removal.
+  </p>
+  <div class="hero-cta reveal in" style="--d:3">
+    <button class="cmd" data-copy="uvx odoo-mcp --setup">
+      <span class="dollar">$</span> uvx odoo-mcp --setup <span class="copy-hint">copy</span>
+    </button>
+    <a class="btn-ghost" href="https://github.com/tuanle96/mcp-odoo#readme">Read the docs →</a>
+  </div>
+
+  <div class="term reveal in" style="--d:4">
+    <div class="term-bar">
+      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      <span class="term-title">claude — odoo-mcp · production</span>
+    </div>
+    <div class="term-body">
+      <div class="t-user">Show me all customers from Spain with unpaid invoices.</div>
+      <div class="t-gap"></div>
+      <div class="t-tool"><b>search_records</b>(model="res.partner", domain=[["country_code","=","ES"]], …)</div>
+      <div class="t-tool"><b>aggregate_records</b>(model="account.move", groupby=["partner_id"], …)</div>
+      <div class="t-ok">23 partners · €148,220.00 outstanding <span class="t-dim">— 2 calls, 0.6s, read-only</span></div>
+      <div class="t-gap"></div>
+      <div class="t-user">Audit the custom_billing addon for upgrade risks before we move to Odoo 19.</div>
+      <div class="t-gap"></div>
+      <div class="t-tool"><b>scan_addons_source</b>(path="./addons/custom_billing")</div>
+      <div class="t-tool"><b>upgrade_risk_report</b>(target="19.0")</div>
+      <div class="t-ok">3 blocking · 7 warnings <span class="t-dim">— XML-RPC call sites flagged with JSON-2 payload previews</span></div>
+    </div>
+  </div>
+</header>
+
+<div class="ledger reveal">
+  <div class="wrap ledger-grid">
+    <div class="ledger-cell"><div class="ledger-num">27</div><div class="ledger-label">MCP tools</div></div>
+    <div class="ledger-cell"><div class="ledger-num">16<em>→</em>19</div><div class="ledger-label">Odoo versions</div></div>
+    <div class="ledger-cell"><div class="ledger-num"><em>0</em></div><div class="ledger-label">Odoo-side setup steps</div></div>
+    <div class="ledger-cell"><div class="ledger-num">497</div><div class="ledger-label">Tests + real Odoo stacks</div></div>
+    <div class="ledger-cell"><div class="ledger-num">MIT</div><div class="ledger-label">License, since day one</div></div>
+  </div>
+</div>
+
+<section id="tools" class="wrap">
+  <div class="sec-head reveal">
+    <span class="sec-no">01 /</span>
+    <h2>More than CRUD. A <em>fieldwork kit</em> for Odoo agents.</h2>
+  </div>
+  <div class="feat-grid">
+    <div class="feat reveal"><span class="feat-icon">›_</span>
+      <h3>Read &amp; aggregate, server-side</h3>
+      <p>Search, read, and group records with smart field selection that drops audit, binary, and compute noise. <code>aggregate_records</code> pushes sum/count/avg into Postgres.</p>
+    </div>
+    <div class="feat reveal"><span class="feat-icon">⊘</span>
+      <h3>Safe writes, by design</h3>
+      <p>Direct <code>create</code>/<code>write</code>/<code>unlink</code> are blocked. Approved writes need live metadata, a same-session token, explicit confirmation, and an env gate.</p>
+    </div>
+    <div class="feat reveal"><span class="feat-icon">≡</span>
+      <h3>Multi-instance routing</h3>
+      <p>One server, several named Odoo instances. Optional <code>instance</code> parameter on every tool, instance-bound approval tokens, per-instance schema caches.</p>
+    </div>
+    <div class="feat reveal"><span class="feat-icon">✚</span>
+      <h3>Real diagnostics</h3>
+      <p><code>diagnose_odoo_call</code>, <code>diagnose_access</code>, relationship inspection, fit/gap and business-pack reports — answers <em>why</em> a call failed, not just that it did.</p>
+    </div>
+    <div class="feat reveal"><span class="feat-icon">⇄</span>
+      <h3>JSON-2 ready, years early</h3>
+      <p>XML-RPC for Odoo 16–18, External JSON-2 for 19+. <code>generate_json2_payload</code> previews the migration body for any legacy call before Odoo 22 removes XML-RPC.</p>
+    </div>
+    <div class="feat reveal"><span class="feat-icon">¶</span>
+      <h3>Audit trail &amp; chatter</h3>
+      <p>One JSONL line per write-path event with token digests. <code>chatter_post</code> reaches any <code>mail.thread</code> under the same approval gate as writes.</p>
+    </div>
+    <div class="feat reveal"><span class="feat-icon">◫</span>
+      <h3>Addon &amp; upgrade analysis</h3>
+      <p>Scan local addon source, flag upgrade risks per target version, and resolve model renames across releases — built for migration consulting work.</p>
+    </div>
+    <div class="feat reveal"><span class="feat-icon">∿</span>
+      <h3>Resilient by default</h3>
+      <p>Read-only calls retry with exponential backoff, schema caches are TTL- and LRU-bounded, and <code>health_check</code> flags N+1 read loops before they hurt.</p>
+    </div>
+    <div class="feat reveal"><span class="feat-icon">⌘</span>
+      <h3>5 agent prompts included</h3>
+      <p>Ready-made workflows for failed-call diagnosis, fit/gap workshops, JSON-2 migration, safe writes, and module audits — no prompt engineering required.</p>
+    </div>
+  </div>
+</section>
+
+<section id="safety" class="wrap">
+  <div class="sec-head reveal">
+    <span class="sec-no">02 /</span>
+    <h2>Your ERP is not a <em>sandbox</em>.</h2>
+  </div>
+  <div class="safety">
+    <div class="safety-copy reveal">
+      <p>Most Odoo bridges hand agents direct <strong>create / write / unlink</strong> — one hallucinated ID away from corrupting production books. Odoo MCP treats every write as a transaction that must earn its execution.</p>
+      <p>With <strong>ODOO_MCP_ELICIT_WRITES=1</strong>, the human sees a native MCP confirmation form with a diff summary before anything executes. Every event lands in a JSONL audit log.</p>
+      <p>Reads stay instant and unrestricted — the gate only exists where the risk does.</p>
+    </div>
+    <div class="flow reveal">
+      <div class="flow-step" data-n="1"><div><h4>preview_write</h4><p>The agent proposes a change; the server fetches live field metadata and renders a diff.</p></div></div>
+      <div class="flow-step" data-n="2"><div><h4>validate</h4><p>Values checked against <code style="font-family:var(--mono)">fields_get</code> — wrong types and unknown fields fail before touching Odoo.</p></div></div>
+      <div class="flow-step" data-n="3"><div><h4>approval token</h4><p>A same-session, instance-bound token is issued. It cannot be replayed across sessions or instances.</p></div></div>
+      <div class="flow-step" data-n="4"><div><h4>execute_approved_write</h4><p>Runs only with the token, explicit confirmation, and <code style="font-family:var(--mono)">ODOO_MCP_ENABLE_WRITES=1</code> set in the environment.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<section id="compare" class="wrap">
+  <div class="sec-head reveal">
+    <span class="sec-no">03 /</span>
+    <h2>Why this one, not the <em>other</em> bridges.</h2>
+  </div>
+  <div class="reveal" style="overflow-x:auto">
+    <table class="cmp">
+      <thead><tr><th></th><th class="us">Odoo MCP</th><th>Typical MCP-Odoo bridge</th></tr></thead>
+      <tbody>
+        <tr><td>odoo-side setup</td><td class="us"><b>0 steps</b> — existing credentials on any Odoo 16+</td><td class="them">Install an App Store module, enable models, grant per-tool permissions</td></tr>
+        <tr><td>writes</td><td class="us">Token + live validation + confirm + env gate</td><td class="them">Direct create/write/unlink, or a "yolo" bypass</td></tr>
+        <tr><td>transport</td><td class="us">XML-RPC <b>and</b> External JSON-2 — ready for the Odoo 22 removal</td><td class="them">XML-RPC only (deprecated since 19, removed in 22)</td></tr>
+        <tr><td>diagnostics</td><td class="us">7 diagnostic &amp; analysis tools, migration helpers</td><td class="them">CRUD only</td></tr>
+        <tr><td>multi-instance</td><td class="us">Named instances, per-tool routing, isolated tokens &amp; caches</td><td class="them">One global connection per process</td></tr>
+        <tr><td>testing</td><td class="us">Docker harness boots real Odoo 16/17/18/19 stacks per release</td><td class="them">Mock-based only</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="cmp-note reveal">Comparing a specific project? See the per-project breakdown in <a href="https://github.com/tuanle96/mcp-odoo/blob/main/docs/comparison.md">docs/comparison.md</a>.</p>
+</section>
+
+<section class="wrap">
+  <div class="sec-head reveal">
+    <span class="sec-no">04 /</span>
+    <h2>Plugs into the agents you <em>already</em> run.</h2>
+  </div>
+  <p class="sec-intro reveal">Copy-paste-runnable adapters ship in <a href="https://github.com/tuanle96/mcp-odoo/tree/main/examples" style="color:var(--paper)">examples/</a> — stdio for local clients, Streamable HTTP for everything else.</p>
+  <div class="clients reveal">
+    <a class="client" href="https://github.com/tuanle96/mcp-odoo/blob/main/examples/README.md">Claude Code</a>
+    <a class="client" href="https://github.com/tuanle96/mcp-odoo/tree/main/examples/cursor">Cursor</a>
+    <a class="client" href="https://github.com/tuanle96/mcp-odoo/blob/main/docs/client-configs.md">Claude Desktop</a>
+    <a class="client" href="https://github.com/tuanle96/mcp-odoo/tree/main/examples/openai-agents">OpenAI Agents SDK</a>
+    <a class="client" href="https://github.com/tuanle96/mcp-odoo/tree/main/examples/langgraph">LangGraph</a>
+    <a class="client" href="https://github.com/tuanle96/mcp-odoo/tree/main/examples/crewai">CrewAI</a>
+    <a class="client" href="https://github.com/tuanle96/mcp-odoo/tree/main/examples/n8n">n8n</a>
+    <a class="client" href="https://github.com/tuanle96/mcp-odoo/blob/main/docs/client-configs.md">Windsurf · VS Code · Zed · Cline →</a>
+  </div>
+</section>
+
+<section id="install" class="wrap">
+  <div class="sec-head reveal">
+    <span class="sec-no">05 /</span>
+    <h2>Five minutes. <em>Either</em> path.</h2>
+  </div>
+  <div class="install-grid">
+    <div class="install-card reveal">
+      <span class="tag">For humans</span>
+      <h3>Run the wizard</h3>
+      <p>It asks for your Odoo URL, database, and credentials, tests the connection live, and prints ready-to-paste snippets for Claude Code, Cursor, and Claude Desktop.</p>
+      <div class="codebox" data-copy="uvx odoo-mcp --setup"><span class="g">$</span> uvx odoo-mcp --setup
+<span class="c"># or: pip install odoo-mcp</span>
+<span class="c"># quick smoke check: uvx odoo-mcp --health</span></div>
+      <p class="install-more">Prefer a container? <a href="https://github.com/tuanle96/mcp-odoo#docker">Docker images on GHCR →</a></p>
+    </div>
+    <div class="install-card reveal">
+      <span class="tag">For AI agents</span>
+      <h3>Paste one line</h3>
+      <p>Tell Claude Code, Cursor, Codex — any coding agent — to install it for you. Machine-readable instructions ship in the repo.</p>
+      <div class="codebox" data-copy="claude mcp add odoo --env ODOO_URL=https://mycompany.odoo.com --env ODOO_DB=mycompany --env ODOO_USERNAME=agent@mycompany.com --env ODOO_PASSWORD=your-api-key -- uvx odoo-mcp"><span class="g">$</span> claude mcp add odoo \
+    --env ODOO_URL=https://mycompany.odoo.com \
+    --env ODOO_DB=mycompany \
+    --env ODOO_USERNAME=agent@mycompany.com \
+    --env ODOO_PASSWORD=your-api-key \
+    -- uvx odoo-mcp</div>
+      <p class="install-more">Agent install guide: <a href="https://github.com/tuanle96/mcp-odoo/blob/main/llms-install.md">llms-install.md →</a></p>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap foot-inner">
+    <div>
+      <div class="foot-brand">odoo-<em>mcp</em></div>
+      <p class="foot-sub">MIT © Lê Anh Tuấn · built for agents,<br>tested against real Odoo stacks.</p>
+    </div>
+    <div class="foot-cols">
+      <div class="foot-col">
+        <h5>Project</h5>
+        <a href="https://github.com/tuanle96/mcp-odoo">GitHub</a>
+        <a href="https://pypi.org/project/odoo-mcp/">PyPI</a>
+        <a href="https://github.com/tuanle96/mcp-odoo/blob/main/CHANGELOG.md">Changelog</a>
+        <a href="https://github.com/tuanle96/mcp-odoo/blob/main/SECURITY.md">Security</a>
+      </div>
+      <div class="foot-col">
+        <h5>Docs</h5>
+        <a href="https://github.com/tuanle96/mcp-odoo#readme">README</a>
+        <a href="https://github.com/tuanle96/mcp-odoo/blob/main/docs/client-configs.md">Client configs</a>
+        <a href="https://github.com/tuanle96/mcp-odoo/blob/main/docs/multi-instance.md">Multi-instance</a>
+        <a href="https://github.com/tuanle96/mcp-odoo/blob/main/docs/comparison.md">Comparison</a>
+      </div>
+      <div class="foot-col">
+        <h5>Listings</h5>
+        <a href="https://registry.modelcontextprotocol.io/v0/servers?search=io.github.tuanle96/mcp-odoo">MCP Registry</a>
+        <a href="https://smithery.ai/server/io.github.tuanle96/mcp-odoo">Smithery</a>
+        <a href="https://github.com/tuanle96/mcp-odoo/pkgs/container/mcp-odoo">GHCR</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script>
+// copy-to-clipboard on command boxes
+document.querySelectorAll("[data-copy]").forEach(el => {
+  el.addEventListener("click", () => {
+    navigator.clipboard.writeText(el.dataset.copy).then(() => {
+      el.classList.add("copied");
+      setTimeout(() => el.classList.remove("copied"), 1600);
+    });
+  });
+});
+// scroll reveal
+const io = new IntersectionObserver(entries => {
+  entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
+}, { threshold: 0.12 });
+document.querySelectorAll(".reveal:not(.in)").forEach(el => io.observe(el));
+</script>
+</body>
+</html>
