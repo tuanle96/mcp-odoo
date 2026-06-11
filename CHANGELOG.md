@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.7.0] - 2026-06-11
 
 ### Added
 - OAuth 2.1 resource server for HTTP transports — set `ODOO_MCP_AUTH_ISSUER_URL`, `ODOO_MCP_AUTH_INTROSPECTION_URL`, and `ODOO_MCP_AUTH_RESOURCE_URL` to require bearer tokens on Streamable HTTP. Tokens are validated via RFC 7662 introspection (optional client credentials), with an RFC 8707 audience check when the authorization server binds tokens to resources; RFC 9728 protected-resource metadata is served by the MCP SDK. stdio is unaffected; posture appears in `health_check` as `runtime.oauth`.
