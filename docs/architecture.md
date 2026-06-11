@@ -20,7 +20,12 @@ flowchart LR
 | Module | Responsibility |
 | --- | --- |
 | `src/odoo_mcp/__main__.py` | CLI entry point, transport selection, HTTP bind safety, non-secret health output. |
-| `src/odoo_mcp/server.py` | MCP server, tools, resources, prompts, access diagnosis, safe write gates, runtime annotations. |
+| `src/odoo_mcp/setup_wizard.py` | Interactive `--setup` wizard: prompt, test connection, write config, print client snippets. |
+| `src/odoo_mcp/server.py` | MCP server, tools, resources, prompts, safe write gates, runtime annotations. |
+| `src/odoo_mcp/tool_helpers.py` | Pure request/validation helpers: name validation, domain normalization, free-text query domains, version parsing, request models. |
+| `src/odoo_mcp/schema_cache.py` | Bounded TTL/LRU cache backing per-instance schema caches. |
+| `src/odoo_mcp/access_helpers.py` | Pure ACL/record-rule analysis helpers behind `diagnose_access`. |
+| `src/odoo_mcp/write_policy.py` | Write-enable flags and the reviewed side-effect method policy file. |
 | `src/odoo_mcp/odoo_client.py` | Odoo connection, XML-RPC calls, JSON-2 calls, profile helpers. |
 | `src/odoo_mcp/diagnostics.py` | Pure diagnostic helpers for Odoo call analysis, JSON-2 payloads, migration risk, fit/gap reports. |
 | `src/odoo_mcp/agent_tools.py` | Pure agent helpers for safe writes, domain building, addon scanning, and business pack reports. |
