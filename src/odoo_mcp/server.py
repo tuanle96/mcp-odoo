@@ -68,8 +68,10 @@ from . import tools_read
 from . import tools_write
 from . import tools_knowledge
 from . import tools_accounting
+from . import tools_cross_instance
 from . import tools_async
 from . import prompts
+from . import prompts_workflows
 
 # Re-export write tool functions
 from .tools_write import (
@@ -136,6 +138,13 @@ from .tools_async import (
     submit_async_task,
 )
 
+# Re-export cross-instance tool functions
+from .tools_cross_instance import (
+    accounting_health_across_instances,
+    aggregate_across_instances,
+    search_across_instances,
+)
+
 # Re-export prompt functions
 from .prompts import (
     prompt_custom_module_audit,
@@ -143,6 +152,15 @@ from .prompts import (
     prompt_fit_gap_workshop,
     prompt_json2_migration_plan,
     prompt_safe_write_review,
+)
+
+# Re-export workflow prompt functions
+from .prompts_workflows import (
+    prompt_accounting_close_checklist,
+    prompt_customer_onboarding,
+    prompt_expense_claim_review,
+    prompt_invoice_approval_chain,
+    prompt_po_to_receipt,
 )
 
 # Re-export legacy / backwards-compat symbols
@@ -196,6 +214,15 @@ from .write_policy import (
     policy_file_path,
     side_effect_method_allowed,
     writes_enabled,
+)
+from .field_policy import (
+    FIELD_POLICY_FILE_ENV,
+    FieldPolicy,
+    FieldPolicyError,
+    field_policy_posture,
+    get_field_policy,
+    load_field_policy,
+    reset_field_policy,
 )
 
 __all__ = [
@@ -273,12 +300,22 @@ __all__ = [
     "get_async_task",
     "cancel_async_task",
     "list_async_tasks",
+    # Cross-instance tools
+    "search_across_instances",
+    "aggregate_across_instances",
+    "accounting_health_across_instances",
     # Prompts
     "prompt_diagnose_failed_odoo_call",
     "prompt_fit_gap_workshop",
     "prompt_json2_migration_plan",
     "prompt_safe_write_review",
     "prompt_custom_module_audit",
+    # Workflow prompts
+    "prompt_invoice_approval_chain",
+    "prompt_po_to_receipt",
+    "prompt_customer_onboarding",
+    "prompt_expense_claim_review",
+    "prompt_accounting_close_checklist",
     # Schema cache
     "BoundedTTLCache",
     "DEFAULT_SCHEMA_CACHE_MAX_ENTRIES",
@@ -326,6 +363,14 @@ __all__ = [
     "policy_file_path",
     "side_effect_method_allowed",
     "writes_enabled",
+    # Field ACL
+    "FIELD_POLICY_FILE_ENV",
+    "FieldPolicy",
+    "FieldPolicyError",
+    "field_policy_posture",
+    "get_field_policy",
+    "load_field_policy",
+    "reset_field_policy",
     # Misc infra
     "N_PLUS_ONE_WARN_THRESHOLD",
     "N_PLUS_ONE_WINDOW_SECONDS",

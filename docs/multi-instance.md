@@ -74,3 +74,23 @@ search_records(model="sale.order", instance="staging", ...)
   are the multi-instance surface.
 - Verified end-to-end by `scripts/odoo_multi_instance_smoke.py` (three
   databases, two accounts, cross-instance token replay rejection).
+
+## Cross-instance fan-out (read-only)
+
+One question across many instances at once — see the
+[partner playbook](./partner-playbook.md) for recipes. Three tools:
+`search_across_instances`, `aggregate_across_instances`, and
+`accounting_health_across_instances`. Each returns per-instance results
+merged and attributed (`_instance` tag), with a partial-failure `errors`
+map so one instance being down never fails the whole query.
+
+Two optional per-instance config keys feed selection:
+
+- `"tags": ["eu", "retail"]` — select with `instances={"tags": ["eu"]}`.
+- `"cross_instance": false` — opt out of all fan-out queries (sandboxes,
+  internal DBs). Default is opt-in.
+
+Each instance is queried under **its own field ACL**, applied before merge,
+so denied fields never cross instance boundaries. Concurrency is bounded
+(`ODOO_MCP_CROSS_INSTANCE_WORKERS`, default 4) and each target counts against
+its own rate-limit budget. Gated writes remain single-instance by design.

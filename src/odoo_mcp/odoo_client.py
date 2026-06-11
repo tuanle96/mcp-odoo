@@ -978,11 +978,15 @@ def list_configured_instances() -> dict[str, dict[str, Any]]:
     summary: dict[str, dict[str, Any]] = {}
     for name, entry in instances.items():
         # Explicit allowlist of keys — never copy the raw entry.
+        raw_tags = entry.get("tags") or []
+        cross = entry.get("cross_instance")
         summary[name] = {
             "url": entry.get("url"),
             "db": entry.get("db"),
             "transport": normalize_transport(str(entry.get("transport") or "xmlrpc")),
             "is_default": name == default_name,
+            "tags": [str(t) for t in raw_tags] if isinstance(raw_tags, list) else [],
+            "cross_instance": True if cross is None else bool(cross),
         }
     return summary
 

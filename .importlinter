@@ -16,6 +16,8 @@ source_modules =
     odoo_mcp.rate_limit
     odoo_mcp.knowledge_index
     odoo_mcp.accounting_tools
+    odoo_mcp.field_policy
+    odoo_mcp.cross_instance
     odoo_mcp.audit
     odoo_mcp.auth
 forbidden_modules =
@@ -26,8 +28,10 @@ forbidden_modules =
     odoo_mcp.tools_diagnostics
     odoo_mcp.tools_knowledge
     odoo_mcp.tools_accounting
+    odoo_mcp.tools_cross_instance
     odoo_mcp.tools_async
     odoo_mcp.prompts
+    odoo_mcp.prompts_workflows
 
 [importlinter:contract:surface-layering]
 name = MCP surface layering (server above tool modules above core)
@@ -35,7 +39,7 @@ type = layers
 layers =
     odoo_mcp.server
     odoo_mcp.tools_async
-    odoo_mcp.tools_read | odoo_mcp.tools_write | odoo_mcp.tools_diagnostics | odoo_mcp.tools_knowledge | odoo_mcp.tools_accounting | odoo_mcp.prompts
+    odoo_mcp.tools_read | odoo_mcp.tools_write | odoo_mcp.tools_diagnostics | odoo_mcp.tools_knowledge | odoo_mcp.tools_accounting | odoo_mcp.tools_cross_instance | odoo_mcp.prompts | odoo_mcp.prompts_workflows
     odoo_mcp.server_core
 ignore_imports =
     odoo_mcp.server_core -> odoo_mcp.server
@@ -43,3 +47,4 @@ ignore_imports =
     odoo_mcp.tools_write -> odoo_mcp.server
     odoo_mcp.tools_diagnostics -> odoo_mcp.server
     odoo_mcp.tools_knowledge -> odoo_mcp.server
+    odoo_mcp.tools_cross_instance -> odoo_mcp.server

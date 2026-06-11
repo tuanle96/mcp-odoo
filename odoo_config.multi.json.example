@@ -6,7 +6,8 @@
       "db": "acme",
       "username": "bot",
       "api_key": "your-odoo-api-key",
-      "transport": "json2"
+      "transport": "json2",
+      "tags": ["eu", "retail"]
     },
     "globex": {
       "url": "https://globex.odoo.com",
@@ -15,7 +16,15 @@
       "password": "your-password",
       "lang": "fr_FR",
       "timeout": 60,
-      "verify_ssl": true
+      "verify_ssl": true,
+      "tags": ["eu", "manufacturing"]
+    },
+    "internal_sandbox": {
+      "url": "https://sandbox.odoo.com",
+      "db": "sandbox",
+      "username": "bot",
+      "password": "your-password",
+      "cross_instance": false
     }
   }
 }

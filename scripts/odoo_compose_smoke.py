@@ -1087,8 +1087,8 @@ async def mcp_stdio_smoke(
                 await session.call_tool("health_check", arguments={}),
                 "health_check",
             )
-            if health.get("server", {}).get("tool_count") != 36:
-                raise AssertionError(f"health_check did not report 36 tools: {health}")
+            if health.get("server", {}).get("tool_count") != 39:
+                raise AssertionError(f"health_check did not report 39 tools: {health}")
             if "chatter_direct_enabled" not in health.get("runtime", {}):
                 raise AssertionError(
                     f"health_check did not surface chatter_direct posture: {health}"

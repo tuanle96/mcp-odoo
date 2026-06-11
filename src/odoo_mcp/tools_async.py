@@ -27,13 +27,27 @@ from .server_core import (
 from .task_queue import get_task_manager
 from .tool_helpers import clamp_limit, normalize_domain_input, validate_model_name
 from .tools_accounting import build_direction_aging
+from .tools_cross_instance import (
+    run_accounting_health_across,
+    run_aggregate_across,
+    run_search_across,
+)
 from .tools_knowledge import MAX_INDEX_FETCH, fetch_and_index
 
 ASYNC_OPERATIONS = (
     "scan_addons_source",
     "index_knowledge",
     "receivable_payable_aging",
+    "search_across_instances",
+    "aggregate_across_instances",
+    "accounting_health_across_instances",
 )
+
+_CROSS_INSTANCE_RUNNERS = {
+    "search_across_instances": run_search_across,
+    "aggregate_across_instances": run_aggregate_across,
+    "accounting_health_across_instances": run_accounting_health_across,
+}
 
 
 def _build_scan_addons_job(params: Dict[str, Any]) -> Callable[[], Dict[str, Any]]:
@@ -96,6 +110,20 @@ def _build_aging_job(
     return job
 
 
+def _build_cross_instance_job(
+    ctx: Context, operation: str, params: Dict[str, Any]
+) -> Callable[[], Dict[str, Any]]:
+    # The fan-out resolves clients lazily per instance from the app context;
+    # capture it now while the request context is alive.
+    app_context = ctx.request_context.lifespan_context
+    runner = _CROSS_INSTANCE_RUNNERS[operation]
+
+    def job() -> Dict[str, Any]:
+        return runner(app_context, params)
+
+    return job
+
+
 @mcp.tool(
     description="Run an allowlisted long-running read operation in the background",
     annotations=PREVIEW_TOOL,
@@ -112,7 +140,10 @@ def submit_async_task(
     Allowlisted operations: scan_addons_source (params: addons_paths,
     max_files, max_file_bytes), index_knowledge (params: model, domain,
     fields, limit, replace), receivable_payable_aging (params: direction,
-    as_of, top_partners, limit). Writes are never accepted here.
+    as_of, top_partners, limit), and the cross-instance fan-outs
+    search_across_instances / aggregate_across_instances /
+    accounting_health_across_instances (params per their tool). Writes are
+    never accepted here.
     """
     try:
         params = params or {}
@@ -122,6 +153,8 @@ def submit_async_task(
             job = _build_index_knowledge_job(ctx, instance, params)
         elif operation == "receivable_payable_aging":
             job = _build_aging_job(ctx, instance, params)
+        elif operation in _CROSS_INSTANCE_RUNNERS:
+            job = _build_cross_instance_job(ctx, operation, params)
         else:
             raise ValueError(
                 f"Unknown operation '{operation}'. "
