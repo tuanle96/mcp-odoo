@@ -2,6 +2,55 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.0] - 2026-06-11
+
+The v1.0 milestone: four roadmap phases close the highest-value gaps no
+open-source Odoo MCP server covered. Tool count 36 → 39; 854 tests.
+
+### Added
+- **Field-level ACL (read-path)** — opt-in, per-instance, per-model field
+  allow/deny enforced at a single choke point on every path that returns
+  record data: `search_records`, `read_record`, `aggregate_records` (denied
+  groupby/measure rejected), `get_model_fields` (denied fields marked
+  `"access": "restricted"`, not hidden), `index_knowledge` (denied fields
+  excluded before BM25 indexing), and the `odoo://` resources. Responses gain
+  a `redacted_fields` note. Configure via a `field_acl` key in the policy
+  file or `ODOO_MCP_FIELD_POLICY_FILE`; malformed policy fails closed at
+  startup. No policy → byte-identical v0.9.0 behavior. First open-source Odoo
+  MCP server with field ACL. New module `field_policy.py`; see
+  [docs/field-acl.md](docs/field-acl.md).
+- **Cross-instance fan-out (read-only)** — `search_across_instances`,
+  `aggregate_across_instances`, and `accounting_health_across_instances` ask
+  one question across many configured instances and return merged,
+  `_instance`-attributed results with a partial-failure `errors` map. Instance
+  selection by list, `"all"`, or `{"tags": [...]}`; opt out per instance with
+  `"cross_instance": false`. Each instance is queried under its own field ACL
+  (applied before merge), bounded concurrency
+  (`ODOO_MCP_CROSS_INSTANCE_WORKERS`, default 4), and its own rate-limit
+  budget; large fleets can run via `submit_async_task`. No warehouse, no sync.
+  New modules `cross_instance.py` + `tools_cross_instance.py`; see
+  [docs/partner-playbook.md](docs/partner-playbook.md).
+- **5 operational workflow prompts** (prompt count 5 → 10) —
+  `invoice_approval_chain`, `po_to_receipt`, `customer_onboarding`,
+  `expense_claim_review`, `accounting_close_checklist`. Each names its
+  required modules, the exact tools per step, and human checkpoints; every
+  write-bearing step routes through the gated workflow (no ungated writes).
+  New module `prompts_workflows.py`.
+- **Head-to-head benchmark** — `scripts/benchmark_head_to_head.py` measures
+  mcp-odoo against another Odoo MCP server on the same Odoo stack;
+  [docs/benchmarks.md](docs/benchmarks.md) publishes a reproducible
+  methodology and measured numbers (mcp-odoo p50 ~10 ms for common reads on a
+  local Odoo 19 stack).
+- Config: optional per-instance `tags` and `cross_instance` keys;
+  `list_instances` now reports them.
+
+### Changed
+- `health_check` runtime posture adds a `field_acl` section (active flag +
+  instance count, never policy contents).
+- `.importlinter` extended to cover the new core (`field_policy`,
+  `cross_instance`) and surface (`tools_cross_instance`, `prompts_workflows`)
+  modules; contracts still 2 kept.
+
 ## [0.9.0] - 2026-06-11
 
 ### Added
