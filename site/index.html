@@ -449,10 +449,10 @@ footer { margin-top: 120px; border-top: 1px solid var(--line); }
 
 <div class="ledger reveal">
   <div class="wrap ledger-grid">
-    <div class="ledger-cell"><div class="ledger-num" data-count="27">27</div><div class="ledger-label">MCP tools</div></div>
+    <div class="ledger-cell"><div class="ledger-num" data-count="36">36</div><div class="ledger-label">MCP tools</div></div>
     <div class="ledger-cell"><div class="ledger-num">16<em>→</em>19</div><div class="ledger-label">Odoo versions</div></div>
     <div class="ledger-cell"><div class="ledger-num"><em>0</em></div><div class="ledger-label">Odoo-side setup steps</div></div>
-    <div class="ledger-cell"><div class="ledger-num" data-count="497">497</div><div class="ledger-label">Tests + real Odoo stacks</div></div>
+    <div class="ledger-cell"><div class="ledger-num" data-count="804">804</div><div class="ledger-label">Tests + real Odoo stacks</div></div>
     <div class="ledger-cell"><div class="ledger-num">MIT</div><div class="ledger-label">License, since day one</div></div>
   </div>
 </div>
@@ -498,6 +498,18 @@ footer { margin-top: 120px; border-top: 1px solid var(--line); }
     <div class="feat reveal"><span class="feat-icon">⌘</span>
       <h3>5 agent prompts included</h3>
       <p>Ready-made workflows for failed-call diagnosis, fit/gap workshops, JSON-2 migration, safe writes, and module audits — no prompt engineering required.</p>
+    </div>
+    <div class="feat reveal"><span class="feat-icon">⧖</span>
+      <h3>Background tasks</h3>
+      <p><code>submit_async_task</code> runs long addon scans, knowledge indexing, and AR/AP aging on a bounded worker pool — the agent keeps reasoning and polls for results. Writes never run async.</p>
+    </div>
+    <div class="feat reveal"><span class="feat-icon">∴</span>
+      <h3>Local-first knowledge search</h3>
+      <p><code>index_knowledge</code> + <code>search_knowledge</code>: BM25 relevance ranking over your records, accent-insensitive, fully in-process. No embeddings service, no data leaving the machine.</p>
+    </div>
+    <div class="feat reveal"><span class="feat-icon">Σ</span>
+      <h3>Accounting pack</h3>
+      <p><code>receivable_payable_aging</code> buckets open items by days overdue with per-partner totals; <code>accounting_health_summary</code> reports AR/AP counts and draft backlog. Read-only, Odoo 16+.</p>
     </div>
   </div>
 </section>
