@@ -1,0 +1,88 @@
+name: harness eval (nightly)
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      set:
+        description: "quick (3 tasks) or full (all tasks)"
+        type: choice
+        options: [quick, full]
+        default: quick
+      transport:
+        description: "claude-cli (real run, costs tokens) or mock (CI smoke-test, free)"
+        type: choice
+        options: [mock, claude-cli]
+        default: mock
+
+permissions:
+  contents: read
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install Node deps (if package.json present)
+        run: |
+          if [ -f package.json ]; then
+            if [ -f pnpm-lock.yaml ]; then npm i -g pnpm && pnpm install --frozen-lockfile
+            elif [ -f yarn.lock ]; then npm i -g yarn && yarn install --frozen-lockfile
+            else npm ci || npm install
+            fi
+          fi
+      - name: Install Python deps (if pyproject.toml present)
+        run: |
+          if [ -f pyproject.toml ]; then
+            python -m pip install --upgrade pip
+            pip install libcst import-linter ruff || true
+            pip install -e '.[dev]' || pip install -e . || true
+          fi
+      - name: Harness readiness
+        run: |
+          if [ -f package.json ] && grep -q '"harness:readiness"' package.json; then
+            npm run --silent harness:readiness
+          elif [ -f .harness/scripts/harness-readiness.mjs ]; then
+            node .harness/scripts/harness-readiness.mjs --strict
+          else
+            echo "Missing .harness/scripts/harness-readiness.mjs"
+            exit 1
+          fi
+      - name: Patch hygiene
+        run: git diff --check
+      - name: Verify Claude Code CLI is available
+        if: ${{ inputs.transport == 'claude-cli' || (github.event_name == 'schedule') }}
+        run: npx -y @anthropic-ai/claude-code --version
+      - name: Run eval
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CI: "true"
+        run: |
+          SET="${{ inputs.set || 'quick' }}"
+          # Default to mock for unattended schedule runs unless ANTHROPIC_API_KEY is set.
+          TRANSPORT="${{ inputs.transport }}"
+          if [ -z "$TRANSPORT" ]; then
+            if [ -n "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
+              TRANSPORT="claude-cli"
+            else
+              TRANSPORT="mock"
+            fi
+          fi
+          if [ -f .harness/config.json ] && grep -q '"language": "python"' .harness/config.json; then
+            python -m harness.eval_runner --$SET --transport=$TRANSPORT
+          else
+            node .harness/runners/eval-runner.mjs --$SET --transport=$TRANSPORT
+          fi
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: eval-results
+          path: .harness/eval/results/
