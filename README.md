@@ -35,7 +35,10 @@ Once configured (see [Setup](#setup)), ask your agent things like:
 
 | Capability | What it gives you |
 | --- | --- |
-| 36 MCP tools | Read records and attachments, aggregate server-side, post chatter, inspect schema, build domains, scan addons, diagnose calls, access rules, resolve model renames, and validate writes. |
+| 39 MCP tools | Read records and attachments, aggregate server-side, post chatter, inspect schema, build domains, scan addons, diagnose calls, access rules, resolve model renames, validate writes, and fan out across instances. |
+| Field-level ACL | Opt-in per-instance, per-model field allow/deny enforced on every read path (records, aggregates, knowledge index, resources). First open-source Odoo MCP with it. See [docs/field-acl.md](docs/field-acl.md). |
+| Cross-instance queries | Read-only fan-out across many client DBs with merged, attributed, partial-failure-tolerant results — no warehouse, no sync. See [docs/partner-playbook.md](docs/partner-playbook.md). |
+| Workflow prompts | 10 prompts including 5 end-to-end business workflows (invoice approval, PO match, onboarding, expense review, month-end close) that route writes through the gate. |
 | Background tasks | `submit_async_task` runs long read operations (addon scans, knowledge indexing, AR/AP aging) on a bounded worker pool; poll with `get_async_task` while the agent keeps reasoning. |
 | Local-first knowledge search | `index_knowledge` + `search_knowledge` give BM25 relevance ranking over a bounded record slice — accent-insensitive, in-process, no embeddings service, no data leaving the machine. |
 | Accounting pack | `receivable_payable_aging` and `accounting_health_summary` answer the most common finance questions in one call instead of hand-built domains. |
@@ -226,6 +229,8 @@ Optional environment variables:
 | `ODOO_MCP_ASYNC_MAX_TASKS` | `50` | Max retained background tasks (finished tasks evicted oldest-first). |
 | `ODOO_MCP_ASYNC_RESULT_TTL` | `3600` | Seconds a finished background task result stays pollable. |
 | `ODOO_MCP_KNOWLEDGE_MAX_DOCS` | `5000` | Total documents allowed across all local BM25 knowledge indexes. |
+| `ODOO_MCP_FIELD_POLICY_FILE` | shared policy file | Field ACL policy (a `field_acl` key in the policy file, or a dedicated file here). Denied fields are removed from every read path. See [docs/field-acl.md](docs/field-acl.md). |
+| `ODOO_MCP_CROSS_INSTANCE_WORKERS` | `4` | Bounded concurrency for cross-instance fan-out tools. |
 | `MCP_CHATTER_DIRECT` | `0` | Truthy → `chatter_post` skips the approval token gate and posts immediately. |
 | `MCP_ALLOW_REMOTE_HTTP` | `0` | Truthy → permit non-local HTTP binds (still requires external auth/TLS). |
 | `MCP_ALLOWED_HOSTS` / `MCP_ALLOWED_ORIGINS` | local | CSV allowlists for HTTP transports. |
@@ -313,7 +318,7 @@ odoo-mcp --health
 
 ## MCP Tools
 
-36 tools grouped by use case. Each tool name is a single-purpose handle the agent can call. Tools that talk to Odoo accept an optional `instance` parameter when multiple instances are configured (see [Multiple Odoo instances](#multiple-odoo-instances)).
+39 tools grouped by use case. Each tool name is a single-purpose handle the agent can call. Tools that talk to Odoo accept an optional `instance` parameter when multiple instances are configured (see [Multiple Odoo instances](#multiple-odoo-instances)).
 
 ### Read & Discover (11)
 
@@ -389,12 +394,22 @@ odoo-mcp --health
 | `cancel_async_task` | Cancel a pending or running task. |
 | `list_async_tasks` | List live and recently finished tasks. |
 
+### Cross-instance fan-out — read-only (3)
+
+One question across many configured instances, merged and attributed. See the [partner playbook](docs/partner-playbook.md).
+
+| Tool | Purpose |
+| --- | --- |
+| `search_across_instances` | Search every opted-in instance (or a list/tag selection); rows tagged with `_instance`, partial results on per-instance failure. |
+| `aggregate_across_instances` | Group/aggregate per instance plus additive grand totals across the fleet. |
+| `accounting_health_across_instances` | AR/AP aging across every client DB with combined buckets — the partner-network sweep. |
+
 ### Utility (2)
 
 | Tool | Purpose |
 | --- | --- |
-| `health_check` | Report non-secret MCP runtime posture, including rate-limit counters when enabled. |
-| `list_instances` | List configured Odoo instance names, URLs, databases, and transports — never credentials. |
+| `health_check` | Report non-secret MCP runtime posture, including rate-limit counters and field-ACL status when enabled. |
+| `list_instances` | List configured Odoo instance names, URLs, databases, transports, and cross-instance tags — never credentials. |
 
 ## Resources
 
@@ -407,6 +422,8 @@ odoo-mcp --health
 
 ## Prompts
 
+10 prompts: 5 diagnostic, plus 5 operational **workflow** prompts that encode end-to-end business processes and route every write through the approval gate.
+
 | Prompt | Use it for |
 | --- | --- |
 | `diagnose_failed_odoo_call` | Root-cause a failing Odoo call before retrying. |
@@ -414,6 +431,11 @@ odoo-mcp --health
 | `json2_migration_plan` | Plan XML-RPC or JSON-RPC migration to External JSON-2. |
 | `safe_write_review` | Review a proposed `create`, `write`, or `unlink`. |
 | `custom_module_audit` | Audit local addon source with scan, risk, and business evidence. |
+| `invoice_approval_chain` | Triage draft invoices and post each through the write gate with human checkpoints. |
+| `po_to_receipt` | Three-way match a purchase order against receipt and bill; flags discrepancies (read-only). |
+| `customer_onboarding` | Dedup-check, then gated-create a customer with contacts and payment terms. |
+| `expense_claim_review` | Policy-check pending expense claims, then gated approve/refuse. |
+| `accounting_close_checklist` | Read-only month-end checklist: aging, unreconciled items, draft backlog. |
 
 ## Safe Write Model
 

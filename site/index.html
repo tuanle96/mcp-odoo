@@ -449,10 +449,10 @@ footer { margin-top: 120px; border-top: 1px solid var(--line); }
 
 <div class="ledger reveal">
   <div class="wrap ledger-grid">
-    <div class="ledger-cell"><div class="ledger-num" data-count="36">36</div><div class="ledger-label">MCP tools</div></div>
+    <div class="ledger-cell"><div class="ledger-num" data-count="39">39</div><div class="ledger-label">MCP tools</div></div>
     <div class="ledger-cell"><div class="ledger-num">16<em>→</em>19</div><div class="ledger-label">Odoo versions</div></div>
     <div class="ledger-cell"><div class="ledger-num"><em>0</em></div><div class="ledger-label">Odoo-side setup steps</div></div>
-    <div class="ledger-cell"><div class="ledger-num" data-count="804">804</div><div class="ledger-label">Tests + real Odoo stacks</div></div>
+    <div class="ledger-cell"><div class="ledger-num" data-count="854">854</div><div class="ledger-label">Tests + real Odoo stacks</div></div>
     <div class="ledger-cell"><div class="ledger-num">MIT</div><div class="ledger-label">License, since day one</div></div>
   </div>
 </div>
@@ -496,8 +496,16 @@ footer { margin-top: 120px; border-top: 1px solid var(--line); }
       <p>Read-only calls retry with exponential backoff, schema caches are TTL- and LRU-bounded, and <code>health_check</code> flags N+1 read loops before they hurt.</p>
     </div>
     <div class="feat reveal"><span class="feat-icon">⌘</span>
-      <h3>5 agent prompts included</h3>
-      <p>Ready-made workflows for failed-call diagnosis, fit/gap workshops, JSON-2 migration, safe writes, and module audits — no prompt engineering required.</p>
+      <h3>10 MCP workflow prompts</h3>
+      <p>End-to-end business process workflows — invoice approval chain, PO-to-receipt, customer onboarding, expense claim review, accounting close checklist, plus diagnostic and migration prompts. Write-bearing steps route through the gated workflow automatically; no prompt engineering required.</p>
+    </div>
+    <div class="feat reveal"><span class="feat-icon">⊛</span>
+      <h3>Field-level ACL (open-source first)</h3>
+      <p>Deny or allowlist individual Odoo fields per model per instance — enforced server-side across <code>search_records</code>, <code>read_record</code>, <code>aggregate_records</code>, and the BM25 knowledge index. Sensitive columns never reach the agent context. Fail-closed: a malformed policy aborts startup rather than running unprotected.</p>
+    </div>
+    <div class="feat reveal"><span class="feat-icon">⊕</span>
+      <h3>Cross-instance fan-out</h3>
+      <p>Query multiple Odoo databases in one call — AR/AP aging across a whole client portfolio, margin sweeps by region, module/version census. Three tools: <code>search_across_instances</code>, <code>aggregate_across_instances</code>, <code>accounting_health_across_instances</code>. Partial-failure contract, per-source field ACL, bounded concurrency. The only open-source MCP server with this.</p>
     </div>
     <div class="feat reveal"><span class="feat-icon">⧖</span>
       <h3>Background tasks</h3>
@@ -567,6 +575,10 @@ footer { margin-top: 120px; border-top: 1px solid var(--line); }
         <tr><td>transport</td><td class="us">XML-RPC <b>and</b> External JSON-2 — ready for the Odoo 22 removal</td><td class="them">XML-RPC only (deprecated since 19, removed in 22)</td></tr>
         <tr><td>diagnostics</td><td class="us">7 diagnostic &amp; analysis tools, migration helpers</td><td class="them">CRUD only</td></tr>
         <tr><td>multi-instance</td><td class="us">Named instances, per-tool routing, isolated tokens &amp; caches</td><td class="them">One global connection per process</td></tr>
+        <tr><td>cross-instance fan-out</td><td class="us">3 tools — AR/AP aging, aggregates, search across all DBs; open-source first</td><td class="them">Not available</td></tr>
+        <tr><td>workflow prompts</td><td class="us">10 MCP prompts encoding full business processes with gated writes &amp; human checkpoints</td><td class="them">Not available</td></tr>
+        <tr><td>field-level ACL</td><td class="us">Deny/allow fields per model per instance — enforced server-side, fail-closed; open-source first</td><td class="them">Not available</td></tr>
+        <tr><td>measured latency (head-to-head, Odoo 19 Docker, XML-RPC)</td><td class="us"><code>search_records</code> 9.9 ms p50; <code>read_record</code> 9.0 ms; <code>list_models</code> 16.8 ms. <code>aggregate_records</code> 12.8 ms — competitor faster at 9.4 ms. <a href="https://github.com/tuanle96/mcp-odoo/blob/main/docs/benchmarks.md" style="color:var(--plum)">Full methodology →</a></td><td class="them"><code>search_records</code> 22.4 ms; <code>read_record</code> 10.9 ms; <code>list_models</code> 19.6 ms; <code>aggregate_records</code> 9.4 ms. Note: v0.6.0 has a ~12 s/call regression in Claude Desktop (issue #68).</td></tr>
         <tr><td>testing</td><td class="us">Docker harness boots real Odoo 16/17/18/19 stacks per release</td><td class="them">Mock-based only</td></tr>
       </tbody>
     </table>
