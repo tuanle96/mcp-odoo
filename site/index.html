@@ -129,15 +129,18 @@ h1 em { font-style: italic; color: var(--plum); }
   cursor: pointer; transition: border-color .2s;
 }
 .cmd:hover { border-color: var(--plum); }
-.cmd .dollar { color: var(--green); user-select: none; }
+.cmd { color: #f7f3ec; }
+.cmd .dollar { color: var(--amber); user-select: none; }
 .cmd .copy-hint { color: var(--faint); font-size: 12px; transition: color .2s; }
 .cmd:hover .copy-hint { color: var(--plum); }
 .btn-ghost {
-  font-family: var(--mono); font-size: 14px; color: var(--muted);
-  text-decoration: none; border-bottom: 1px solid var(--line);
+  font-family: var(--mono); font-size: 14px; color: #d6d0c5;
+  text-decoration: none; border-bottom: 1px solid var(--faint);
   padding-bottom: 2px; transition: color .2s, border-color .2s;
 }
-.btn-ghost:hover { color: var(--paper); border-color: var(--paper); }
+.btn-ghost .arrow { color: var(--plum); transition: transform .2s; display: inline-block; }
+.btn-ghost:hover { color: var(--paper); border-color: var(--plum); }
+.btn-ghost:hover .arrow { transform: translateX(3px); }
 
 /* ---------- terminal ---------- */
 .term {
@@ -302,11 +305,11 @@ h2 em { font-style: italic; color: var(--plum); }
   background: var(--ink); border: 1px solid var(--line-soft);
   border-radius: 10px; padding: 16px 18px;
   font-family: var(--mono); font-size: 13.5px; line-height: 1.7;
-  overflow-x: auto; white-space: pre; color: var(--paper);
+  overflow-x: auto; white-space: pre; color: #f7f3ec;
   cursor: pointer;
 }
 .codebox .c { color: var(--faint); }
-.codebox .g { color: var(--green); }
+.codebox .g { color: var(--amber); }
 .codebox::after {
   content: "copy"; position: absolute; top: 10px; right: 12px;
   font-size: 11px; color: var(--faint); transition: color .2s;
@@ -376,7 +379,7 @@ footer { margin-top: 120px; border-top: 1px solid var(--line); }
     <button class="cmd" data-copy="uvx odoo-mcp --setup">
       <span class="dollar">$</span> uvx odoo-mcp --setup <span class="copy-hint">copy</span>
     </button>
-    <a class="btn-ghost" href="https://github.com/tuanle96/mcp-odoo#readme">Read the docs →</a>
+    <a class="btn-ghost" href="https://github.com/tuanle96/mcp-odoo#readme">Read the docs <span class="arrow">→</span></a>
   </div>
 
   <div class="term reveal in" style="--d:4">
