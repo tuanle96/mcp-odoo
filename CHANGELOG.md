@@ -2,9 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.9.0] - 2026-06-11
+
+### Added
+- Background task tools (tool count 27 → 36 together with the knowledge and accounting tools) — `submit_async_task` runs allowlisted long read operations (`scan_addons_source`, `index_knowledge`, `receivable_payable_aging`) on a bounded thread pool (`ODOO_MCP_ASYNC_MAX_WORKERS`, default 2); poll with `get_async_task`, cancel with `cancel_async_task`, list with `list_async_tasks`. Results are retained in memory with a TTL (`ODOO_MCP_ASYNC_RESULT_TTL`, default 1h) and entry cap (`ODOO_MCP_ASYNC_MAX_TASKS`, default 50). Writes are never accepted on the async path.
+- Local-first knowledge search — `index_knowledge` fetches a bounded record slice (smart business-field selection by default) and builds an in-process BM25 index; `search_knowledge` runs accent-insensitive relevance-ranked queries with zero further RPC calls; `knowledge_stats` reports index sizes. Document budget via `ODOO_MCP_KNOWLEDGE_MAX_DOCS` (default 5000). No embeddings service, no new dependencies, no data leaving the machine.
+- Accounting domain pack (read-only) — `receivable_payable_aging` buckets open posted items by days overdue (not due / 1-30 / 31-60 / 61-90 / 90+) with per-partner totals and a sign-flip for payables; `accounting_health_summary` reports open AR/AP item counts and the draft invoice backlog. Works on Odoo 16+ via `account_type` selections.
+- Opt-in tool rate limiting — `ODOO_MCP_RATE_LIMIT_MODE=warn|block` tracks calls per `instance:tool` in a sliding window (`ODOO_MCP_RATE_LIMIT_WINDOW`, default 60s; `ODOO_MCP_RATE_LIMIT_MAX_CALLS`, default 120). `warn` only surfaces counters in `health_check.rate_limits`; `block` refuses over-budget calls on `search_records`, `read_record`, `aggregate_records`, and `execute_method` with a structured error. Default `off` preserves existing behaviour.
+- Benchmark harness — `scripts/benchmark_tools.py` measures per-tool latency (p50/p95/mean) over MCP stdio against any Odoo instance; methodology and reference numbers in `docs/benchmarks.md`.
+- `docs/claude-desktop-connector.md` — expose the server as a Claude Desktop / claude.ai Custom Connector using the existing Streamable HTTP transport and OAuth 2.1 resource server.
+- Dedicated unit tests for `tool_helpers`, `access_helpers`, `schema_cache`, and `write_policy` (245 tests), plus suites for the new task queue, rate limiter, knowledge index, and accounting builders. Full suite: 802 tests.
 
 ### Changed
+- Internal refactor: `server.py` (2,553 lines) split into domain modules — `server_core.py` (FastMCP instance, lifespan, shared infra, resources), `tools_read.py`, `tools_write.py`, `tools_diagnostics.py`, `tools_knowledge.py`, `tools_accounting.py`, `tools_async.py`, and `prompts.py`. `odoo_mcp.server` remains the full public re-export surface; no behavior change and all existing imports/monkeypatch targets keep working.
+- `.importlinter` now enforces two real contracts for `odoo_mcp` (core helpers must not import the MCP surface; server → tool modules → core layering) instead of referencing a non-existent package.
+- `docs/catalog-submission.md` expanded with Official MCP Registry and Docker MCP Catalog submission checklists plus outreach drafts.
 - README setup restructured into a single `Setup` section with two explicit paths: **For humans** (interactive wizard, Claude Desktop, pip/Docker/dev installs) and **For AI agents** (a paste-able self-install prompt, `claude mcp add` one-liners, framework SDK examples). The long environment-variable table moved to a new `Configuration reference` section.
 - Added `llms-install.md` — a self-contained, machine-readable installation guide (Cline convention) for AI agents installing the server on a user's behalf, including the configuration contract, per-client steps, verification sequence, and agent security rules (never echo credentials, never enable writes without explicit consent).
 

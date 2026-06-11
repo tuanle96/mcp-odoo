@@ -35,7 +35,11 @@ Once configured (see [Setup](#setup)), ask your agent things like:
 
 | Capability | What it gives you |
 | --- | --- |
-| 27 MCP tools | Read records and attachments, aggregate server-side, post chatter, inspect schema, build domains, scan addons, diagnose calls, access rules, resolve model renames, and validate writes. |
+| 36 MCP tools | Read records and attachments, aggregate server-side, post chatter, inspect schema, build domains, scan addons, diagnose calls, access rules, resolve model renames, and validate writes. |
+| Background tasks | `submit_async_task` runs long read operations (addon scans, knowledge indexing, AR/AP aging) on a bounded worker pool; poll with `get_async_task` while the agent keeps reasoning. |
+| Local-first knowledge search | `index_knowledge` + `search_knowledge` give BM25 relevance ranking over a bounded record slice — accent-insensitive, in-process, no embeddings service, no data leaving the machine. |
+| Accounting pack | `receivable_payable_aging` and `accounting_health_summary` answer the most common finance questions in one call instead of hand-built domains. |
+| Rate limiting | Opt-in sliding-window budget per instance and tool (`ODOO_MCP_RATE_LIMIT_MODE=warn\|block`), surfaced in `health_check`. |
 | Multi-instance | One server, several named Odoo instances — optional `instance` parameter on every tool, `list_instances` discovery, instance-bound approval tokens, per-instance schema caches. |
 | 5 agent prompts | Reusable workflows for failed calls, fit/gap workshops, JSON-2 migration, safe writes, and module audits. |
 | Odoo 16-19 coverage | XML-RPC by default, JSON-2 opt-in for Odoo 19. |
@@ -215,6 +219,13 @@ Optional environment variables:
 | `ODOO_MCP_RETRY_BACKOFF` | `0.5` | Base retry backoff seconds; doubles per retry. |
 | `ODOO_MCP_SCHEMA_CACHE_TTL` | `600` | Schema cache entry lifetime in seconds. |
 | `ODOO_MCP_SCHEMA_CACHE_MAX` | `256` | Max schema cache entries (LRU eviction). |
+| `ODOO_MCP_RATE_LIMIT_MODE` | `off` | `warn` tracks per-`instance:tool` call rates in `health_check`; `block` refuses over-budget calls on the hot read tools and `execute_method`. |
+| `ODOO_MCP_RATE_LIMIT_WINDOW` | `60` | Sliding window length in seconds for rate tracking. |
+| `ODOO_MCP_RATE_LIMIT_MAX_CALLS` | `120` | Calls allowed per window per `instance:tool`. |
+| `ODOO_MCP_ASYNC_MAX_WORKERS` | `2` | Worker threads for `submit_async_task`. |
+| `ODOO_MCP_ASYNC_MAX_TASKS` | `50` | Max retained background tasks (finished tasks evicted oldest-first). |
+| `ODOO_MCP_ASYNC_RESULT_TTL` | `3600` | Seconds a finished background task result stays pollable. |
+| `ODOO_MCP_KNOWLEDGE_MAX_DOCS` | `5000` | Total documents allowed across all local BM25 knowledge indexes. |
 | `MCP_CHATTER_DIRECT` | `0` | Truthy → `chatter_post` skips the approval token gate and posts immediately. |
 | `MCP_ALLOW_REMOTE_HTTP` | `0` | Truthy → permit non-local HTTP binds (still requires external auth/TLS). |
 | `MCP_ALLOWED_HOSTS` / `MCP_ALLOWED_ORIGINS` | local | CSV allowlists for HTTP transports. |
@@ -302,7 +313,7 @@ odoo-mcp --health
 
 ## MCP Tools
 
-27 tools grouped by use case. Each tool name is a single-purpose handle the agent can call. Tools that talk to Odoo accept an optional `instance` parameter when multiple instances are configured (see [Multiple Odoo instances](#multiple-odoo-instances)).
+36 tools grouped by use case. Each tool name is a single-purpose handle the agent can call. Tools that talk to Odoo accept an optional `instance` parameter when multiple instances are configured (see [Multiple Odoo instances](#multiple-odoo-instances)).
 
 ### Read & Discover (11)
 
@@ -354,11 +365,35 @@ odoo-mcp --health
 | `fit_gap_report` | Classify requirements into standard, configuration, Studio, custom module, avoid, or unknown. |
 | `business_pack_report` | Report expected modules, models, and discovery calls for sales, CRM, inventory, accounting, or HR. |
 
+### Knowledge search — local-first (3)
+
+| Tool | Purpose |
+| --- | --- |
+| `index_knowledge` | Fetch a bounded record slice once and build a local BM25 index (accent-insensitive; data never leaves the machine). |
+| `search_knowledge` | Relevance-ranked free-text search over indexed records with zero further RPC calls. |
+| `knowledge_stats` | Report per-model index sizes and the `ODOO_MCP_KNOWLEDGE_MAX_DOCS` budget. |
+
+### Accounting (2)
+
+| Tool | Purpose |
+| --- | --- |
+| `receivable_payable_aging` | Aged AR/AP report bucketed by days overdue (not due / 1-30 / 31-60 / 61-90 / 90+), with per-partner totals. |
+| `accounting_health_summary` | Open receivable/payable item counts plus the draft invoice backlog. |
+
+### Background tasks (4)
+
+| Tool | Purpose |
+| --- | --- |
+| `submit_async_task` | Run an allowlisted long read operation (`scan_addons_source`, `index_knowledge`, `receivable_payable_aging`) on a bounded worker pool. Writes are never accepted. |
+| `get_async_task` | Poll a task's status and result. |
+| `cancel_async_task` | Cancel a pending or running task. |
+| `list_async_tasks` | List live and recently finished tasks. |
+
 ### Utility (2)
 
 | Tool | Purpose |
 | --- | --- |
-| `health_check` | Report non-secret MCP runtime posture. |
+| `health_check` | Report non-secret MCP runtime posture, including rate-limit counters when enabled. |
 | `list_instances` | List configured Odoo instance names, URLs, databases, and transports — never credentials. |
 
 ## Resources

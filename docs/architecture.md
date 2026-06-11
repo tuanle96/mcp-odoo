@@ -21,7 +21,19 @@ flowchart LR
 | --- | --- |
 | `src/odoo_mcp/__main__.py` | CLI entry point, transport selection, HTTP bind safety, non-secret health output. |
 | `src/odoo_mcp/setup_wizard.py` | Interactive `--setup` wizard: prompt, test connection, write config, print client snippets. |
-| `src/odoo_mcp/server.py` | MCP server, tools, resources, prompts, safe write gates, runtime annotations. |
+| `src/odoo_mcp/server.py` | Public re-export surface: imports core + tool modules (registering all tools/resources/prompts) and re-exports every public symbol. |
+| `src/odoo_mcp/server_core.py` | FastMCP instance, `AppContext` + lifespan, shared infra (instance resolution, smart-field selection, write approvals, N+1 tracking), `odoo://` resources. |
+| `src/odoo_mcp/tools_read.py` | Read-domain tools: search/read/aggregate/schema/profile/health, with rate-limit checks. |
+| `src/odoo_mcp/tools_write.py` | Gated write workflow tools plus `execute_method` and chatter, including elicitation. |
+| `src/odoo_mcp/tools_diagnostics.py` | Diagnostic, migration, and planning tools (access, upgrade risk, fit/gap, addon scan, JSON-2 preview). |
+| `src/odoo_mcp/tools_knowledge.py` | Local-first BM25 knowledge tools: `index_knowledge`, `search_knowledge`, `knowledge_stats`. |
+| `src/odoo_mcp/tools_accounting.py` | Read-only accounting tools: AR/AP aging and health summary. |
+| `src/odoo_mcp/tools_async.py` | Background task tools over an allowlist of long-running read operations. |
+| `src/odoo_mcp/prompts.py` | The five agent prompts. |
+| `src/odoo_mcp/task_queue.py` | Bounded thread-pool task manager with TTL'd, size-capped result retention. |
+| `src/odoo_mcp/rate_limit.py` | Opt-in sliding-window call-rate tracking per `instance:tool` (warn/block modes). |
+| `src/odoo_mcp/knowledge_index.py` | Pure BM25 index + bounded per-`instance:model` knowledge store. |
+| `src/odoo_mcp/accounting_tools.py` | Pure aging-bucket and unreconciled-summary builders. |
 | `src/odoo_mcp/tool_helpers.py` | Pure request/validation helpers: name validation, domain normalization, free-text query domains, version parsing, request models. |
 | `src/odoo_mcp/schema_cache.py` | Bounded TTL/LRU cache backing per-instance schema caches. |
 | `src/odoo_mcp/access_helpers.py` | Pure ACL/record-rule analysis helpers behind `diagnose_access`. |
@@ -98,8 +110,12 @@ Routing rules:
 - MCP resources (`odoo://…`) always use the default instance; multi-instance access goes through tools.
 - `list_instances` exposes names, URLs, databases, and transports through an explicit allowlist — credentials are never serialized.
 
+## Import contracts
+
+`.importlinter` enforces two contracts (run `lint-imports` with `PYTHONPATH=src`): core helper modules must never import the MCP surface, and the surface layers flow `server` → tool modules → `server_core`. Tool modules resolve test-patchable symbols (`get_odoo_client`, `resolve_instance_name`, …) through a late `from . import server` lookup so `monkeypatch.setattr(server, …)` keeps working; those late edges are the only ignored imports.
+
 ## Runtime state
 
-Approval tokens are process-local and short-lived. They are intended for one MCP server session, not durable queues or cross-process approvals.
+Approval tokens are process-local and short-lived. They are intended for one MCP server session, not durable queues or cross-process approvals. The same philosophy applies to background task results (TTL'd, size-capped, in-memory) and knowledge indexes (bounded by `ODOO_MCP_KNOWLEDGE_MAX_DOCS`): a restart clears them by design.
 
 No Odoo credentials are written by the server. Startup logs mask known secret environment variables.
