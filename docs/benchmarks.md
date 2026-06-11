@@ -140,46 +140,138 @@ diagnose_access                      68.0     97.0     68.5     20
 
 ---
 
-## Comparing Against Other MCP Servers
+## Head-to-head vs mcp-server-odoo (ivnvxd)
 
-We intentionally do not publish latency numbers for competing projects because:
+Measured **2026-06-11**, same machine and same Docker Odoo 19 stack, 15
+iterations + 1 warmup per operation.  Competitor: `mcp-server-odoo` v0.6.0
+via `uvx mcp-server-odoo`.
 
-1. Numbers depend almost entirely on the Odoo instance, not the MCP layer
-2. Benchmarking another project on our hardware is not representative of how
-   that project performs on the user's hardware
-3. Self-reported competitor numbers cannot be verified
+### Reproduce in 3 commands
 
-### Fair-play comparison guide
+```bash
+# 1. Boot Odoo 19 stack
+ODOO_VERSION=19.0 ODOO_PORT=18169 COMPOSE_PROJECT_NAME=mcp-bench \
+  docker compose -f docker-compose.integration.yml up -d db
 
-If you want to compare odoo-mcp against another server on **your own hardware**:
+# (init DB first time — ~2 min)
+ODOO_VERSION=19.0 ODOO_PORT=18169 COMPOSE_PROJECT_NAME=mcp-bench \
+  docker compose -f docker-compose.integration.yml run --rm odoo \
+  odoo --stop-after-init -d mcp_bench_db -i base --without-demo=all \
+       --db_host=db --db_port=5432 --db_user=odoo --db_password=odoo
 
-1. Boot the same Odoo instance (use the Docker stack above)
-2. Run `python scripts/benchmark_tools.py` for odoo-mcp
-3. For the other server, use [MCP Inspector](https://modelcontextprotocol.io/docs/tools/inspector):
-   ```bash
-   # Time the same tool categories manually via Inspector CLI
-   npx @modelcontextprotocol/inspector --cli \
-     --method tools/call \
-     --tool-name <equivalent_search_tool> \
-     -- <other_server_command>
-   ```
-4. Record p50 / p95 for the same model and domain on the same Odoo DB
+ODOO_VERSION=19.0 ODOO_PORT=18169 COMPOSE_PROJECT_NAME=mcp-bench \
+  docker compose -f docker-compose.integration.yml up -d odoo
+
+# 2. Run head-to-head benchmark
+ODOO_URL=http://127.0.0.1:18169 ODOO_DB=mcp_bench_db \
+ODOO_USERNAME=admin ODOO_PASSWORD=admin ODOO_TRANSPORT=xmlrpc \
+  uv run python scripts/benchmark_head_to_head.py --iterations 15 --json bench.json
+
+# 3. Tear down
+COMPOSE_PROJECT_NAME=mcp-bench \
+  docker compose -f docker-compose.integration.yml down -v
+```
+
+### Results
+
+**mcp-odoo** (this project, v0.9.0):
+
+| Operation          | p50 ms | p95 ms | p99 ms | mean ms |
+|--------------------|-------:|-------:|-------:|--------:|
+| list_models        |   16.8 |   18.4 |   18.4 |    16.7 |
+| search_records     |    9.9 |   10.7 |   10.7 |     9.9 |
+| read_record        |    9.0 |   10.3 |   10.3 |     9.1 |
+| aggregate_records  |   12.8 |   15.3 |   15.3 |    13.4 |
+| get_model_fields   |   16.7 |   19.5 |   19.5 |    16.9 |
+
+**mcp-server-odoo v0.6.0** (ivnvxd, YOLO read mode — standard mode requires
+Odoo-side module installation):
+
+| Operation          | p50 ms | p95 ms | p99 ms | mean ms | Notes |
+|--------------------|-------:|-------:|-------:|--------:|-------|
+| list_models        |   19.6 |   20.9 |   20.9 |    19.4 | |
+| search_records     |   22.4 |   26.7 |   26.7 |    22.7 | |
+| read_record        |   10.9 |   13.0 |   13.0 |    11.1 | |
+| aggregate_records  |    9.4 |   12.7 |   12.7 |     9.7 | |
+| get_model_fields   |    —   |    —   |    —   |      —  | tool not exposed |
+
+### Ratio (mcp-odoo p50 / competitor p50)
+
+| Operation         | Ratio | Result        |
+|-------------------|------:|---------------|
+| list_models       | 0.86x | mcp-odoo faster |
+| search_records    | 0.44x | mcp-odoo faster |
+| read_record       | 0.83x | mcp-odoo faster |
+| aggregate_records | 1.36x | competitor faster |
+
+### Cold-start latency
+
+Process spawn to first tool response (single measurement each):
+
+| Server              | Cold-start ms |
+|---------------------|--------------:|
+| mcp-odoo            |        ~522   |
+| mcp-server-odoo     |        ~595   |
+
+Both are similar — cold-start is dominated by Python interpreter startup, not
+server-specific logic.
+
+### Environment
+
+| Key | Value |
+|-----|-------|
+| Odoo version | 19.0 |
+| Transport | XML-RPC |
+| Network | loopback (Docker on localhost) |
+| Host | Apple Silicon MacBook, macOS 25.4 |
+| mcp-odoo | v0.9.0 (this repo) |
+| mcp-server-odoo | v0.6.0 via `uvx` |
+| Iterations | 15 + 1 warmup |
+| Date | 2026-06-11 |
+
+### Notes on fairness
+
+- **Same Odoo instance, same DB, same dataset, same hardware, same loopback
+  network** for both servers.
+- mcp-server-odoo v0.6.0 was tested in `ODOO_YOLO=read` mode because standard
+  mode requires an Odoo-side companion module (`mcp_server` addon).  This is
+  an installation barrier the competitor's own README acknowledges.  Standard
+  mode was not testable on a vanilla Odoo 19 instance.
+- `aggregate_records` is the one operation where the competitor is faster
+  (9.4 ms vs 12.8 ms p50).  Both are well within acceptable latency; we note
+  it here rather than omit it.
+- `get_model_fields` (schema introspection) has no equivalent tool in
+  mcp-server-odoo v0.6.0.
+- These numbers are for loopback Docker; add your actual network RTT for
+  remote Odoo instances.
+
+### Known competitor regressions (open as of 2026-06-11)
+
+- **[Issue #68](https://github.com/ivnvxd/mcp-server-odoo/issues/68)** —
+  "All tool calls add ~12s of overhead per call on Claude Desktop — regression
+  in v0.6.0."  Root cause: per-proxy XML-RPC transport construction tears down
+  and rebuilds the connection for every call.  The MCP stdio harness used in
+  this benchmark runs within a single async session, so the regression is not
+  captured here — but it affects real Claude Desktop usage.  Workaround from
+  the issue: downgrade to v0.5.2.
+- **[Issue #70](https://github.com/ivnvxd/mcp-server-odoo/issues/70)** —
+  "streamable-http transport terminates Odoo session after each request."
+  Open, unfixed.
+
+### Reproduce with a different server
+
+Any MCP server can be benchmarked against the same stack using:
+
+```bash
+# Single-server harness (mcp-odoo only):
+uv run python scripts/benchmark_tools.py --iterations 20
+
+# Head-to-head harness (any two servers):
+uv run python scripts/benchmark_head_to_head.py --iterations 15 --json results.json
+```
 
 The only meaningful comparison is **same Odoo instance, same tool workload,
 same hardware, same transport**.
-
-### What the MCP layer can control
-
-The latency differences *within the MCP layer itself* (excluding Odoo
-round-trips) typically amount to 1–5 ms.  This covers:
-
-- JSON serialisation / deserialisation
-- Domain normalization
-- Smart field selection (field ranking)
-- Schema cache lookups
-
-If you are evaluating MCP servers purely on "MCP overhead", subtract the bare
-XML-RPC latency from the total and compare that delta.
 
 ---
 
