@@ -454,9 +454,7 @@ def test_json2_get_server_version_uses_web_version_endpoint(
     assert calls[-1]["body"] == {}
 
 
-def _build_xmlrpc_client_with_lang(
-    monkeypatch, odoo_client_module, lang
-):
+def _build_xmlrpc_client_with_lang(monkeypatch, odoo_client_module, lang):
     calls = []
 
     def fake_server_proxy(endpoint, transport):
@@ -537,9 +535,7 @@ def test_empty_string_lang_is_treated_as_none(monkeypatch, odoo_client_module):
     assert payload[6] == {}
 
 
-def test_whitespace_only_lang_is_treated_as_none(
-    monkeypatch, odoo_client_module
-):
+def test_whitespace_only_lang_is_treated_as_none(monkeypatch, odoo_client_module):
     client, calls = _build_xmlrpc_client_with_lang(
         monkeypatch, odoo_client_module, lang="   "
     )
@@ -579,9 +575,7 @@ def test_lang_injection_propagates_to_json2_payload(monkeypatch, odoo_client_mod
         calls.append(json.loads(body))
         return FakeJsonResponse(response_payloads.pop(0))
 
-    monkeypatch.setattr(
-        odoo_client_module.urllib.request, "urlopen", fake_urlopen
-    )
+    monkeypatch.setattr(odoo_client_module.urllib.request, "urlopen", fake_urlopen)
 
     client = odoo_client_module.OdooClient(
         url="https://odoo.example.test",

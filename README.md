@@ -35,7 +35,7 @@ Once configured (see [Install](#install) and [Configure](#configure)), ask your 
 
 | Capability | What it gives you |
 | --- | --- |
-| 26 MCP tools | Read records, aggregate server-side, post chatter, inspect schema, build domains, scan addons, diagnose calls, access rules, resolve model renames, and validate writes. |
+| 27 MCP tools | Read records and attachments, aggregate server-side, post chatter, inspect schema, build domains, scan addons, diagnose calls, access rules, resolve model renames, and validate writes. |
 | Multi-instance | One server, several named Odoo instances — optional `instance` parameter on every tool, `list_instances` discovery, instance-bound approval tokens, per-instance schema caches. |
 | 5 agent prompts | Reusable workflows for failed calls, fit/gap workshops, JSON-2 migration, safe writes, and module audits. |
 | Odoo 16-19 coverage | XML-RPC by default, JSON-2 opt-in for Odoo 19. |
@@ -141,6 +141,12 @@ Optional environment variables:
 | `MCP_CHATTER_DIRECT` | `0` | Truthy → `chatter_post` skips the approval token gate and posts immediately. |
 | `MCP_ALLOW_REMOTE_HTTP` | `0` | Truthy → permit non-local HTTP binds (still requires external auth/TLS). |
 | `MCP_ALLOWED_HOSTS` / `MCP_ALLOWED_ORIGINS` | local | CSV allowlists for HTTP transports. |
+| `ODOO_MCP_MAX_ATTACHMENT_BYTES` | `1048576` | Download cap for `read_attachment` content (hard cap 16 MiB). |
+| `ODOO_MCP_AUTH_ISSUER_URL` | unset | OAuth 2.1: authorization server issuer. With the two vars below, the HTTP transport becomes a protected resource server (RFC 9728 metadata + bearer validation). |
+| `ODOO_MCP_AUTH_INTROSPECTION_URL` | unset | RFC 7662 token introspection endpoint of the authorization server. |
+| `ODOO_MCP_AUTH_RESOURCE_URL` | unset | Canonical URL of this MCP server (RFC 8707 audience check when the AS binds tokens). |
+| `ODOO_MCP_AUTH_REQUIRED_SCOPES` | empty | CSV scopes required on every request. |
+| `ODOO_MCP_AUTH_CLIENT_ID` / `_CLIENT_SECRET` | unset | Credentials for the introspection call when the AS requires client auth. |
 
 You can also use `odoo_config.json`:
 
@@ -219,9 +225,9 @@ odoo-mcp --health
 
 ## MCP Tools
 
-26 tools grouped by use case. Each tool name is a single-purpose handle the agent can call. Tools that talk to Odoo accept an optional `instance` parameter when multiple instances are configured (see [Multiple Odoo instances](#multiple-odoo-instances)).
+27 tools grouped by use case. Each tool name is a single-purpose handle the agent can call. Tools that talk to Odoo accept an optional `instance` parameter when multiple instances are configured (see [Multiple Odoo instances](#multiple-odoo-instances)).
 
-### Read & Discover (10)
+### Read & Discover (11)
 
 | Tool | Purpose |
 | --- | --- |
@@ -235,6 +241,7 @@ odoo-mcp --health
 | `get_odoo_profile` | Read server version, user context, transport, database, and installed module summary. |
 | `schema_catalog` | Build a bounded model catalog with optional field metadata. |
 | `build_domain` | Build and validate an Odoo domain from structured conditions. |
+| `read_attachment` | Read an `ir.attachment`'s metadata and size-capped base64 content (`ODOO_MCP_MAX_ATTACHMENT_BYTES`, default 1 MiB). |
 
 ### Write & Operate (5)
 
@@ -310,6 +317,13 @@ Writes are intentionally boring.
    - `ODOO_MCP_ENABLE_WRITES=1` is set.
 
 Odoo access rules, record rules, and server-side constraints still decide the final result.
+
+Batch creates go through the same gates: pass `values_list` (one dict per
+record, max 100) to `preview_write`/`validate_write` — execution maps to a
+single atomic Odoo `create(vals_list)` call. Per-record differing `write`
+values are deliberately unsupported (they would need one non-atomic RPC per
+record). Optional extras: `ODOO_MCP_ELICIT_WRITES=1` adds a native
+human-confirmation form, `ODOO_MCP_AUDIT_LOG` records every write-path event.
 
 Reviewed side-effect methods such as `sale.order.action_confirm` can be enabled
 one by one:

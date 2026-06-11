@@ -68,9 +68,7 @@ def test_cli_applies_streamable_http_runtime_settings(monkeypatch):
 
 def test_cli_rejects_remote_http_bind_without_explicit_opt_in():
     cli = importlib.import_module("odoo_mcp.__main__")
-    args = cli.parse_args(
-        ["--transport", "streamable-http", "--host", "0.0.0.0"]
-    )
+    args = cli.parse_args(["--transport", "streamable-http", "--host", "0.0.0.0"])
 
     try:
         cli.configure_mcp_runtime(args)
@@ -179,9 +177,7 @@ def test_setup_logging_invalid_level_falls_back_to_info(monkeypatch, capsys):
         _restore_root_logger()
 
 
-def test_setup_logging_env_overrides_pick_up_when_kwargs_omitted(
-    monkeypatch, capsys
-):
+def test_setup_logging_env_overrides_pick_up_when_kwargs_omitted(monkeypatch, capsys):
     cli = importlib.import_module("odoo_mcp.__main__")
     monkeypatch.setenv("ODOO_MCP_LOG_JSON", "1")
     monkeypatch.setenv("ODOO_MCP_LOG_LEVEL", "INFO")

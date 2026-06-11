@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- OAuth 2.1 resource server for HTTP transports — set `ODOO_MCP_AUTH_ISSUER_URL`, `ODOO_MCP_AUTH_INTROSPECTION_URL`, and `ODOO_MCP_AUTH_RESOURCE_URL` to require bearer tokens on Streamable HTTP. Tokens are validated via RFC 7662 introspection (optional client credentials), with an RFC 8707 audience check when the authorization server binds tokens to resources; RFC 9728 protected-resource metadata is served by the MCP SDK. stdio is unaffected; posture appears in `health_check` as `runtime.oauth`.
+- Batch create in the gated write workflow — `preview_write`/`validate_write` accept `values_list` (one dict per record, max 100); execution maps to a single atomic Odoo `create(vals_list)` call and the approval token covers the whole batch. Per-record differing `write` values are deliberately rejected (`values_list_unsupported_operation`) because they would require non-atomic per-record RPC calls.
+- Added `read_attachment` tool (tool count 26 → 27) — reads `ir.attachment` metadata plus size-capped base64 content (`ODOO_MCP_MAX_ATTACHMENT_BYTES`, default 1 MiB, hard cap 16 MiB), with a defensive re-check of the actually fetched payload size and URL-type attachment handling.
+
+### Compatibility
+- Approval tokens for single-record writes are unchanged; the canonical payload only gains a `values_list` key when batching is used.
+- OAuth is opt-in; without `ODOO_MCP_AUTH_*` env vars the HTTP transport behaves exactly as before.
+
 ## [0.6.0] - 2026-06-10
 
 ### Added

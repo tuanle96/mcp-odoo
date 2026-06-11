@@ -60,7 +60,9 @@ def test_load_config_includes_optional_json2_environment_values(
     }
 
 
-def test_get_odoo_client_defaults_json2_database_header_on(monkeypatch, odoo_client_module):
+def test_get_odoo_client_defaults_json2_database_header_on(
+    monkeypatch, odoo_client_module
+):
     captured = {}
 
     class FakeClient:
@@ -144,9 +146,7 @@ def test_load_config_includes_odoo_locale_when_set(
     assert config["lang"] == "fr_FR"
 
 
-def test_get_odoo_client_passes_lang_from_odoo_locale(
-    monkeypatch, odoo_client_module
-):
+def test_get_odoo_client_passes_lang_from_odoo_locale(monkeypatch, odoo_client_module):
     captured = {}
 
     class FakeClient:

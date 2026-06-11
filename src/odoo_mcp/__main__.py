@@ -11,6 +11,7 @@ import sys
 import time
 import traceback
 
+from .auth import build_auth
 from .server import mcp
 
 SUPPORTED_MCP_TRANSPORTS = {"stdio", "streamable-http", "sse"}
@@ -51,9 +52,7 @@ class JsonLogFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, object] = {
-            "time": time.strftime(
-                "%Y-%m-%dT%H:%M:%S", time.gmtime(record.created)
-            )
+            "time": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(record.created))
             + f".{int(record.msecs):03d}Z",
             "level": record.levelname,
             "logger": record.name,
@@ -83,9 +82,13 @@ def setup_logging(
     if resolved_level not in LOG_LEVELS:
         resolved_level = "INFO"
     resolved_json = (
-        use_json if use_json is not None else parse_bool(os.environ.get("ODOO_MCP_LOG_JSON"))
+        use_json
+        if use_json is not None
+        else parse_bool(os.environ.get("ODOO_MCP_LOG_JSON"))
     )
-    resolved_file = log_file if log_file is not None else os.environ.get("ODOO_MCP_LOG_FILE")
+    resolved_file = (
+        log_file if log_file is not None else os.environ.get("ODOO_MCP_LOG_FILE")
+    )
 
     formatter: logging.Formatter
     if resolved_json:
@@ -140,6 +143,7 @@ def is_secret_env_key(key: str) -> bool:
         or upper_key.endswith("_PASSWORD")
         or upper_key.endswith("_TOKEN")
         or upper_key.endswith("_API_KEY")
+        or upper_key.endswith("_SECRET")
     )
 
 
@@ -227,6 +231,32 @@ def configure_mcp_runtime(args: argparse.Namespace) -> None:
             security.allowed_hosts = allowed_hosts
         if allowed_origins:
             security.allowed_origins = allowed_origins
+    configure_oauth(args)
+
+
+def configure_oauth(args: argparse.Namespace) -> None:
+    """Enable the OAuth resource server when ODOO_MCP_AUTH_* env vars are set.
+
+    FastMCP reads settings.auth and the token verifier lazily when it builds
+    the HTTP app, so wiring them here (before run) is sufficient.
+    """
+    auth = build_auth()
+    if auth is None:
+        return
+    if args.transport not in {"streamable-http", "sse"}:
+        print(
+            "ODOO_MCP_AUTH_* is set but the transport is stdio; "
+            "OAuth only protects HTTP transports and will be ignored.",
+            file=sys.stderr,
+        )
+        return
+    auth_settings, verifier = auth
+    mcp.settings.auth = auth_settings
+    mcp._token_verifier = verifier
+    print(
+        f"OAuth resource server enabled (issuer: {auth_settings.issuer_url})",
+        file=sys.stderr,
+    )
 
 
 def health_payload(args: argparse.Namespace) -> dict[str, object]:

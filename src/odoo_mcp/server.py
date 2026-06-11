@@ -36,6 +36,7 @@ from .agent_tools import (
     verify_write_approval,
 )
 from .audit import audit_posture, record_write_event
+from .auth import auth_posture as oauth_posture
 from .diagnostics import (
     DESTRUCTIVE_METHODS,
     classify_access_error,
@@ -763,6 +764,7 @@ def runtime_security_report() -> Dict[str, Any]:
         "allowed_origins": getattr(security, "allowed_origins", None),
         "odoo_instances": instance_posture(),
         "audit_log": audit_posture(),
+        "oauth": oauth_posture(),
         "n_plus_one": n_plus_one_report(),
         "notes": [
             "HTTP transports are local-only by default in the CLI entry point.",
@@ -893,7 +895,7 @@ def require_validated_write_approval(
 
 def write_approval_payload(approval: Dict[str, Any]) -> Dict[str, Any]:
     """Return the canonical approval payload fields used for execution."""
-    return {
+    payload = {
         "model": approval.get("model"),
         "operation": approval.get("operation"),
         "record_ids": approval.get("record_ids") or [],
@@ -901,6 +903,9 @@ def write_approval_payload(approval: Dict[str, Any]) -> Dict[str, Any]:
         "context": approval.get("context") or {},
         "instance": approval.get("instance") or "default",
     }
+    if approval.get("values_list") is not None:
+        payload["values_list"] = approval.get("values_list")
+    return payload
 
 
 def configured_addons_roots() -> List[Path]:
@@ -1751,17 +1756,23 @@ def preview_write(
     model: str,
     operation: str,
     values: Optional[Dict[str, Any]] = None,
+    values_list: Optional[List[Dict[str, Any]]] = None,
     record_ids: Optional[List[int]] = None,
     context: Optional[Dict[str, Any]] = None,
     instance: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Build a canonical approval token for a later approved write."""
+    """Build a canonical approval token for a later approved write.
+
+    Batch create: pass ``values_list`` (one dict per record, max 100) —
+    executes as a single atomic Odoo ``create(vals_list)`` call.
+    """
     try:
         validate_model_name(model)
         report = build_write_preview_report(
             model=model,
             operation=operation,
             values=values,
+            values_list=values_list,
             record_ids=record_ids,
             context=context,
             instance=resolve_instance_name(instance),
@@ -1790,6 +1801,7 @@ def validate_write(
     model: str,
     operation: str,
     values: Optional[Dict[str, Any]] = None,
+    values_list: Optional[List[Dict[str, Any]]] = None,
     record_ids: Optional[List[int]] = None,
     context: Optional[Dict[str, Any]] = None,
     fields_metadata: Optional[Dict[str, Any]] = None,
@@ -1828,6 +1840,7 @@ def validate_write(
             model=model,
             operation=operation,
             values=values,
+            values_list=values_list,
             record_ids=record_ids,
             context=context,
             fields_metadata=fields_metadata,
@@ -2043,11 +2056,15 @@ def _execute_approved_write_gated(
             raise ValueError("operation must be one of create, write, or unlink")
 
         values = dict(approval.get("values") or {})
+        values_list = approval.get("values_list")
         record_ids = [int(record_id) for record_id in approval.get("record_ids") or []]
         context = dict(approval.get("context") or {})
         kwargs = {"context": context} if context else {}
-        if operation == "create":
-            args: List[Any] = [values]
+        if operation == "create" and values_list is not None:
+            # Batch create: Odoo's native vals_list — one atomic call.
+            args: List[Any] = [list(values_list)]
+        elif operation == "create":
+            args = [values]
         elif operation == "write":
             args = [record_ids, values]
         else:
@@ -2467,6 +2484,110 @@ def read_record(
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+DEFAULT_MAX_ATTACHMENT_BYTES = 1024 * 1024
+ATTACHMENT_BYTES_HARD_CAP = 16 * 1024 * 1024
+
+
+def max_attachment_bytes() -> int:
+    """Read the configured attachment download cap (default 1 MiB)."""
+    raw = os.environ.get("ODOO_MCP_MAX_ATTACHMENT_BYTES", "").strip()
+    try:
+        value = int(raw) if raw else DEFAULT_MAX_ATTACHMENT_BYTES
+    except ValueError:
+        value = DEFAULT_MAX_ATTACHMENT_BYTES
+    return max(1, min(value, ATTACHMENT_BYTES_HARD_CAP))
+
+
+@mcp.tool(
+    description=("Read an ir.attachment's metadata and size-capped base64 content"),
+    annotations=READ_ONLY_TOOL,
+    structured_output=True,
+)
+def read_attachment(
+    ctx: Context,
+    attachment_id: int,
+    include_data: bool = True,
+    instance: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Read one ir.attachment record: metadata always, base64 content when it
+    fits under the cap (ODOO_MCP_MAX_ATTACHMENT_BYTES, default 1 MiB).
+    URL-type attachments return their URL instead of content.
+    """
+    try:
+        _, odoo = _resolve_odoo(ctx, instance)
+        if attachment_id < 1:
+            raise ValueError("attachment_id must be greater than 0")
+        rows = odoo.execute_method(
+            "ir.attachment",
+            "read",
+            [attachment_id],
+            fields=[
+                "name",
+                "mimetype",
+                "file_size",
+                "type",
+                "url",
+                "res_model",
+                "res_id",
+                "checksum",
+                "create_date",
+            ],
+        )
+        if not isinstance(rows, list) or not rows:
+            return {
+                "success": False,
+                "tool": "read_attachment",
+                "error": f"Attachment not found: ir.attachment ID {attachment_id}",
+            }
+        attachment = rows[0]
+        warnings: List[str] = []
+        data_base64: Optional[str] = None
+        cap = max_attachment_bytes()
+        file_size = int(attachment.get("file_size") or 0)
+        is_binary = str(attachment.get("type") or "binary") == "binary"
+
+        if include_data and is_binary:
+            if file_size > cap:
+                warnings.append(
+                    f"Attachment is {file_size} bytes; cap is {cap} "
+                    "(raise ODOO_MCP_MAX_ATTACHMENT_BYTES to fetch it)."
+                )
+            else:
+                data_rows = odoo.execute_method(
+                    "ir.attachment", "read", [attachment_id], fields=["datas"]
+                )
+                raw = (
+                    data_rows[0].get("datas")
+                    if isinstance(data_rows, list) and data_rows
+                    else None
+                )
+                if isinstance(raw, str) and raw:
+                    # Defense in depth: file_size comes from the same record,
+                    # so re-check the decoded size of what actually arrived.
+                    if (len(raw) * 3) // 4 > cap:
+                        warnings.append(
+                            "Attachment content exceeded the cap when fetched; "
+                            "content omitted."
+                        )
+                    else:
+                        data_base64 = raw
+        elif include_data and not is_binary:
+            warnings.append("URL-type attachment; fetch the url field directly.")
+
+        return {
+            "success": True,
+            "tool": "read_attachment",
+            "attachment": attachment,
+            "data_base64": data_base64,
+            "data_included": data_base64 is not None,
+            "max_bytes": cap,
+            "warnings": warnings,
+        }
+    except Exception as e:
+        return {"success": False, "tool": "read_attachment", "error": str(e)}
 
 
 @mcp.tool(
