@@ -1033,3 +1033,84 @@ def test_expr_name_returns_empty_for_unsupported_node_type():
     # ast.Subscript is not Name or Attribute → returns ""
     expr = _ast.parse("a[0]").body[0].value
     assert agent_tools._expr_name(expr) == ""
+
+
+# ----- Free-text query domain helpers -----
+
+
+def test_select_text_query_fields_prefers_identifier_columns():
+    fields = {
+        "name": _meta(searchable=True),
+        "email": _meta(searchable=True),
+        "comment": _meta("text", searchable=True),
+        "state": _meta("selection", searchable=True),
+        "partner_id": _meta("many2one", searchable=True),
+    }
+    selected = agent_tools.select_text_query_fields(fields)
+    assert selected[0] == "name"
+    assert "email" in selected
+    assert "state" not in selected
+    assert "partner_id" not in selected
+
+
+def test_select_text_query_fields_skips_unsearchable_fields():
+    fields = {
+        "name": _meta(searchable=False, store=False),
+        "ref": _meta(searchable=True),
+    }
+    assert agent_tools.select_text_query_fields(fields) == ["ref"]
+
+
+def test_select_text_query_fields_falls_back_to_scored_text_fields():
+    fields = {
+        "description": _meta("text", searchable=True),
+        "note": _meta("text", searchable=True),
+    }
+    selected = agent_tools.select_text_query_fields(fields)
+    assert selected == ["description", "note"]
+
+
+def test_select_text_query_fields_caps_and_zero_max():
+    fields = {
+        name: _meta(searchable=True)
+        for name in ("name", "ref", "email", "phone", "mobile", "barcode", "login")
+    }
+    assert len(agent_tools.select_text_query_fields(fields, max_fields=3)) == 3
+    assert agent_tools.select_text_query_fields(fields, max_fields=0) == []
+
+
+def test_build_text_query_domain_single_field_has_no_or_prefix():
+    domain, used = agent_tools.build_text_query_domain(
+        "acme", {"name": _meta(searchable=True)}
+    )
+    assert used == ["name"]
+    assert domain == [["name", "ilike", "acme"]]
+
+
+def test_build_text_query_domain_prefix_notation_for_multiple_fields():
+    fields = {
+        "name": _meta(searchable=True),
+        "email": _meta(searchable=True),
+        "ref": _meta(searchable=True),
+    }
+    domain, used = agent_tools.build_text_query_domain("  Ada  ", fields)
+    assert used == ["name", "ref", "email"]
+    assert domain[:2] == ["|", "|"]
+    assert domain[2:] == [
+        ["name", "ilike", "Ada"],
+        ["ref", "ilike", "Ada"],
+        ["email", "ilike", "Ada"],
+    ]
+
+
+def test_build_text_query_domain_falls_back_to_display_name():
+    domain, used = agent_tools.build_text_query_domain("ada", {})
+    assert used == ["display_name"]
+    assert domain == [["display_name", "ilike", "ada"]]
+
+
+def test_build_text_query_domain_rejects_blank_query():
+    import pytest
+
+    with pytest.raises(ValueError):
+        agent_tools.build_text_query_domain("   ", {"name": _meta()})

@@ -1148,6 +1148,83 @@ def select_smart_fields(
     return selected
 
 
+DEFAULT_MAX_QUERY_FIELDS = 5
+
+# Identifier-style columns checked first when building a free-text query
+# domain; ordered by how often they hold the text a human searches for.
+_TEXT_QUERY_PRIORITY_FIELDS = (
+    "name",
+    "display_name",
+    "complete_name",
+    "default_code",
+    "ref",
+    "code",
+    "email",
+    "phone",
+    "mobile",
+    "barcode",
+    "login",
+)
+
+
+def select_text_query_fields(
+    fields_metadata: dict[str, Any],
+    max_fields: int = DEFAULT_MAX_QUERY_FIELDS,
+) -> list[str]:
+    """Pick searchable text fields for a free-text query, identifiers first.
+
+    Only ``char``/``text`` fields that Odoo reports as searchable qualify.
+    Known identifier columns (name, ref, email, ...) win; otherwise the
+    highest-scoring text fields by the smart-field heuristics are used.
+    """
+    if max_fields <= 0:
+        return []
+
+    searchable: dict[str, dict[str, Any]] = {}
+    for field_name, raw_meta in fields_metadata.items():
+        if not isinstance(raw_meta, dict):
+            continue
+        if str(raw_meta.get("type", "")) not in {"char", "text"}:
+            continue
+        if not raw_meta.get("searchable", raw_meta.get("store", True)):
+            continue
+        searchable[field_name] = raw_meta
+
+    selected = [name for name in _TEXT_QUERY_PRIORITY_FIELDS if name in searchable]
+    if not selected and searchable:
+        selected = sorted(
+            searchable,
+            key=lambda name: (-_smart_field_score(name, searchable[name]), name),
+        )
+    return selected[:max_fields]
+
+
+def build_text_query_domain(
+    query: str,
+    fields_metadata: dict[str, Any] | None = None,
+    max_fields: int = DEFAULT_MAX_QUERY_FIELDS,
+) -> tuple[list[Any], list[str]]:
+    """Build an OR ``ilike`` domain matching ``query`` across text fields.
+
+    Returns ``(domain, fields_used)`` where the domain is in Odoo prefix
+    notation (``['|', '|', term, term, term]``) and safe to concatenate
+    with another domain under Odoo's implicit AND. Falls back to
+    ``display_name`` when no metadata is available, since every Odoo
+    model supports searching it.
+    """
+    cleaned = str(query).strip()
+    if not cleaned:
+        raise ValueError("query must be a non-empty string")
+
+    field_names = select_text_query_fields(fields_metadata or {}, max_fields)
+    if not field_names:
+        field_names = ["display_name"]
+
+    domain: list[Any] = ["|"] * (len(field_names) - 1)
+    domain.extend([field_name, "ilike", cleaned] for field_name in field_names)
+    return domain, field_names
+
+
 # Model rename history — static catalog of well-known Odoo model renames and
 # removals, so agents stop hallucinating pre-rename names (account.invoice,
 # mail.channel, ...) against modern databases.

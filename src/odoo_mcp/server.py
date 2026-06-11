@@ -28,6 +28,7 @@ from .agent_tools import (
 )
 from .agent_tools import business_pack_report as build_business_pack_report
 from .agent_tools import (
+    build_text_query_domain,
     lookup_model_history_report,
     rank_relevant_fields,
     scan_addons_source_report,
@@ -2392,7 +2393,10 @@ def get_model_fields(
 
 
 @mcp.tool(
-    description="Search Odoo records with read-only search_read",
+    description=(
+        "Search Odoo records with read-only search_read; optional free-text "
+        "`query` matches across name/ref/email-like fields"
+    ),
     annotations=READ_ONLY_TOOL,
     structured_output=True,
 )
@@ -2404,6 +2408,7 @@ def search_records(
     limit: int = 10,
     offset: int = 0,
     order: Optional[str] = None,
+    query: Optional[str] = None,
     instance: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
@@ -2411,6 +2416,11 @@ def search_records(
 
     Domain accepts standard Odoo domain arrays, a JSON string, or
     {"conditions": [{"field": ..., "operator": ..., "value": ...}]}.
+
+    ``query`` is a free-text shortcut: the server builds an OR ``ilike``
+    domain over the model's searchable text fields (name, ref, email, ...)
+    and ANDs it with ``domain``, so agents don't have to hand-craft
+    fuzzy-match domains.
     """
     app_context = ctx.request_context.lifespan_context
     try:
@@ -2419,24 +2429,37 @@ def search_records(
         limit = clamp_limit(limit)
         if offset < 0:
             raise ValueError("offset must be greater than or equal to 0")
+        normalized_domain = normalize_domain_input(domain)
+        query_fields_used: Optional[List[str]] = None
+        if query is not None and str(query).strip():
+            metadata = _cached_fields_metadata(
+                app_context, odoo, model, instance_name
+            )
+            query_domain, query_fields_used = build_text_query_domain(
+                query, metadata
+            )
+            normalized_domain = query_domain + normalized_domain
         resolved_fields = resolve_read_fields(
             app_context, odoo, model, fields, instance_name
         )
         records = odoo.search_read(
             model_name=model,
-            domain=normalize_domain_input(domain),
+            domain=normalized_domain,
             fields=resolved_fields,
             offset=offset,
             limit=limit,
             order=order,
         )
-        return {
+        report = {
             "success": True,
             "count": len(records),
             "result": records,
             "smart_fields_applied": fields is None,
             "fields_used": resolved_fields,
         }
+        if query_fields_used is not None:
+            report["query_fields_used"] = query_fields_used
+        return report
     except Exception as e:
         return {"success": False, "error": str(e)}
 

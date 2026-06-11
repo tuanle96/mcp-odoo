@@ -3909,3 +3909,73 @@ def test_execute_approved_write_never_echoes_expected_token():
     assert result["success"] is False
     assert "expected_token" not in result
     assert "odoo-write:" not in json.dumps(result)
+
+
+# ----- Free-text query= on search_records -----
+
+
+class _QuerySearchClient:
+    """Recording client capturing the domain search_records sends."""
+
+    def __init__(self):
+        self.fields_meta = {
+            "id": {"type": "integer"},
+            "name": {"type": "char", "searchable": True},
+            "email": {"type": "char", "searchable": True},
+            "state": {"type": "selection", "searchable": True},
+        }
+        self.search_read_calls = []
+
+    def get_model_fields(self, model):
+        return self.fields_meta
+
+    def search_read(self, model_name, domain, fields=None, **kwargs):
+        self.search_read_calls.append({"model": model_name, "domain": domain})
+        return [{"id": 1, "name": "Ada"}]
+
+
+def test_search_records_query_builds_or_ilike_domain():
+    server = importlib.import_module("odoo_mcp.server")
+    client = _QuerySearchClient()
+
+    result = server.search_records(
+        FakeCtx(client),
+        "res.partner",
+        domain=[["state", "=", "done"]],
+        query="ada",
+    )
+
+    assert result["success"] is True
+    assert result["query_fields_used"] == ["name", "email"]
+    sent = client.search_read_calls[0]["domain"]
+    assert sent == [
+        "|",
+        ["name", "ilike", "ada"],
+        ["email", "ilike", "ada"],
+        ["state", "=", "done"],
+    ]
+
+
+def test_search_records_blank_query_is_ignored():
+    server = importlib.import_module("odoo_mcp.server")
+    client = _QuerySearchClient()
+
+    result = server.search_records(FakeCtx(client), "res.partner", query="   ")
+
+    assert result["success"] is True
+    assert "query_fields_used" not in result
+    assert client.search_read_calls[0]["domain"] == []
+
+
+def test_search_records_query_falls_back_to_display_name_without_metadata():
+    server = importlib.import_module("odoo_mcp.server")
+    client = _QuerySearchClient()
+    client.fields_meta = {"error": "boom"}
+
+    result = server.search_records(FakeCtx(client), "res.partner", query="ada")
+
+    assert result["success"] is True
+    assert result["query_fields_used"] == ["display_name"]
+    assert client.search_read_calls[0]["domain"] == [
+        ["display_name", "ilike", "ada"]
+    ]
