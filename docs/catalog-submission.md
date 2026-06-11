@@ -232,9 +232,17 @@ If Smithery asks for an API key for CI publishing, store it as the
 
 ### OEC.sh — proposed featured integration message
 
+**Send to:** `sales@oec.sh` (primary) or `hello@oec.sh` — both published at
+[oec.sh/about](https://oec.sh/about/). OEC.sh is run by OpenEduCat Inc. and
+has a formal partner program ([oec.sh/for/partners](https://oec.sh/for/partners)).
+Backup channels: X/Twitter [@openeducat](https://twitter.com/openeducat),
+[LinkedIn](https://www.linkedin.com/company/openeducat-inc). No dedicated
+`partnerships@` alias exists, so lead the subject with "featured integration".
+
+> **To: sales@oec.sh**  
 > **Subject: odoo-mcp — MCP server for Odoo ERP, open to collaboration**
 >
-> Hi,
+> Hi OpenEduCat team,
 >
 > I'm the author of odoo-mcp (https://github.com/tuanle96/mcp-odoo), a
 > production-ready MCP server for Odoo ERP. It exposes Odoo's XML-RPC and
@@ -251,9 +259,19 @@ If Smithery asks for an API key for CI publishing, store it as the
 
 ### Peliqan — proposed featured integration message
 
+**Send to:** `hello@peliqan.io` — published at
+[peliqan.io/contact](https://peliqan.io/contact/) (also a contact form +
+demo scheduler there). Backup: [LinkedIn](https://www.linkedin.com/company/peliqan-data).
+No public author byline on the "MCP for Odoo Partners" post, so address the
+team and reference the post directly.
+
+> **To: hello@peliqan.io**  
 > **Subject: Odoo MCP server — integration opportunity**
 >
 > Hi Peliqan team,
+>
+> I read your "MCP for Odoo Partners" post — it lines up closely with what
+> I've been building.
 >
 > I built odoo-mcp (https://github.com/tuanle96/mcp-odoo), an open-source MCP
 > server that gives AI agents direct, safety-gated access to Odoo ERP. The
