@@ -23,7 +23,7 @@ It speaks XML-RPC for Odoo 16-18 and External JSON-2 for Odoo 19+. It exposes a 
 
 ## Try it in 30 seconds
 
-Once configured (see [Install](#install) and [Configure](#configure)), ask your agent things like:
+Once configured (see [Setup](#setup)), ask your agent things like:
 
 > "Show me all customers from Spain with unpaid invoices."
 >
@@ -69,30 +69,56 @@ Once configured (see [Install](#install) and [Configure](#configure)), ask your 
 
 Comparing specific projects? See the per-project breakdown in [docs/comparison.md](./docs/comparison.md).
 
-## Install
+## Setup
 
-The fastest path is `uvx`, which fetches the package on demand:
+Two paths to a working server: set it up yourself, or paste one prompt and let your coding agent do it for you.
+
+### For humans
+
+The fastest path is the interactive wizard via `uvx`, which fetches the package on demand:
 
 ```bash
 uvx odoo-mcp --setup
 ```
 
-The interactive wizard asks for your Odoo URL, database, and credentials, tests the connection live, writes the config file, and prints ready-to-paste snippets for Claude Code, Cursor, and Claude Desktop. Prefer a quick smoke check instead? `uvx odoo-mcp --health`.
+The wizard asks for your Odoo URL, database, and credentials, tests the connection live, writes the config file, and prints ready-to-paste snippets for Claude Code, Cursor, and Claude Desktop. Prefer a quick smoke check instead? `uvx odoo-mcp --health`.
 
-Or install into your environment:
+Using Claude Desktop on macOS? It reads MCP configuration from:
+
+```text
+~/Library/Application Support/Claude/claude_desktop_config.json
+```
+
+Use an absolute Python path because GUI apps may not inherit your shell `PATH`:
+
+```json
+{
+  "mcpServers": {
+    "odoo": {
+      "command": "/opt/homebrew/bin/python3",
+      "args": ["-m", "odoo_mcp"],
+      "env": {
+        "ODOO_URL": "https://your-odoo-instance.com",
+        "ODOO_DB": "your-database",
+        "ODOO_USERNAME": "your-user",
+        "ODOO_PASSWORD": "your-password-or-api-key",
+        "ODOO_TRANSPORT": "xmlrpc"
+      }
+    }
+  }
+}
+```
+
+More client configs (Windsurf, VS Code, Zed, Continue.dev, Streamable HTTP) are in [docs/client-configs.md](./docs/client-configs.md).
+
+Other ways to install:
 
 ```bash
 pip install odoo-mcp
 # or: pipx install odoo-mcp
 ```
 
-Pull the prebuilt container from GitHub Container Registry:
-
-```bash
-docker pull ghcr.io/tuanle96/mcp-odoo:latest
-```
-
-For local development:
+Prefer a container? See [Docker](#docker). For local development:
 
 ```bash
 git clone https://github.com/tuanle96/mcp-odoo.git
@@ -100,7 +126,54 @@ cd mcp-odoo
 uv sync --extra dev
 ```
 
-## Configure
+### For AI agents
+
+Paste this into Claude Code, Cursor, Codex, or any coding agent and it will install the server for you:
+
+```text
+Install the odoo-mcp MCP server (https://github.com/tuanle96/mcp-odoo) in this environment:
+
+1. Ask me for my Odoo URL, database name, username, and password or API key.
+   Treat them as secrets: never echo, print, or log these values.
+2. Register the server as a stdio MCP server:
+   - Claude Code: claude mcp add odoo --env ODOO_URL=<url> --env ODOO_DB=<db>
+     --env ODOO_USERNAME=<user> --env ODOO_PASSWORD=<secret> -- uvx odoo-mcp
+   - Any other client: write the equivalent config with "command": "uvx",
+     "args": ["odoo-mcp"], and the same four env vars.
+3. Verify the install: run `uvx odoo-mcp --health`, then call the health_check
+   MCP tool and confirm the Odoo connection is reachable.
+4. Leave writes disabled (do not set ODOO_MCP_ENABLE_WRITES) unless I
+   explicitly ask you to enable them.
+
+Full machine-readable instructions: https://github.com/tuanle96/mcp-odoo/blob/main/llms-install.md
+```
+
+Already know your client? One-liners and config snippets:
+
+```bash
+claude mcp add odoo --env ODOO_URL=https://mycompany.odoo.com --env ODOO_DB=mycompany \
+  --env ODOO_USERNAME=agent@mycompany.com --env ODOO_PASSWORD=your-api-key -- uvx odoo-mcp
+```
+
+- Claude Code `.mcp.json` and Codex CLI `config.toml`: [`examples/README.md`](./examples/README.md)
+- Cursor `.cursor/mcp.json` + agent rules: [`examples/cursor/`](./examples/cursor/)
+- Windsurf, VS Code, Zed, Continue.dev, Cline, Streamable HTTP, Docker: [`docs/client-configs.md`](./docs/client-configs.md)
+- Machine-readable install guide for agents (Cline-style): [`llms-install.md`](./llms-install.md)
+
+#### Framework SDKs
+
+Copy-paste-runnable integrations live in [`examples/`](./examples/):
+
+| Client | Example |
+| --- | --- |
+| Cursor | [`examples/cursor/`](./examples/cursor/) — `.cursor/mcp.json` + agent rules |
+| Claude Code / Codex CLI | snippets in [`examples/README.md`](./examples/README.md) |
+| OpenAI Agents SDK | [`examples/openai-agents/`](./examples/openai-agents/) — local + hosted variants |
+| LangGraph | [`examples/langgraph/`](./examples/langgraph/) — `langchain-mcp-adapters` |
+| CrewAI | [`examples/crewai/`](./examples/crewai/) — native `mcps=[...]` agent |
+| n8n | [`examples/n8n/`](./examples/n8n/) — importable workflow JSON |
+
+## Configuration reference
 
 Set connection values in the environment:
 
@@ -339,49 +412,6 @@ export ODOO_MCP_ALLOWED_SIDE_EFFECT_METHODS="sale.order.action_confirm,res.partn
 `ODOO_MCP_ALLOW_UNKNOWN_METHODS=1` is still supported for trusted deployments,
 but `health_check` reports it as broad mode. Prefer exact allowlist entries when
 you only need a small number of reviewed methods.
-
-## Client Setup
-
-Claude Desktop on macOS reads MCP configuration from:
-
-```text
-~/Library/Application Support/Claude/claude_desktop_config.json
-```
-
-Use an absolute Python path because GUI apps may not inherit your shell `PATH`:
-
-```json
-{
-  "mcpServers": {
-    "odoo": {
-      "command": "/opt/homebrew/bin/python3",
-      "args": ["-m", "odoo_mcp"],
-      "env": {
-        "ODOO_URL": "https://your-odoo-instance.com",
-        "ODOO_DB": "your-database",
-        "ODOO_USERNAME": "your-user",
-        "ODOO_PASSWORD": "your-password-or-api-key",
-        "ODOO_TRANSPORT": "xmlrpc"
-      }
-    }
-  }
-}
-```
-
-More examples are in [docs/client-configs.md](./docs/client-configs.md).
-
-### Framework examples
-
-Copy-paste-runnable integrations live in [`examples/`](./examples/):
-
-| Client | Example |
-| --- | --- |
-| Cursor | [`examples/cursor/`](./examples/cursor/) — `.cursor/mcp.json` + agent rules |
-| Claude Code / Codex CLI | snippets in [`examples/README.md`](./examples/README.md) |
-| OpenAI Agents SDK | [`examples/openai-agents/`](./examples/openai-agents/) — local + hosted variants |
-| LangGraph | [`examples/langgraph/`](./examples/langgraph/) — `langchain-mcp-adapters` |
-| CrewAI | [`examples/crewai/`](./examples/crewai/) — native `mcps=[...]` agent |
-| n8n | [`examples/n8n/`](./examples/n8n/) — importable workflow JSON |
 
 ## Docker
 

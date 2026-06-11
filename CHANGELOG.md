@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+- README setup restructured into a single `Setup` section with two explicit paths: **For humans** (interactive wizard, Claude Desktop, pip/Docker/dev installs) and **For AI agents** (a paste-able self-install prompt, `claude mcp add` one-liners, framework SDK examples). The long environment-variable table moved to a new `Configuration reference` section.
+- Added `llms-install.md` — a self-contained, machine-readable installation guide (Cline convention) for AI agents installing the server on a user's behalf, including the configuration contract, per-client steps, verification sequence, and agent security rules (never echo credentials, never enable writes without explicit consent).
+
 ## [0.8.0] - 2026-06-11
 
 ### Added
