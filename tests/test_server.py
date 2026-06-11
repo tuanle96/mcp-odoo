@@ -3967,7 +3967,7 @@ def test_search_records_blank_query_is_ignored():
     assert client.search_read_calls[0]["domain"] == []
 
 
-def test_search_records_query_falls_back_to_display_name_without_metadata():
+def test_search_records_query_falls_back_to_name_without_metadata():
     server = importlib.import_module("odoo_mcp.server")
     client = _QuerySearchClient()
     client.fields_meta = {"error": "boom"}
@@ -3975,7 +3975,39 @@ def test_search_records_query_falls_back_to_display_name_without_metadata():
     result = server.search_records(FakeCtx(client), "res.partner", query="ada")
 
     assert result["success"] is True
-    assert result["query_fields_used"] == ["display_name"]
-    assert client.search_read_calls[0]["domain"] == [
-        ["display_name", "ilike", "ada"]
+    assert result["query_fields_used"] == ["name"]
+    assert client.search_read_calls[0]["domain"] == [["name", "ilike", "ada"]]
+
+
+def test_legacy_names_remain_importable_from_server():
+    """Helpers moved out in the 0.8 refactor must stay importable from server."""
+    server = importlib.import_module("odoo_mcp.server")
+    legacy_names = [
+        "MODEL_NAME_RE",
+        "METHOD_NAME_RE",
+        "MAX_SEARCH_LIMIT",
+        "POLICY_FILE_ENV",
+        "DEFAULT_POLICY_FILENAME",
+        "policy_file_path",
+        "_AGGREGATION_FUNCTIONS",
+        "BoundedTTLCache",
+        "DomainCondition",
+        "SearchDomain",
+        "normalize_domain_input",
+        "clamp_limit",
+        "validate_model_name",
+        "validate_method_name",
+        "parse_measure_spec",
+        "parse_odoo_major_version",
+        "odoo_major_version",
+        "max_attachment_bytes",
+        "truthy_env",
+        "writes_enabled",
+        "allowed_side_effect_methods",
+        "side_effect_method_allowed",
+        "chatter_direct_enabled",
+        "load_side_effect_policy",
+        "access_permission_field",
     ]
+    missing = [name for name in legacy_names if not hasattr(server, name)]
+    assert missing == []

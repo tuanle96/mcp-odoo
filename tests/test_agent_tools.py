@@ -1103,10 +1103,10 @@ def test_build_text_query_domain_prefix_notation_for_multiple_fields():
     ]
 
 
-def test_build_text_query_domain_falls_back_to_display_name():
+def test_build_text_query_domain_falls_back_to_name():
     domain, used = agent_tools.build_text_query_domain("ada", {})
-    assert used == ["display_name"]
-    assert domain == [["display_name", "ilike", "ada"]]
+    assert used == ["name"]
+    assert domain == [["name", "ilike", "ada"]]
 
 
 def test_build_text_query_domain_rejects_blank_query():

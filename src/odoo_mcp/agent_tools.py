@@ -1208,9 +1208,10 @@ def build_text_query_domain(
 
     Returns ``(domain, fields_used)`` where the domain is in Odoo prefix
     notation (``['|', '|', term, term, term]``) and safe to concatenate
-    with another domain under Odoo's implicit AND. Falls back to
-    ``display_name`` when no metadata is available, since every Odoo
-    model supports searching it.
+    with another domain under Odoo's implicit AND. Falls back to ``name``
+    when no metadata is available (``display_name`` is not searchable on
+    Odoo 16). SQL LIKE wildcards (``%``, ``_``) in the query are passed
+    through unescaped, matching Odoo's own search-bar behavior.
     """
     cleaned = str(query).strip()
     if not cleaned:
@@ -1218,7 +1219,7 @@ def build_text_query_domain(
 
     field_names = select_text_query_fields(fields_metadata or {}, max_fields)
     if not field_names:
-        field_names = ["display_name"]
+        field_names = ["name"]
 
     domain: list[Any] = ["|"] * (len(field_names) - 1)
     domain.extend([field_name, "ilike", cleaned] for field_name in field_names)

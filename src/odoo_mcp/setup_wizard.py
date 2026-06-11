@@ -45,11 +45,22 @@ def collect_connection_details(input_func: Any = None) -> dict[str, Any]:
     password = prompt_value(
         "API key or password (input hidden)", secret=True, input_func=input_func
     )
-    transport = prompt_value(
-        "Transport — xmlrpc (Odoo 16+) or json2 (Odoo 19+)",
-        default="xmlrpc",
-        input_func=input_func,
-    ).lower()
+    from .odoo_client import normalize_transport
+
+    while True:
+        raw_transport = prompt_value(
+            "Transport — xmlrpc (Odoo 16+) or json2 (Odoo 19+)",
+            default="xmlrpc",
+            input_func=input_func,
+        )
+        try:
+            transport = normalize_transport(raw_transport)
+            break
+        except ValueError:
+            print(
+                f"  Unknown transport {raw_transport!r}; enter xmlrpc or json2.",
+                file=sys.stderr,
+            )
     details: dict[str, Any] = {
         "url": url,
         "db": db,
@@ -85,16 +96,15 @@ def test_connection(details: dict[str, Any]) -> tuple[bool, str]:
 
 
 def write_config(details: dict[str, Any], path: Path) -> Path:
-    """Write the config file with owner-only permissions."""
+    """Write the config file, created with owner-only permissions."""
     path = path.expanduser()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(details, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
-    try:
-        os.chmod(path, 0o600)
-    except OSError:  # pragma: no cover - e.g. exotic filesystems
-        pass
+    payload = json.dumps(details, indent=2, sort_keys=True) + "\n"
+    # Create with 0600 from the start — the file holds credentials, so it
+    # must never exist world-readable, not even between write and chmod.
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(payload)
     return path
 
 

@@ -78,8 +78,12 @@ from .schema_cache import (
     _schema_cache_settings,
 )
 from .tool_helpers import (
+    _AGGREGATION_FUNCTIONS,
     ATTACHMENT_BYTES_HARD_CAP,
     DEFAULT_MAX_ATTACHMENT_BYTES,
+    MAX_SEARCH_LIMIT,
+    METHOD_NAME_RE,
+    MODEL_NAME_RE,
     DomainCondition,
     EmployeeSearchResult,
     Holiday,
@@ -99,9 +103,12 @@ from .tool_helpers import (
     validate_model_name,
 )
 from .write_policy import (
+    DEFAULT_POLICY_FILENAME,
+    POLICY_FILE_ENV,
     allowed_side_effect_methods,
     chatter_direct_enabled,
     load_side_effect_policy,
+    policy_file_path,
     side_effect_method_allowed,
     writes_enabled,
 )
@@ -113,15 +120,22 @@ __all__ = [
     "ATTACHMENT_BYTES_HARD_CAP",
     "DEFAULT_MAX_ATTACHMENT_BYTES",
     "DEFAULT_MAX_SMART_FIELDS",
+    "DEFAULT_POLICY_FILENAME",
     "DEFAULT_SCHEMA_CACHE_MAX_ENTRIES",
     "DEFAULT_SCHEMA_CACHE_TTL_SECONDS",
+    "MAX_SEARCH_LIMIT",
+    "METHOD_NAME_RE",
+    "MODEL_NAME_RE",
+    "POLICY_FILE_ENV",
     "BoundedTTLCache",
     "DomainCondition",
     "SearchDomain",
+    "_AGGREGATION_FUNCTIONS",
     "_build_schema_cache",
     "_m2o_id",
     "_schema_cache_settings",
     "parse_odoo_major_version",
+    "policy_file_path",
 ]
 
 WRITE_APPROVAL_TTL_SECONDS = 10 * 60
