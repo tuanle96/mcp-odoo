@@ -343,6 +343,35 @@ footer { margin-top: 120px; border-top: 1px solid var(--line); }
 }
 .foot-col a:hover { color: var(--paper); }
 
+/* ---------- motion: progress, parallax glyphs, typing ---------- */
+.scroll-progress {
+  position: fixed; top: 0; left: 0; height: 2px; width: 0; z-index: 60;
+  background: linear-gradient(90deg, var(--plum-deep), var(--plum), var(--amber));
+  box-shadow: 0 0 10px rgba(192,139,171,.45);
+}
+.bg-glyphs { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+.glyph {
+  position: absolute; font-family: var(--mono); font-weight: 400; line-height: 1;
+  user-select: none; opacity: .05; will-change: transform; white-space: nowrap;
+}
+.term-cursor {
+  display: inline-block; width: 8px; height: 1.05em; margin-left: 3px;
+  background: var(--plum); vertical-align: -2px;
+  animation: blink 1.05s steps(1) infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+.term-line { opacity: 0; transform: translateY(5px); transition: opacity .34s ease, transform .34s ease; }
+.term-line.show { opacity: 1; transform: none; }
+.term-prompt { min-height: 1.25em; }
+.t-err { color: #d2776a; }
+.t-err::before { content: "✗ "; color: #d2776a; }
+
+/* second terminal inside the safety section */
+.safety-copy .flow { margin-top: 38px; }
+.term-side { position: sticky; top: 84px; }
+.term.term-sm .term-body { font-size: 13px; line-height: 1.85; padding: 20px 22px 24px; min-height: 332px; }
+@media (max-width: 840px) { .term-side { position: static; margin-top: 8px; } .term.term-sm .term-body { min-height: 0; } }
+
 /* ---------- reveal ---------- */
 .reveal { opacity: 0; transform: translateY(22px); transition: opacity .7s cubic-bezier(.2,.7,.3,1), transform .7s cubic-bezier(.2,.7,.3,1); }
 .reveal.in { opacity: 1; transform: none; }
@@ -354,6 +383,19 @@ footer { margin-top: 120px; border-top: 1px solid var(--line); }
 </style>
 </head>
 <body>
+
+<div class="scroll-progress" id="prog"></div>
+<div class="bg-glyphs" aria-hidden="true">
+  <span class="glyph" style="top:11%; left:5%; font-size:120px; color:var(--plum);" data-speed="0.08">{ }</span>
+  <span class="glyph" style="top:29%; left:83%; font-size:92px; color:var(--amber);" data-speed="0.16">$_</span>
+  <span class="glyph" style="top:57%; left:8%; font-size:104px; color:var(--green); opacity:.045;" data-speed="0.06">≡</span>
+  <span class="glyph" style="top:71%; left:80%; font-size:112px; color:var(--plum);" data-speed="0.19">⇄</span>
+  <span class="glyph" style="top:87%; left:14%; font-size:78px; color:var(--green);" data-speed="0.10">✓</span>
+  <span class="glyph" style="top:43%; left:47%; font-size:64px; color:var(--faint); opacity:.06;" data-speed="0.24">//</span>
+  <span class="glyph" style="top:17%; left:62%; font-size:60px; color:var(--plum);" data-speed="-0.09">⊘</span>
+  <span class="glyph" style="top:64%; left:34%; font-size:54px; color:var(--amber); opacity:.05;" data-speed="0.13">JSON‑2</span>
+  <span class="glyph" style="top:37%; left:22%; font-size:84px; color:var(--faint);" data-speed="0.14">19</span>
+</div>
 
 <nav>
   <div class="wrap nav-inner">
@@ -384,7 +426,7 @@ footer { margin-top: 120px; border-top: 1px solid var(--line); }
     <a class="btn-ghost" href="https://github.com/tuanle96/mcp-odoo#readme">Read the docs <span class="arrow">→</span></a>
   </div>
 
-  <div class="term reveal in" style="--d:4">
+  <div class="term term-hero reveal in" style="--d:4">
     <div class="term-bar">
       <span class="dot"></span><span class="dot"></span><span class="dot"></span>
       <span class="term-title">claude — odoo-mcp · production</span>
@@ -407,10 +449,10 @@ footer { margin-top: 120px; border-top: 1px solid var(--line); }
 
 <div class="ledger reveal">
   <div class="wrap ledger-grid">
-    <div class="ledger-cell"><div class="ledger-num">27</div><div class="ledger-label">MCP tools</div></div>
+    <div class="ledger-cell"><div class="ledger-num" data-count="27">27</div><div class="ledger-label">MCP tools</div></div>
     <div class="ledger-cell"><div class="ledger-num">16<em>→</em>19</div><div class="ledger-label">Odoo versions</div></div>
     <div class="ledger-cell"><div class="ledger-num"><em>0</em></div><div class="ledger-label">Odoo-side setup steps</div></div>
-    <div class="ledger-cell"><div class="ledger-num">497</div><div class="ledger-label">Tests + real Odoo stacks</div></div>
+    <div class="ledger-cell"><div class="ledger-num" data-count="497">497</div><div class="ledger-label">Tests + real Odoo stacks</div></div>
     <div class="ledger-cell"><div class="ledger-num">MIT</div><div class="ledger-label">License, since day one</div></div>
   </div>
 </div>
@@ -470,12 +512,31 @@ footer { margin-top: 120px; border-top: 1px solid var(--line); }
       <p>Most Odoo bridges hand agents direct <strong>create / write / unlink</strong> — one hallucinated ID away from corrupting production books. Odoo MCP treats every write as a transaction that must earn its execution.</p>
       <p>With <strong>ODOO_MCP_ELICIT_WRITES=1</strong>, the human sees a native MCP confirmation form with a diff summary before anything executes. Every event lands in a JSONL audit log.</p>
       <p>Reads stay instant and unrestricted — the gate only exists where the risk does.</p>
+      <div class="flow">
+        <div class="flow-step" data-n="1"><div><h4>preview_write</h4><p>The agent proposes a change; the server fetches live field metadata and renders a diff.</p></div></div>
+        <div class="flow-step" data-n="2"><div><h4>validate</h4><p>Values checked against <code style="font-family:var(--mono)">fields_get</code> — wrong types and unknown fields fail before touching Odoo.</p></div></div>
+        <div class="flow-step" data-n="3"><div><h4>approval token</h4><p>A same-session, instance-bound token is issued. It cannot be replayed across sessions or instances.</p></div></div>
+        <div class="flow-step" data-n="4"><div><h4>execute_approved_write</h4><p>Runs only with the token, explicit confirmation, and <code style="font-family:var(--mono)">ODOO_MCP_ENABLE_WRITES=1</code> set in the environment.</p></div></div>
+      </div>
     </div>
-    <div class="flow reveal">
-      <div class="flow-step" data-n="1"><div><h4>preview_write</h4><p>The agent proposes a change; the server fetches live field metadata and renders a diff.</p></div></div>
-      <div class="flow-step" data-n="2"><div><h4>validate</h4><p>Values checked against <code style="font-family:var(--mono)">fields_get</code> — wrong types and unknown fields fail before touching Odoo.</p></div></div>
-      <div class="flow-step" data-n="3"><div><h4>approval token</h4><p>A same-session, instance-bound token is issued. It cannot be replayed across sessions or instances.</p></div></div>
-      <div class="flow-step" data-n="4"><div><h4>execute_approved_write</h4><p>Runs only with the token, explicit confirmation, and <code style="font-family:var(--mono)">ODOO_MCP_ENABLE_WRITES=1</code> set in the environment.</p></div></div>
+    <div class="term-side reveal">
+      <div class="term term-sm">
+        <div class="term-bar">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <span class="term-title">odoo-mcp — write gate</span>
+        </div>
+        <div class="term-body">
+          <div class="t-user">Set credit_limit = 999999 on res.partner #42.</div>
+          <div class="t-gap"></div>
+          <div class="t-tool"><b>write</b>(model="res.partner", id=42, vals={…})</div>
+          <div class="t-err">Direct write blocked — approval workflow required.</div>
+          <div class="t-gap"></div>
+          <div class="t-tool"><b>preview_write</b> → diff built from live fields_get</div>
+          <div class="t-tool"><b>validate</b> → 1 field OK, types match schema</div>
+          <div class="t-tool"><b>approval token</b> issued <span class="t-dim">— session + instance bound</span></div>
+          <div class="t-ok">execute_approved_write → 1 record updated <span class="t-dim">— ODOO_MCP_ENABLE_WRITES=1</span></div>
+        </div>
+      </div>
     </div>
   </div>
 </section>
@@ -582,20 +643,131 @@ footer { margin-top: 120px; border-top: 1px solid var(--line); }
 </footer>
 
 <script>
-// copy-to-clipboard on command boxes
-document.querySelectorAll("[data-copy]").forEach(el => {
-  el.addEventListener("click", () => {
-    navigator.clipboard.writeText(el.dataset.copy).then(() => {
-      el.classList.add("copied");
-      setTimeout(() => el.classList.remove("copied"), 1600);
+(function () {
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // ---- copy-to-clipboard ----
+  document.querySelectorAll("[data-copy]").forEach(el => {
+    el.addEventListener("click", () => {
+      navigator.clipboard.writeText(el.dataset.copy).then(() => {
+        el.classList.add("copied");
+        setTimeout(() => el.classList.remove("copied"), 1600);
+      });
     });
   });
-});
-// scroll reveal
-const io = new IntersectionObserver(entries => {
-  entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
-}, { threshold: 0.12 });
-document.querySelectorAll(".reveal:not(.in)").forEach(el => io.observe(el));
+
+  // ---- scroll reveal ----
+  const io = new IntersectionObserver(entries => {
+    entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
+  }, { threshold: 0.12 });
+  document.querySelectorAll(".reveal:not(.in)").forEach(el => io.observe(el));
+
+  // ---- scroll progress + parallax glyphs ----
+  const prog = document.getElementById("prog");
+  const glyphs = Array.from(document.querySelectorAll(".glyph"));
+  let ticking = false;
+  function onScroll() {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => {
+      const y = window.scrollY || 0;
+      const h = document.documentElement.scrollHeight - window.innerHeight;
+      if (prog) prog.style.width = (h > 0 ? (y / h) * 100 : 0) + "%";
+      if (!reduce) {
+        for (const g of glyphs) {
+          const s = parseFloat(g.dataset.speed || "0.1");
+          g.style.transform = "translate3d(0," + (y * s).toFixed(1) + "px,0)";
+        }
+      }
+      ticking = false;
+    });
+  }
+  window.addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+
+  // ---- count-up ledger numbers ----
+  function countUp(el) {
+    const target = parseInt(el.dataset.count, 10);
+    if (reduce || isNaN(target)) { el.textContent = el.dataset.count; return; }
+    const dur = 1100, t0 = performance.now();
+    el.textContent = "0";
+    (function tick(now) {
+      const p = Math.min(1, (now - t0) / dur);
+      const eased = 1 - Math.pow(1 - p, 3);
+      el.textContent = Math.round(target * eased).toString();
+      if (p < 1) requestAnimationFrame(tick);
+      else el.textContent = target.toString();
+    })(t0);
+  }
+  const countIO = new IntersectionObserver(es => {
+    es.forEach(e => { if (e.isIntersecting) { countUp(e.target); countIO.unobserve(e.target); } });
+  }, { threshold: 0.6 });
+  document.querySelectorAll("[data-count]").forEach(el => countIO.observe(el));
+
+  // ---- terminal typing engine ----
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  function decode(html) { const t = document.createElement("textarea"); t.innerHTML = html; return t.value; }
+
+  function buildPlayer(term) {
+    const body = term.querySelector(".term-body");
+    const lines = Array.from(body.children).map(n => ({
+      cls: n.className, html: n.innerHTML,
+      user: n.classList.contains("t-user"),
+      gap: n.classList.contains("t-gap"),
+      ok: n.classList.contains("t-ok"),
+    }));
+    function typeInto(el, cursor, text) {
+      return new Promise(res => {
+        const tn = document.createTextNode("");
+        el.insertBefore(tn, cursor);
+        let i = 0;
+        (function step() {
+          tn.nodeValue = text.slice(0, i);
+          if (i++ <= text.length) setTimeout(step, 14 + Math.random() * 26);
+          else res();
+        })();
+      });
+    }
+    return async function run() {
+      body.innerHTML = "";
+      const cursor = document.createElement("span");
+      cursor.className = "term-cursor";
+      for (const ln of lines) {
+        const el = document.createElement("div");
+        el.className = ln.cls;
+        body.appendChild(el);
+        if (ln.gap) continue;
+        if (ln.user) {
+          el.appendChild(cursor);
+          await typeInto(el, cursor, decode(ln.html));
+          await wait(420);
+        } else {
+          el.innerHTML = ln.html;
+          el.classList.add("term-line");
+          requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add("show")));
+          await wait(ln.ok ? 560 : 270);
+        }
+      }
+      const tail = document.createElement("div");
+      tail.className = "t-user term-prompt";
+      tail.appendChild(cursor);
+      body.appendChild(tail);
+    };
+  }
+
+  document.querySelectorAll(".term").forEach(term => {
+    if (reduce) return; // keep the static transcript as the fallback
+    const run = buildPlayer(term);
+    if (term.classList.contains("term-hero")) {
+      setTimeout(run, 650);
+    } else {
+      const tIO = new IntersectionObserver(es => {
+        es.forEach(e => { if (e.isIntersecting) { run(); tIO.unobserve(e.target); } });
+      }, { threshold: 0.3 });
+      tIO.observe(term);
+    }
+  });
+})();
 </script>
 </body>
 </html>
