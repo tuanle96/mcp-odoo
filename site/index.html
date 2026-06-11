@@ -197,7 +197,9 @@ h1 em { font-style: italic; color: var(--plum); }
 }
 
 /* ---------- sections ---------- */
-section { padding: 96px 0 0; }
+/* every section also carries .wrap (padding: 0 24px); that class beats a bare
+   `section` selector, so set padding-top with matching specificity to keep it. */
+section.wrap { padding-top: 116px; }
 .sec-head { display: flex; align-items: baseline; gap: 20px; margin-bottom: 48px; }
 .sec-no {
   font-family: var(--mono); font-size: 13px; color: var(--plum);
