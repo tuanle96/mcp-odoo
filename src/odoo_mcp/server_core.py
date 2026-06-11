@@ -37,6 +37,7 @@ from .write_policy import (
 )
 from .audit import audit_posture
 from .auth import auth_posture as oauth_posture
+from .field_policy import field_policy_posture, get_field_policy
 
 
 def _srv() -> Any:
@@ -86,6 +87,9 @@ class AppContext:
 @asynccontextmanager
 async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
     """Application lifespan for initialization and cleanup."""
+    # Validate the field ACL policy at startup so a malformed policy fails
+    # closed (aborts) instead of silently running unprotected at first read.
+    get_field_policy()
     yield AppContext()
 
 
@@ -421,6 +425,7 @@ def runtime_security_report() -> Dict[str, Any]:
         "odoo_instances": instance_posture(),
         "audit_log": audit_posture(),
         "oauth": oauth_posture(),
+        "field_acl": field_policy_posture(),
         "n_plus_one": n_plus_one_report(),
         "notes": [
             "HTTP transports are local-only by default in the CLI entry point.",
@@ -499,7 +504,14 @@ def get_record(model_name: str, record_id: str) -> str:
             return json.dumps(
                 {"error": f"Record not found: {model_name} ID {record_id}"}, indent=2
             )
-        return json.dumps(record[0], indent=2)
+        instance_name = _srv().resolve_default_instance_name()
+        filtered, redacted = get_field_policy().redact_record(
+            instance_name, model_name, record[0]
+        )
+        payload: Dict[str, Any] = dict(filtered)
+        if redacted:
+            payload["_redacted_fields"] = redacted
+        return json.dumps(payload, indent=2)
     except Exception as e:
         return json.dumps({"error": str(e)}, indent=2)
 
@@ -519,6 +531,14 @@ def search_records_resource(model_name: str, domain: str) -> str:
         if not isinstance(domain_list, list):
             raise ValueError("domain must decode to an Odoo domain list")
         results = odoo_client.search_read(model_name, domain_list, limit=10)
-        return json.dumps(results, indent=2)
+        instance_name = _srv().resolve_default_instance_name()
+        filtered, redacted = get_field_policy().redact_records(
+            instance_name, model_name, results
+        )
+        if redacted:
+            return json.dumps(
+                {"results": filtered, "_redacted_fields": redacted}, indent=2
+            )
+        return json.dumps(filtered, indent=2)
     except Exception as e:
         return json.dumps({"error": str(e)}, indent=2)

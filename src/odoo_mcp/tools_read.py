@@ -17,6 +17,7 @@ from .agent_tools import (
     build_text_query_domain,
     rank_relevant_fields,
 )
+from .field_policy import get_field_policy
 from .odoo_client import list_configured_instances
 from .rate_limit import check_rate, rate_report
 from .tool_helpers import (
@@ -303,25 +304,43 @@ def get_model_fields(
     try:
         if relevance not in (None, "top"):
             raise ValueError('relevance must be "top" when provided')
-        _, odoo = _resolve_odoo(ctx, instance)
+        instance_name, odoo = _resolve_odoo(ctx, instance)
         validate_model_name(model)
         fields = odoo.get_model_fields(model)
         if "error" in fields:
             return {"success": False, "error": fields["error"]}
         if field_names:
             fields = {name: fields[name] for name in field_names if name in fields}
+        # Field ACL: mark (don't hide) restricted fields so agents know they
+        # exist and can explain redaction, but their values stay unreadable.
+        restricted = get_field_policy().restricted_fields(
+            instance_name, model, list(fields)
+        )
+        if restricted:
+            restricted_set = set(restricted)
+            fields = {
+                name: ({**meta, "access": "restricted"} if name in restricted_set
+                       else meta)
+                for name, meta in fields.items()
+            }
         if relevance == "top":
             ranking = rank_relevant_fields(fields, max_fields=max_fields)
             ranked_names = [entry["field"] for entry in ranking]
             fields = {name: fields[name] for name in ranked_names}
-            return {
+            ranked_report = {
                 "success": True,
                 "count": len(fields),
                 "result": fields,
                 "relevance_applied": True,
                 "ranking": ranking,
             }
-        return {"success": True, "count": len(fields), "result": fields}
+            if restricted:
+                ranked_report["restricted_fields"] = restricted
+            return ranked_report
+        report = {"success": True, "count": len(fields), "result": fields}
+        if restricted:
+            report["restricted_fields"] = restricted
+        return report
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -387,6 +406,9 @@ def search_records(
             limit=limit,
             order=order,
         )
+        records, redacted_fields = get_field_policy().redact_records(
+            instance_name, model, records
+        )
         report = {
             "success": True,
             "count": len(records),
@@ -396,6 +418,8 @@ def search_records(
         }
         if query_fields_used is not None:
             report["query_fields_used"] = query_fields_used
+        if redacted_fields:
+            report["redacted_fields"] = redacted_fields
         return report
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -439,12 +463,18 @@ def read_record(
                 "success": False,
                 "error": f"Record not found: {model} ID {record_id}",
             }
-        return {
+        record, redacted_fields = get_field_policy().redact_record(
+            instance_name, model, records[0]
+        )
+        result = {
             "success": True,
-            "result": records[0],
+            "result": record,
             "smart_fields_applied": fields is None,
             "fields_used": resolved_fields,
         }
+        if redacted_fields:
+            result["redacted_fields"] = redacted_fields
+        return result
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -591,6 +621,16 @@ def aggregate_records(
             field, agg = parse_measure_spec(spec)
             normalized_measures.append(f"{field}:{agg}")
             parsed_measures.append((field, agg))
+
+        # Field ACL: aggregating/grouping on a denied field is an inference
+        # channel, so reject it outright (groupby may carry a ":granularity").
+        referenced_fields = [entry.split(":", 1)[0] for entry in group_by]
+        referenced_fields += [field for field, _ in parsed_measures]
+        aggregate_block = get_field_policy().check_aggregate(
+            instance_name, model, referenced_fields
+        )
+        if aggregate_block is not None:
+            return {"success": False, "error": aggregate_block}
 
         major = odoo_major_version(odoo)
         method_used = "read_group"

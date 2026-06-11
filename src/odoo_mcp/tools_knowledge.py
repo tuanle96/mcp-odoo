@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from mcp.server.fastmcp import Context
 
+from .field_policy import get_field_policy
 from .knowledge_index import get_knowledge_store
 from .server_core import (
     PREVIEW_TOOL,
@@ -42,11 +43,18 @@ def fetch_and_index(
 ) -> Dict[str, Any]:
     """Fetch records and feed them to the BM25 store (sync or async path)."""
     records = odoo.search_read(model, domain, fields=fields, limit=limit)
+    # Field ACL: denied fields must never enter the local index, or their
+    # values would be cached and searchable despite the policy.
+    records, redacted_fields = get_field_policy().redact_records(
+        instance_name, model, list(records)
+    )
     outcome = get_knowledge_store().index_records(
-        instance_name, model, list(records), replace=replace
+        instance_name, model, records, replace=replace
     )
     outcome["fetched"] = len(records)
     outcome["indexed_fields"] = fields if fields else "smart selection"
+    if redacted_fields:
+        outcome["redacted_fields"] = redacted_fields
     return outcome
 
 
