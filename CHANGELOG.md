@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- XML-RPC transport: create the `ServerProxy` clients with `allow_none=True` so a
+  call whose payload or `fields_get` metadata contains `None` no longer raises
+  `TypeError: cannot marshal None unless allow_none is enabled` (seen when creating
+  a `product.pricelist` through `validate_write`). Odoo's XML-RPC server already
+  emits `<nil/>`, so the client must accept it too.
+
 ## [1.0.0] - 2026-06-11
 
 The v1.0 milestone: four roadmap phases close the highest-value gaps no

@@ -152,12 +152,15 @@ class OdooClient:
             timeout=self.timeout, use_https=is_https, verify_ssl=self.verify_ssl
         )
 
-        # Set up XML-RPC endpoints.
+        # Set up XML-RPC endpoints. allow_none=True is required so the client can
+        # marshal None (Odoo's XML-RPC server already emits <nil/>); without it a
+        # write payload or fields_get metadata containing None raises
+        # "cannot marshal None unless allow_none is enabled".
         self._common = xmlrpc.client.ServerProxy(
-            f"{self.url}/xmlrpc/2/common", transport=transport
+            f"{self.url}/xmlrpc/2/common", transport=transport, allow_none=True
         )
         self._models = xmlrpc.client.ServerProxy(
-            f"{self.url}/xmlrpc/2/object", transport=transport
+            f"{self.url}/xmlrpc/2/object", transport=transport, allow_none=True
         )
 
         # Authenticate and capture the user ID.
