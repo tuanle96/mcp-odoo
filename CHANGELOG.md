@@ -12,6 +12,18 @@ All notable changes to this project will be documented in this file.
   human checkpoints) on top of the MCP tool layer, for Claude Code and other
   skills-compatible agents. Install by copying into `~/.claude/skills/`.
 
+### Fixed
+- `get_model_fields` now requests a bounded, marshal-safe `attributes` list
+  instead of a full `fields_get`. On Odoo 19, a full `fields_get` faults
+  **server-side** for models whose `domain` attribute is `None` (e.g.
+  `product.pricelist`) — Odoo's own XML-RPC layer refuses to marshal its
+  response, which no client flag can fix (complements the client-side
+  `allow_none` fix shipped in 1.1.0). The bounded list covers every attribute
+  the server consumes (`string`, `help`, `type`, `required`, `readonly`,
+  `relation`, `selection`, `store`, `searchable`); an absent attribute reads
+  as `None` via `.get()`, exactly as before. Unblocks `validate_write` on such
+  models (e.g. creating an IQD `product.pricelist`).
+
 ## [1.1.0] - 2026-07-02
 
 Community-roadmap release: the server becomes a platform (plugins), the

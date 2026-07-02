@@ -153,6 +153,27 @@ def test_client_initialization_enables_allow_none_on_xmlrpc_proxies(
     assert seen == {"common": True, "object": True}
 
 
+def test_get_model_fields_requests_bounded_marshal_safe_attributes(
+    monkeypatch, odoo_client_module
+):
+    # A full fields_get faults SERVER-SIDE on Odoo 19 when an attribute value is None
+    # (e.g. `domain` on product.pricelist): Odoo's own XML-RPC layer cannot marshal it.
+    # get_model_fields must therefore request only the attributes the server consumes.
+    client, calls = build_client(monkeypatch, odoo_client_module)
+
+    client.get_model_fields("res.partner")
+
+    method_call = calls[-1]
+    assert method_call[0] == "execute_kw"
+    args = method_call[1]
+    assert args[3] == "res.partner"
+    assert args[4] == "fields_get"
+    assert args[6] == {
+        "attributes": odoo_client_module.OdooClient.FIELDS_GET_ATTRIBUTES
+    }
+    assert "domain" not in odoo_client_module.OdooClient.FIELDS_GET_ATTRIBUTES
+
+
 def test_execute_method_passes_database_credentials_model_method_args_and_kwargs(
     monkeypatch, odoo_client_module
 ):
