@@ -197,6 +197,48 @@
       "changed_in": "18.0",
       "kind": "renamed",
       "notes": "Chat shortcodes became canned responses."
+    },
+    {
+      "old_model": "hr.leave.stress.day",
+      "new_model": "hr.leave.mandatory.day",
+      "changed_in": "17.0",
+      "kind": "renamed",
+      "notes": "Stress day model renamed to mandatory day."
+    },
+    {
+      "old_model": "mail.channel.rtc.session",
+      "new_model": "discuss.channel.rtc.session",
+      "changed_in": "17.0",
+      "kind": "renamed",
+      "notes": "RTC session model moved to the discuss namespace."
+    },
+    {
+      "old_model": "mailing.contact.subscription",
+      "new_model": "mailing.subscription",
+      "changed_in": "17.0",
+      "kind": "renamed",
+      "notes": "Mailing contact subscriptions renamed."
+    },
+    {
+      "old_model": "payment.icon",
+      "new_model": "payment.method",
+      "changed_in": "17.0",
+      "kind": "renamed",
+      "notes": "Payment icons renamed to payment methods."
+    },
+    {
+      "old_model": "restaurant.printer",
+      "new_model": "pos.printer",
+      "changed_in": "17.0",
+      "kind": "renamed",
+      "notes": "Restaurant printers moved to the POS printer model."
+    },
+    {
+      "old_model": "hr.applicant.skill",
+      "new_model": "hr.candidate.skill",
+      "changed_in": "18.0",
+      "kind": "renamed",
+      "notes": "Applicant skills renamed to candidate skills."
     }
   ]
 }

@@ -760,6 +760,13 @@ def test_lookup_model_history_resolves_old_name_to_new_model():
     assert report["matches"][0]["new_model"] == "account.move"
     assert any("account.move" in line for line in report["guidance"])
 
+def test_lookup_model_history_resolves_newly_added_model():
+    report = agent_tools.lookup_model_history_report("payment.icon")
+    assert report["success"] is True
+    assert report["match_type"] == "exact"
+    assert report["matches"][0]["new_model"] == "payment.method"
+    assert any("payment.method" in line for line in report["guidance"])
+
 
 def test_lookup_model_history_recognizes_current_name():
     report = agent_tools.lookup_model_history_report("discuss.channel")
