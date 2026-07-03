@@ -142,3 +142,56 @@ class AggregateRecordsResponse(ToolResponse):
     rows: Optional[List[Dict[str, Any]]] = Field(
         default=None, description="Aggregated group rows."
     )
+
+
+class PreviewWriteResponse(ToolResponse):
+    model: Optional[str] = None
+    operation: Optional[str] = None
+    approval: Optional[Dict[str, Any]] = Field(
+        default=None, description="Canonical payload plus approval token."
+    )
+    execute_method: Optional[Dict[str, Any]] = Field(
+        default=None, description="Equivalent Odoo RPC call preview."
+    )
+    issues: Optional[List[Dict[str, Any]]] = None
+    warnings: Optional[List[Dict[str, Any]]] = None
+    metadata_used: Optional[Dict[str, Any]] = None
+
+
+class ValidateWriteResponse(ToolResponse):
+    model: Optional[str] = None
+    operation: Optional[str] = None
+    issues: Optional[List[Dict[str, Any]]] = None
+    field_hints: Optional[List[Dict[str, Any]]] = None
+    approval: Optional[Dict[str, Any]] = Field(
+        default=None, description="Approval payload when validation succeeds."
+    )
+    approval_status: Optional[Dict[str, Any]] = Field(
+        default=None, description="Whether the approval was stored for execution."
+    )
+    metadata_used: Optional[Dict[str, Any]] = None
+
+
+class ExecuteApprovedWriteResponse(ToolResponse):
+    model: Optional[str] = None
+    operation: Optional[str] = None
+    result: Optional[Any] = Field(default=None, description="Odoo RPC result.")
+    instance: Optional[str] = None
+
+
+class ChatterPostResponse(ToolResponse):
+    mode: Optional[str] = Field(default=None, description="preview, execute, or direct.")
+    model: Optional[str] = None
+    record_id: Optional[int] = None
+    approval_required: Optional[bool] = None
+    approval: Optional[Dict[str, Any]] = None
+    warnings: Optional[List[str]] = None
+    result: Optional[Any] = Field(default=None, description="Odoo message_post result.")
+
+
+class ExecuteMethodResponse(ToolResponse):
+    result: Optional[Any] = Field(default=None, description="Odoo method result.")
+    classification: Optional[Dict[str, Any]] = Field(
+        default=None, description="Safety classification for blocked side effects."
+    )
+    rate_limited: Optional[bool] = None

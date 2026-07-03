@@ -19,6 +19,14 @@ TYPED_READ_TOOLS = {
     "aggregate_records": "rows",
 }
 
+TYPED_WRITE_TOOLS = {
+    "preview_write": "approval",
+    "validate_write": "approval_status",
+    "execute_approved_write": "result",
+    "chatter_post": "mode",
+    "execute_method": "result",
+}
+
 
 def _tools_by_name():
     tools = asyncio.run(server.mcp.list_tools())
@@ -28,6 +36,18 @@ def _tools_by_name():
 def test_read_tools_expose_typed_output_schemas():
     tools = _tools_by_name()
     for name, marker_field in TYPED_READ_TOOLS.items():
+        schema = tools[name].outputSchema
+        assert schema is not None, name
+        props = schema.get("properties", {})
+        # Typed = more than a generic object wrapper: envelope + payload field.
+        assert "success" in props, name
+        assert "error" in props, name
+        assert marker_field in props, (name, sorted(props))
+
+
+def test_write_tools_expose_typed_output_schemas():
+    tools = _tools_by_name()
+    for name, marker_field in TYPED_WRITE_TOOLS.items():
         schema = tools[name].outputSchema
         assert schema is not None, name
         props = schema.get("properties", {})

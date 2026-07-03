@@ -75,3 +75,9 @@ disallow_incomplete_defs = true
 [[tool.mypy.overrides]]
 module = "odoo_mcp.tools_read"
 disable_error_code = ["return-value"]
+
+# tools_write uses the same protocol-level response model pattern for typed
+# MCP outputSchema while preserving the existing dict envelopes at runtime.
+[[tool.mypy.overrides]]
+module = "odoo_mcp.tools_write"
+disable_error_code = ["return-value"]

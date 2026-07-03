@@ -26,6 +26,13 @@ from .tool_helpers import (
 )
 from .write_policy import chatter_direct_enabled, side_effect_method_allowed, writes_enabled
 from .rate_limit import check_rate
+from .schemas import (
+    ChatterPostResponse,
+    ExecuteApprovedWriteResponse,
+    ExecuteMethodResponse,
+    PreviewWriteResponse,
+    ValidateWriteResponse,
+)
 from .server_core import (
     DESTRUCTIVE_TOOL,
     PREVIEW_TOOL,
@@ -108,7 +115,7 @@ def preview_write(
     record_ids: Optional[List[int]] = None,
     context: Optional[Dict[str, Any]] = None,
     instance: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> PreviewWriteResponse:
     """Build a canonical approval token for a later approved write.
 
     Batch create: pass ``values_list`` (one dict per record, max 100) —
@@ -155,7 +162,7 @@ def validate_write(
     fields_metadata: Optional[Dict[str, Any]] = None,
     use_live_metadata: bool = True,
     instance: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> ValidateWriteResponse:
     """Validate write shape and return an approval payload when safe."""
     try:
         validate_model_name(model)
@@ -245,7 +252,7 @@ async def execute_approved_write_tool(
     ctx: Context,
     approval: Dict[str, Any],
     confirm: bool = False,
-) -> Dict[str, Any]:
+) -> ExecuteApprovedWriteResponse:
     """Tool entry point: optional human elicitation gate, then the sync gates."""
     decision, detail = await _elicit_write_confirmation(ctx, approval)
     if decision == "declined":
@@ -270,7 +277,7 @@ def execute_approved_write(
     ctx: Context,
     approval: Dict[str, Any],
     confirm: bool = False,
-) -> Dict[str, Any]:
+) -> ExecuteApprovedWriteResponse:
     """Execute create/write/unlink only after token, confirm, and env gates pass."""
     report = _execute_approved_write_gated(ctx, approval, confirm)
     safe_record_ids = [
@@ -430,7 +437,7 @@ def chatter_post(
     approval: Optional[Dict[str, Any]] = None,
     confirm: bool = False,
     instance: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> ChatterPostResponse:
     """Post a message on the chatter of a mail.thread-derived record.
 
     Modes:
@@ -553,7 +560,7 @@ def execute_method(
     args: Optional[List[Any]] = None,
     kwargs: Optional[Dict[str, Any]] = None,
     instance: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> ExecuteMethodResponse:
     """
     Execute a custom method on an Odoo model
 
