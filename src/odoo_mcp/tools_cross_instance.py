@@ -15,9 +15,10 @@ from __future__ import annotations
 
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable, Dict, List, Optional
+from typing import Annotated, Any, Callable, Dict, List, Optional
 
 from mcp.server.fastmcp import Context
+from pydantic import Field
 
 from .accounting_tools import build_aging_report, fetch_aging_lines, parse_as_of
 from .audit import record_write_event
@@ -305,10 +306,20 @@ def aggregate_across_instances(
 )
 def accounting_health_across_instances(
     ctx: Context,
-    direction: str = "receivable",
-    as_of: Optional[str] = None,
-    top_partners: int = 10,
-    instances: Optional[Any] = None,
+    direction: Annotated[
+        str, Field(description="Aging direction: 'receivable' or 'payable'.")
+    ] = "receivable",
+    as_of: Annotated[
+        Optional[str],
+        Field(description="Optional ISO date used as the aging reference date."),
+    ] = None,
+    top_partners: Annotated[
+        int, Field(description="Maximum top partners to include in each aging report; capped at 100.")
+    ] = 10,
+    instances: Annotated[
+        Optional[Any],
+        Field(description="Optional instance selector; defaults to all eligible instances."),
+    ] = None,
 ) -> Dict[str, Any]:
     """Aged receivable/payable across every client DB, with combined buckets.
 

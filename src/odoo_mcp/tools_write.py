@@ -12,9 +12,10 @@ import os
 import stat
 import xmlrpc.client
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Optional
 
 from mcp.server.fastmcp import Context
+from pydantic import Field
 
 from .agent_tools import (
     build_approval_token,
@@ -647,11 +648,27 @@ def chatter_post(
 )
 def execute_method(
     ctx: Context,
-    model: str,
-    method: str,
-    args: Optional[List[Any]] = None,
-    kwargs: Optional[Dict[str, Any]] = None,
-    instance: Optional[str] = None,
+    model: Annotated[
+        str, Field(description="Technical Odoo model name, for example 'res.partner'.")
+    ],
+    method: Annotated[
+        str,
+        Field(
+            description=(
+                "Odoo model method to call; direct create, write, and unlink are blocked."
+            )
+        ),
+    ],
+    args: Annotated[
+        Optional[List[Any]], Field(description="Optional positional method arguments.")
+    ] = None,
+    kwargs: Annotated[
+        Optional[Dict[str, Any]], Field(description="Optional keyword method arguments.")
+    ] = None,
+    instance: Annotated[
+        Optional[str],
+        Field(description="Optional configured Odoo instance name; uses the default if omitted."),
+    ] = None,
 ) -> Dict[str, Any]:
     """
     Execute a custom method on an Odoo model
