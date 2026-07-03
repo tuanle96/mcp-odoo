@@ -75,7 +75,7 @@ Gemini CLI will expose tools from each server under its own namespace, so you ca
 Boot a local Odoo instance for testing:
 
 ```bash
-python scripts/odoo_compose_smoke.py --keep-stack --versions 18.0
+uv run --python 3.12 --with-editable . scripts/odoo_compose_smoke.py --keep-stack --versions 18.0
 ```
 
 ### Manual checks
