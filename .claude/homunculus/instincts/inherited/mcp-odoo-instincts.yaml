@@ -1,0 +1,308 @@
+# Instincts generated from https://github.com/tuanle96/mcp-odoo
+# Generated: 2026-07-03T07:56:36.688Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: mcp-odoo-commit-conventional
+trigger: "when writing a commit message"
+confidence: 0.85
+domain: git
+source: repo-analysis
+source_repo: https://github.com/tuanle96/mcp-odoo
+---
+
+# Mcp Odoo Commit Conventional
+
+## Action
+
+Use conventional commit format with prefixes: feat
+
+## Evidence
+
+- 2 commits analyzed
+- Detected conventional commit pattern
+- Examples: feat(gemini-cli): add example integration and settings for Gemini CLI with odoo-mcp
+
+---
+id: mcp-odoo-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/tuanle96/mcp-odoo
+---
+
+# Mcp Odoo Commit Length
+
+## Action
+
+Write moderate-length commit messages (~92 characters)
+
+## Evidence
+
+- Average commit message length: 92 chars
+- Based on 2 commits
+
+---
+id: mcp-odoo-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/tuanle96/mcp-odoo
+---
+
+# Mcp Odoo Naming Files
+
+## Action
+
+Use PascalCase naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: PascalCase
+
+---
+id: mcp-odoo-import-relative
+trigger: "when importing modules"
+confidence: 0.75
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/tuanle96/mcp-odoo
+---
+
+# Mcp Odoo Import Relative
+
+## Action
+
+Use relative imports for project files
+
+## Evidence
+
+- Import analysis shows relative import pattern
+- Example: import { x } from '../lib/x'
+
+---
+id: mcp-odoo-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/tuanle96/mcp-odoo
+---
+
+# Mcp Odoo Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: mcp-odoo-test-separate
+trigger: "when writing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/tuanle96/mcp-odoo
+---
+
+# Mcp Odoo Test Separate
+
+## Action
+
+Place tests in the tests/ or __tests__/ directory, mirroring src structure
+
+## Evidence
+
+- Separate test directory pattern detected
+- Tests live in dedicated test folders
+
+---
+id: mcp-odoo-workflow-add-example-integration-and-documentation
+trigger: "when doing add example integration and documentation"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/tuanle96/mcp-odoo
+---
+
+# Mcp Odoo Workflow Add Example Integration And Documentation
+
+## Action
+
+Follow the add-example-integration-and-documentation workflow:
+1. Create or update an example directory under examples/
+2. Add or update a README.md with setup or usage instructions
+3. Add or update configuration files (e.g., settings.json) specific to the integration
+4. Optionally update CHANGELOG.md to document the addition
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: examples/<integration-name>/README.md, examples/<integration-name>/settings.json, examples/README.md
+
+---
+id: mcp-odoo-instinct-file-naming
+trigger: "When creating or renaming files in the repository"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: tuanle96/mcp-odoo
+---
+
+# Mcp Odoo Instinct File Naming
+
+## Action
+
+Use PascalCase for file names
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.files
+- Consistent PascalCase in file listings
+
+---
+id: mcp-odoo-instinct-function-naming
+trigger: "When defining new functions"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: tuanle96/mcp-odoo
+---
+
+# Mcp Odoo Instinct Function Naming
+
+## Action
+
+Name functions using camelCase
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.functions
+
+---
+id: mcp-odoo-instinct-class-naming
+trigger: "When defining new classes"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: tuanle96/mcp-odoo
+---
+
+# Mcp Odoo Instinct Class Naming
+
+## Action
+
+Name classes using PascalCase
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.classes
+
+---
+id: mcp-odoo-instinct-constant-naming
+trigger: "When declaring constants"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: tuanle96/mcp-odoo
+---
+
+# Mcp Odoo Instinct Constant Naming
+
+## Action
+
+Use SCREAMING_SNAKE_CASE for constant names
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.constants
+
+---
+id: mcp-odoo-instinct-import-style
+trigger: "When importing modules"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: tuanle96/mcp-odoo
+---
+
+# Mcp Odoo Instinct Import Style
+
+## Action
+
+Use relative import paths
+
+## Evidence
+
+- Pattern in codeStyle.importStyle
+
+---
+id: mcp-odoo-instinct-export-style
+trigger: "When exporting modules or functions"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: tuanle96/mcp-odoo
+---
+
+# Mcp Odoo Instinct Export Style
+
+## Action
+
+Use named exports
+
+## Evidence
+
+- Pattern in codeStyle.exportStyle
+
+---
+id: mcp-odoo-instinct-git-commit-format
+trigger: "When writing a commit message"
+confidence: 0.9
+domain: git
+source: repo-analysis
+source_repo: tuanle96/mcp-odoo
+---
+
+# Mcp Odoo Instinct Git Commit Format
+
+## Action
+
+Use the conventional commit format with a 'feat' prefix for new features
+
+## Evidence
+
+- Pattern in commits.type: conventional
+- Example: 'feat(gemini-cli): add example integration...'
+- All commit examples use 'feat'
+
+---
+id: mcp-odoo-instinct-add-example-integration
+trigger: "When adding a new example integration or documentation for a tool/feature"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: tuanle96/mcp-odoo
+---
+
+# Mcp Odoo Instinct Add Example Integration
+
+## Action
+
+Create or update an example directory under examples/, add or update README.md and settings.json, and optionally update CHANGELOG.md
+
+## Evidence
+
+- Workflow: add-example-integration-and-documentation
+- Example commit sequence and files involved
+
