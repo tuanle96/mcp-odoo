@@ -7,6 +7,7 @@ adapters pass live metadata in when they have it.
 from __future__ import annotations
 
 import ast
+import difflib
 import hashlib
 import json
 import os
@@ -1299,11 +1300,24 @@ def lookup_model_history_report(name: str) -> dict[str, Any]:
                 f"{entry['old_model']} (changed in Odoo {entry['changed_in']})."
             )
     if match_type == "none":
+        model_names = {
+            model_name
+            for entry in entries
+            for model_name in (entry.get("old_model"), entry.get("new_model"))
+            if model_name
+        }
+        suggestions = difflib.get_close_matches(
+            normalized, model_names, n=5, cutoff=0.65
+        )
         guidance.append(
             "No rename history found in the curated catalog. The name may be "
             "current, custom, or missing from the catalog — verify with "
             "list_models or schema_catalog."
         )
+        if suggestions:
+            guidance.append("Did you mean: " + ", ".join(suggestions) + "?")
+    else:
+        suggestions = []
 
     return {
         "success": True,
@@ -1311,6 +1325,7 @@ def lookup_model_history_report(name: str) -> dict[str, Any]:
         "query": name,
         "match_type": match_type,
         "matches": matches,
+        "suggestions": suggestions,
         "guidance": guidance,
         "catalog": {
             "catalog_version": catalog.get("catalog_version"),

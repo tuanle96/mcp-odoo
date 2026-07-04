@@ -784,6 +784,12 @@ def test_lookup_model_history_partial_and_no_match():
     assert missing["matches"] == []
     assert any("list_models" in line for line in missing["guidance"])
 
+    typo = agent_tools.lookup_model_history_report("account.invoicee")
+    assert typo["match_type"] == "none"
+    assert typo["matches"] == []
+    assert "account.invoice" in typo["suggestions"]
+    assert any("Did you mean: " in line for line in typo["guidance"])
+
 
 def test_lookup_model_history_rejects_empty_name():
     report = agent_tools.lookup_model_history_report("   ")
