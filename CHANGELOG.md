@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Local-file attachment uploads** — `validate_write` accepts `<field>_from_path`
+  (e.g. `datas_from_path`) as an alternative to inlining base64 for binary
+  fields such as `ir.attachment.datas`. The server reads the file, and the
+  approval only ever carries a `sha256:<hex>:<size>` fingerprint for that
+  field — the real bytes never appear in a tool response, in the stored
+  approval token payload, or in anything the caller echoes back to
+  `execute_approved_write`, which substitutes the real content server-side at
+  execution time. Fixes the case where a large attachment (a resume, an
+  invoice PDF, ...) can't be inlined into a single tool call without blowing
+  past an agent's context budget. Fails closed: requires
+  `ODOO_MCP_ATTACHMENT_UPLOAD_ROOTS` (colon-separated allowed local
+  directories, mirrors `ODOO_ADDONS_PATHS`) and enforces
+  `ODOO_MCP_MAX_ATTACHMENT_UPLOAD_BYTES` (default 10 MiB, hard cap 16 MiB).
+  No new tool — routes through the existing `preview_write` → `validate_write`
+  → `execute_approved_write` gate, same live-metadata and confirm requirements
+  as every other write.
 - **Agent Skills pack** — `skills/` ships 4 business-workflow skills in the
   open Agent Skills format (`odoo-data-quality-gate`,
   `odoo-migration-copilot`, `odoo-month-end-close`,

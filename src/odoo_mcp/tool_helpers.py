@@ -139,6 +139,24 @@ def max_attachment_bytes() -> int:
     return max(1, min(value, ATTACHMENT_BYTES_HARD_CAP))
 
 
+DEFAULT_MAX_ATTACHMENT_UPLOAD_BYTES = 10 * 1024 * 1024
+
+
+def max_attachment_upload_bytes() -> int:
+    """Read the configured ``*_from_path`` local-file upload cap (default 10 MiB).
+
+    Uploads never flow through the caller's context (unlike downloads), so the
+    default is higher than ``max_attachment_bytes``. Still bounded by the same
+    ``ATTACHMENT_BYTES_HARD_CAP`` so operators keep one mental ceiling.
+    """
+    raw = os.environ.get("ODOO_MCP_MAX_ATTACHMENT_UPLOAD_BYTES", "").strip()
+    try:
+        value = int(raw) if raw else DEFAULT_MAX_ATTACHMENT_UPLOAD_BYTES
+    except ValueError:
+        value = DEFAULT_MAX_ATTACHMENT_UPLOAD_BYTES
+    return max(1, min(value, ATTACHMENT_BYTES_HARD_CAP))
+
+
 def truthy_env(name: str) -> bool:
     """Read a common boolean environment flag."""
     return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}

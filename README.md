@@ -239,6 +239,8 @@ Optional environment variables:
 | `MCP_ALLOW_REMOTE_HTTP` | `0` | Truthy → permit non-local HTTP binds (still requires external auth/TLS). |
 | `MCP_ALLOWED_HOSTS` / `MCP_ALLOWED_ORIGINS` | local | CSV allowlists for HTTP transports. |
 | `ODOO_MCP_MAX_ATTACHMENT_BYTES` | `1048576` | Download cap for `read_attachment` content (hard cap 16 MiB). |
+| `ODOO_MCP_ATTACHMENT_UPLOAD_ROOTS` | unset | Colon-separated local directories `validate_write` may read `<field>_from_path` uploads from (mirrors `ODOO_ADDONS_PATHS`). Required — fails closed with no roots configured. |
+| `ODOO_MCP_MAX_ATTACHMENT_UPLOAD_BYTES` | `10485760` | Size cap for `<field>_from_path` local-file uploads (hard cap 16 MiB). |
 | `ODOO_MCP_AUTH_ISSUER_URL` | unset | OAuth 2.1: authorization server issuer. With the two vars below, the HTTP transport becomes a protected resource server (RFC 9728 metadata + bearer validation). |
 | `ODOO_MCP_AUTH_INTROSPECTION_URL` | unset | RFC 7662 token introspection endpoint of the authorization server. |
 | `ODOO_MCP_AUTH_RESOURCE_URL` | unset | Canonical URL of this MCP server (RFC 8707 audience check when the AS binds tokens). |
@@ -468,6 +470,17 @@ single atomic Odoo `create(vals_list)` call. Per-record differing `write`
 values are deliberately unsupported (they would need one non-atomic RPC per
 record). Optional extras: `ODOO_MCP_ELICIT_WRITES=1` adds a native
 human-confirmation form, `ODOO_MCP_AUDIT_LOG` records every write-path event.
+
+Large binary fields (a resume attached to `ir.attachment.datas`, a product
+image, ...) don't have to be inlined as base64 in the tool call — pass
+`<field>_from_path` instead (e.g. `datas_from_path: "/local/path/cv.pdf"`) to
+`validate_write`. The server reads the file itself; the approval only ever
+carries a `sha256:<hex>:<size>` fingerprint for that field, never the real
+content, so nothing large has to round-trip through the calling agent's
+context. Requires `ODOO_MCP_ATTACHMENT_UPLOAD_ROOTS` (fails closed otherwise)
+and respects `ODOO_MCP_MAX_ATTACHMENT_UPLOAD_BYTES`. No new tool — this rides
+the same `preview_write` → `validate_write` → `execute_approved_write` gate as
+every other write.
 
 Reviewed side-effect methods such as `sale.order.action_confirm` can be enabled
 one by one:
