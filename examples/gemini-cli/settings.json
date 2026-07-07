@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "odoo": {
+      "command": "uvx",
+      "args": [
+        "odoo-mcp"
+      ],
+      "env": {
+        "ODOO_URL": "http://localhost:8069",
+        "ODOO_DB": "odoo",
+        "ODOO_USERNAME": "admin",
+        "ODOO_PASSWORD": "admin"
+      }
+    },
+    "odoo-http": {
+      "httpUrl": "http://localhost:8000/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_TOKEN_HERE"
+      }
+    }
+  }
+}

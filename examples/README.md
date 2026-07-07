@@ -11,6 +11,7 @@ transport that matches your client, replace the connection values, run.
 | [Cursor](./cursor/) | ✅ | ✅ | `.cursor/mcp.json` + a rules file |
 | Claude Code | ✅ | ✅ | snippet below |
 | Codex CLI | ✅ | — | snippet below |
+| [Gemini CLI](./gemini-cli/) | ✅ | ✅ | `~/.gemini/settings.json` configuration |
 | [OpenAI Agents SDK](./openai-agents/) | ✅ | ✅ | native `MCPServerStreamableHttp`; SSE is deprecated |
 | [LangGraph](./langgraph/) | ✅ | ✅ | `langchain-mcp-adapters >= 0.2.2` |
 | [CrewAI](./crewai/) | ✅ | ✅ | native `mcps=[...]` on `Agent` |

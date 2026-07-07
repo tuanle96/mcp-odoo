@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Gemini CLI client adapter** — configuration example and documentation added to `examples/gemini-cli/` to integrate with `@google/gemini-cli` over stdio and HTTP.
 - **Agent Skills pack** — `skills/` ships 4 business-workflow skills in the
   open Agent Skills format (`odoo-data-quality-gate`,
   `odoo-migration-copilot`, `odoo-month-end-close`,
