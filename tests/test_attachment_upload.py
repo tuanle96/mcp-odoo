@@ -9,6 +9,7 @@ import base64
 import hashlib
 import importlib
 
+from odoo_mcp import tools_write
 from tests.test_batch_write import FakeCtx
 
 
@@ -205,6 +206,81 @@ def test_tampered_fingerprint_is_rejected_before_reaching_odoo(tmp_path, monkeyp
 
     assert result["success"] is False
     assert client.calls == []
+
+
+def test_from_path_rejects_symlink_escape_within_upload_root(tmp_path, monkeypatch):
+    """A symlink placed inside the allowed root but pointing outside it must
+    resolve to its real (outside) target and be rejected — the root check
+    has to run on the fully-resolved path, not the raw name."""
+    server = importlib.import_module("odoo_mcp.server")
+    upload_root = tmp_path / "allowed"
+    upload_root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    secret, _content = _write_file(outside, content=b"outside-root-secret")
+    monkeypatch.setenv("ODOO_MCP_ATTACHMENT_UPLOAD_ROOTS", str(upload_root))
+
+    escaping_link = upload_root / "resume.pdf"
+    escaping_link.symlink_to(secret)
+
+    ctx = FakeCtx(_Client())
+    report = server.validate_write(
+        ctx,
+        "ir.attachment",
+        "create",
+        values={"name": "resume.pdf", "datas_from_path": str(escaping_link)},
+    )
+
+    assert report["success"] is False
+    assert "outside configured" in report["error"]
+
+
+def test_from_path_rejects_file_swapped_for_symlink_after_root_check(
+    tmp_path, monkeypatch
+):
+    """Regression test for the TOCTOU window between the root-containment
+    check and the actual file read: if the checked path is swapped for a
+    symlink pointing outside the upload root right before the read, the read
+    must fail closed (no O_NOFOLLOW-bypass) instead of silently following the
+    symlink and leaking the secret target's bytes."""
+    server = importlib.import_module("odoo_mcp.server")
+    upload_root = tmp_path / "allowed"
+    upload_root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    secret, secret_content = _write_file(outside, content=b"top-secret-content")
+    target, _content = _write_file(upload_root)
+    monkeypatch.setenv("ODOO_MCP_ATTACHMENT_UPLOAD_ROOTS", str(upload_root))
+
+    real_restrict = tools_write.restrict_attachment_upload_path
+
+    def swap_after_check(raw_path):
+        resolved = real_restrict(raw_path)
+        # Simulate an attacker winning the race right after the root check
+        # passes: replace the validated file with a symlink escaping the root.
+        resolved.unlink()
+        resolved.symlink_to(secret)
+        return resolved
+
+    monkeypatch.setattr(tools_write, "restrict_attachment_upload_path", swap_after_check)
+
+    ctx = FakeCtx(_Client())
+    report = server.validate_write(
+        ctx,
+        "ir.attachment",
+        "create",
+        values={
+            "name": "resume.pdf",
+            "datas_from_path": str(target),
+            "res_model": "hr.applicant",
+            "res_id": 192,
+        },
+    )
+
+    assert report["success"] is False
+    serialized = str(report)
+    assert secret_content.decode() not in serialized
+    assert base64.b64encode(secret_content).decode("ascii") not in serialized
 
 
 def test_max_attachment_upload_bytes_clamped(monkeypatch):

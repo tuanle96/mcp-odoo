@@ -254,6 +254,26 @@ def write_approval_payload(approval: Dict[str, Any]) -> Dict[str, Any]:
     return payload
 
 
+def _sweep_expired_write_approvals(app_context: AppContext, now: float) -> None:
+    """Evict expired write-approval records so their contents stop lingering.
+
+    An approval a caller validates but never executes otherwise sits in
+    ``app_context.write_approvals`` until *that exact token* is looked up
+    again after expiry (``require_validated_write_approval`` only evicts on
+    access). That is especially costly for ``*_from_path`` uploads, whose
+    ``resolved_binary_values`` hold a full file's base64 content server-side
+    (see ``register_write_approval``) — abandoned approvals would otherwise
+    keep that content in memory indefinitely.
+    """
+    expired_tokens = [
+        token
+        for token, record in app_context.write_approvals.items()
+        if now > float(record.get("expires_at", 0))
+    ]
+    for token in expired_tokens:
+        app_context.write_approvals.pop(token, None)
+
+
 def register_write_approval(
     app_context: AppContext,
     report: Dict[str, Any],
@@ -273,6 +293,7 @@ def register_write_approval(
     if not token:
         return False
     now = time.time()
+    _sweep_expired_write_approvals(app_context, now)
     record: Dict[str, Any] = {
         "approval": dict(approval),
         "payload": write_approval_payload(approval),

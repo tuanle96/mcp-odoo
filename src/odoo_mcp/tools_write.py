@@ -8,6 +8,9 @@ chatter_post, execute_method + WriteConfirmation + elicitation logic.
 import base64
 import hashlib
 import json
+import os
+import stat
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from mcp.server.fastmcp import Context
@@ -47,6 +50,35 @@ from .server_core import (
 _FROM_PATH_SUFFIX = "_from_path"
 
 
+def _read_attachment_source_file(path: Path, cap: int) -> bytes:
+    """Open, size-check, and read ``path`` through a single file descriptor.
+
+    ``restrict_attachment_upload_path`` only proves the path was inside a
+    trusted root *at resolve time*. A writable upload root still leaves a
+    TOCTOU window between that check and the read: the entry on disk could
+    be swapped for a symlink pointing outside the root before we get to it.
+    Opening once with ``O_NOFOLLOW`` (refuses a symlink as the final path
+    component) and deriving both the size cap and the hash from the bytes
+    read through that same fd closes the gap — the size/hash checked are
+    always the bytes actually returned, not a stale ``stat()`` from an
+    earlier, possibly-swapped file.
+    """
+    try:
+        fd = os.open(str(path), os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    except OSError as exc:
+        raise ValueError(f"{path} does not exist or is not a regular file") from exc
+    with os.fdopen(fd, "rb") as handle:
+        file_stat = os.fstat(handle.fileno())
+        if not stat.S_ISREG(file_stat.st_mode):
+            raise ValueError(f"{path} does not exist or is not a regular file")
+        if file_stat.st_size > cap:
+            raise ValueError(
+                f"{path} is {file_stat.st_size} bytes; cap is {cap} "
+                "(raise ODOO_MCP_MAX_ATTACHMENT_UPLOAD_BYTES to allow it)"
+            )
+        return handle.read()
+
+
 def _resolve_binary_from_path_fields(
     values: Dict[str, Any],
 ) -> tuple[Dict[str, Any], Dict[str, str]]:
@@ -72,18 +104,9 @@ def _resolve_binary_from_path_fields(
             raise ValueError(f"pass either {real_field!r} or {key!r}, not both")
         raw_path = values.pop(key)
         path = restrict_attachment_upload_path(str(raw_path))
-        if not path.is_file():
-            raise ValueError(f"{path} does not exist or is not a regular file")
-        size = path.stat().st_size
-        cap = max_attachment_upload_bytes()
-        if size > cap:
-            raise ValueError(
-                f"{path} is {size} bytes; cap is {cap} "
-                "(raise ODOO_MCP_MAX_ATTACHMENT_UPLOAD_BYTES to allow it)"
-            )
-        data = path.read_bytes()
+        data = _read_attachment_source_file(path, max_attachment_upload_bytes())
         digest = hashlib.sha256(data).hexdigest()
-        values[real_field] = f"sha256:{digest}:{size}"
+        values[real_field] = f"sha256:{digest}:{len(data)}"
         resolved[real_field] = base64.b64encode(data).decode("ascii")
     return values, resolved
 

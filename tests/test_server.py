@@ -2167,6 +2167,37 @@ def test_require_validated_write_approval_clears_expired_records():
     assert "odoo-write:expired" not in ctx.write_approvals
 
 
+def test_register_write_approval_sweeps_other_expired_records():
+    """An abandoned approval (never executed, never re-looked-up) must not
+    linger forever — including any resolved_binary_values it holds — just
+    because its own token is never queried again after expiry."""
+    server = importlib.import_module("odoo_mcp.server")
+    ctx = server.AppContext()
+    ctx.write_approvals["odoo-write:expired"] = {
+        "approval": {},
+        "payload": {},
+        "validated_at": 0,
+        "expires_at": 0,  # already expired
+        "resolved_binary_values": {"datas": "stale-base64-content"},
+    }
+
+    stored = server.register_write_approval(
+        ctx,
+        {
+            "success": True,
+            "approval": {
+                "token": "odoo-write:new",
+                "model": "res.partner",
+                "operation": "write",
+            },
+        },
+    )
+
+    assert stored is True
+    assert "odoo-write:expired" not in ctx.write_approvals
+    assert "odoo-write:new" in ctx.write_approvals
+
+
 # ----- configured_addons_roots / restrict_addons_paths ------------------
 
 
