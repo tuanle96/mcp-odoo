@@ -16,27 +16,15 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
-from odoo_mcp.field_ranking import (
-    DEFAULT_MAX_QUERY_FIELDS,
-    DEFAULT_MAX_RELEVANT_FIELDS,
-    DEFAULT_MAX_SMART_FIELDS,
-    _smart_field_score,# noqa: F401
-    rank_relevant_fields,
-    select_smart_fields,
-    select_text_query_fields,
-    build_text_query_domain,
-
+from .field_ranking import (
+    DEFAULT_MAX_QUERY_FIELDS,  # noqa: F401
+    DEFAULT_MAX_RELEVANT_FIELDS,  # noqa: F401
+    DEFAULT_MAX_SMART_FIELDS,  # noqa: F401
+    build_text_query_domain,  # noqa: F401
+    rank_relevant_fields,  # noqa: F401
+    select_smart_fields,  # noqa: F401
+    select_text_query_fields,  # noqa: F401
 )
-
-__all__ = [
-    "DEFAULT_MAX_QUERY_FIELDS",
-    "DEFAULT_MAX_RELEVANT_FIELDS",
-    "DEFAULT_MAX_SMART_FIELDS",
-    "build_text_query_domain",
-    "rank_relevant_fields",
-    "select_smart_fields",
-    "select_text_query_fields",
-]
 
 WRITE_OPERATIONS = {"create", "write", "unlink"}
 SAFE_DOMAIN_OPERATORS = {
