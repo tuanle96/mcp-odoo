@@ -34,6 +34,11 @@ from .cross_instance import (
 )
 from .field_policy import get_field_policy
 from .rate_limit import check_rate
+from .schemas import (
+    AccountingHealthAcrossInstancesResponse,
+    AggregateAcrossInstancesResponse,
+    SearchAcrossInstancesResponse,
+)
 from .server_core import READ_ONLY_TOOL, mcp
 from .tool_helpers import (
     clamp_limit,
@@ -193,9 +198,7 @@ def run_accounting_health_across(
         name, client = app_context.get_client(instance)
         _guard_rate(name, "accounting_health_across_instances")
         lines = fetch_aging_lines(client, direction)
-        return build_aging_report(
-            lines, direction, as_of, top_partners=top_partners
-        )
+        return build_aging_report(lines, direction, as_of, top_partners=top_partners)
 
     results, errors = _fan_out(selection.selected, worker)
     combined = combine_bucket_reports(results)
@@ -229,7 +232,7 @@ def search_across_instances(
     fields: Optional[List[str]] = None,
     limit_per_instance: int = DEFAULT_LIMIT_PER_INSTANCE,
     instances: Optional[Any] = None,
-) -> Dict[str, Any]:
+) -> SearchAcrossInstancesResponse:
     """Run one search across many instances; rows are tagged with `_instance`.
 
     `instances`: omit or "all" for every opted-in instance, a list of names,
@@ -269,7 +272,7 @@ def aggregate_across_instances(
     measures: Optional[List[str]] = None,
     domain: Optional[Any] = None,
     instances: Optional[Any] = None,
-) -> Dict[str, Any]:
+) -> AggregateAcrossInstancesResponse:
     """Group/aggregate per instance plus additive grand totals across them.
 
     `measures` are "field:agg" strings. Combined totals sum additive measures
@@ -314,13 +317,18 @@ def accounting_health_across_instances(
         Field(description="Optional ISO date used as the aging reference date."),
     ] = None,
     top_partners: Annotated[
-        int, Field(description="Maximum top partners to include in each aging report; capped at 100.")
+        int,
+        Field(
+            description="Maximum top partners to include in each aging report; capped at 100."
+        ),
     ] = 10,
     instances: Annotated[
         Optional[Any],
-        Field(description="Optional instance selector; defaults to all eligible instances."),
+        Field(
+            description="Optional instance selector; defaults to all eligible instances."
+        ),
     ] = None,
-) -> Dict[str, Any]:
+) -> AccountingHealthAcrossInstancesResponse:
     """Aged receivable/payable across every client DB, with combined buckets.
 
     The anti-Peliqan flagship: ask "which clients have AR over 90 days?" once

@@ -13,6 +13,10 @@ from typing import Annotated, Any, Dict, Optional
 from mcp.server.fastmcp import Context
 from pydantic import Field
 
+from .schemas import (
+    AccountingHealthSummaryResponse,
+    ReceivablePayableAgingResponse,
+)
 from .accounting_tools import (
     MAX_AGING_LINES,
     build_aging_report,
@@ -33,9 +37,7 @@ def build_direction_aging(
 ) -> Dict[str, Any]:
     """Fetch open items and bucket them (shared by sync and async paths)."""
     lines = fetch_aging_lines(odoo, direction, limit=limit)
-    report = build_aging_report(
-        lines, direction, as_of, top_partners=top_partners
-    )
+    report = build_aging_report(lines, direction, as_of, top_partners=top_partners)
     if len(lines) >= limit:
         report["truncated"] = (
             f"Line fetch hit the {limit} cap; totals may be partial. "
@@ -66,9 +68,11 @@ def receivable_payable_aging(
     ] = MAX_AGING_LINES,
     instance: Annotated[
         Optional[str],
-        Field(description="Optional configured Odoo instance name; uses the default if omitted."),
+        Field(
+            description="Optional configured Odoo instance name; uses the default if omitted."
+        ),
     ] = None,
-) -> Dict[str, Any]:
+) -> ReceivablePayableAgingResponse:
     """Bucket open posted items (not due / 1-30 / 31-60 / 61-90 / 90+ days).
 
     direction: "receivable" (customers owing you) or "payable" (you owing
@@ -104,7 +108,7 @@ def receivable_payable_aging(
 def accounting_health_summary(
     ctx: Context,
     instance: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> AccountingHealthSummaryResponse:
     """Quick accounting posture: open AR/AP item counts plus draft invoices."""
     try:
         _, odoo = _resolve_odoo(ctx, instance)
