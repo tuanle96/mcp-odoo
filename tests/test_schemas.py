@@ -19,6 +19,67 @@ TYPED_READ_TOOLS = {
     "aggregate_records": "rows",
 }
 
+DESCRIBED_INPUT_TOOLS = {
+    "accounting_health_across_instances": {
+        "direction",
+        "as_of",
+        "top_partners",
+        "instances",
+    },
+    "execute_method": {"model", "method", "args", "kwargs", "instance"},
+    "get_odoo_profile": {"include_modules", "module_limit", "instance"},
+    "diagnose_access": {
+        "model",
+        "operation",
+        "domain",
+        "record_ids",
+        "expected_count",
+        "include_rules",
+        "observed_error",
+        "limit",
+        "instance",
+    },
+    "schema_catalog": {
+        "query",
+        "models",
+        "include_fields",
+        "refresh",
+        "limit",
+        "instance",
+    },
+    "search_holidays": {"start_date", "end_date", "employee_id", "instance"},
+    "business_pack_report": {"pack", "use_live_metadata", "instance"},
+    "diagnose_odoo_call": {
+        "model",
+        "method",
+        "args",
+        "kwargs",
+        "transport",
+        "target_version",
+        "observed_error",
+        "include_debug",
+        "metadata",
+        "use_live_metadata",
+    },
+    "receivable_payable_aging": {
+        "direction",
+        "as_of",
+        "top_partners",
+        "limit",
+        "instance",
+    },
+    "upgrade_risk_report": {
+        "source_version",
+        "target_version",
+        "modules",
+        "methods",
+        "source_findings",
+        "observed_errors",
+        "use_live_metadata",
+        "include_debug",
+    },
+}
+
 
 def _tools_by_name():
     tools = asyncio.run(server.mcp.list_tools())
@@ -35,6 +96,16 @@ def test_read_tools_expose_typed_output_schemas():
         assert "success" in props, name
         assert "error" in props, name
         assert marker_field in props, (name, sorted(props))
+
+
+def test_target_tools_describe_every_input_parameter_and_hide_context():
+    tools = _tools_by_name()
+    for name, expected_parameters in DESCRIBED_INPUT_TOOLS.items():
+        properties = tools[name].inputSchema.get("properties", {})
+        assert set(properties) == expected_parameters, name
+        assert "ctx" not in properties, name
+        for parameter, schema in properties.items():
+            assert schema.get("description", "").strip(), (name, parameter)
 
 
 def test_envelope_models_accept_success_and_error_shapes():

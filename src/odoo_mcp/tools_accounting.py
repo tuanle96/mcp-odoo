@@ -8,9 +8,10 @@ path; the gated write workflow remains the only mutation surface.
 """
 
 from datetime import date
-from typing import Any, Dict, Optional
+from typing import Annotated, Any, Dict, Optional
 
 from mcp.server.fastmcp import Context
+from pydantic import Field
 
 from .accounting_tools import (
     MAX_AGING_LINES,
@@ -50,11 +51,23 @@ def build_direction_aging(
 )
 def receivable_payable_aging(
     ctx: Context,
-    direction: str = "receivable",
-    as_of: Optional[str] = None,
-    top_partners: int = 15,
-    limit: int = MAX_AGING_LINES,
-    instance: Optional[str] = None,
+    direction: Annotated[
+        str, Field(description="Aging direction: 'receivable' or 'payable'.")
+    ] = "receivable",
+    as_of: Annotated[
+        Optional[str],
+        Field(description="Optional ISO date used as the aging reference date."),
+    ] = None,
+    top_partners: Annotated[
+        int, Field(description="Maximum top partners to include; capped at 100.")
+    ] = 15,
+    limit: Annotated[
+        int, Field(description="Maximum open-item lines to inspect.")
+    ] = MAX_AGING_LINES,
+    instance: Annotated[
+        Optional[str],
+        Field(description="Optional configured Odoo instance name; uses the default if omitted."),
+    ] = None,
 ) -> Dict[str, Any]:
     """Bucket open posted items (not due / 1-30 / 31-60 / 61-90 / 90+ days).
 

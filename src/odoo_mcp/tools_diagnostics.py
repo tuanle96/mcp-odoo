@@ -6,9 +6,10 @@ diagnose_access, upgrade_risk_report, lookup_model_history, fit_gap_report,
 scan_addons_source, build_domain, business_pack_report.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Optional
 
 from mcp.server.fastmcp import Context
+from pydantic import Field
 
 from .access_helpers import (
     _access_diagnosis_codes,
@@ -63,16 +64,36 @@ def _srv() -> Any:
     structured_output=True,
 )
 def diagnose_odoo_call(
-    model: str,
-    method: str,
-    args: Optional[List[Any]] = None,
-    kwargs: Optional[Dict[str, Any]] = None,
-    transport: str = "auto",
-    target_version: Optional[str] = None,
-    observed_error: Optional[Any] = None,
-    include_debug: bool = False,
-    metadata: Optional[Dict[str, Any]] = None,
-    use_live_metadata: bool = False,
+    model: Annotated[str, Field(description="Technical Odoo model name to diagnose.")],
+    method: Annotated[str, Field(description="Odoo model method name to diagnose.")],
+    args: Annotated[
+        Optional[List[Any]], Field(description="Optional positional call arguments.")
+    ] = None,
+    kwargs: Annotated[
+        Optional[Dict[str, Any]], Field(description="Optional keyword call arguments.")
+    ] = None,
+    transport: Annotated[
+        str, Field(description="Transport to assess, such as 'auto', 'xmlrpc', or 'json2'.")
+    ] = "auto",
+    target_version: Annotated[
+        Optional[str], Field(description="Optional target Odoo version for compatibility checks.")
+    ] = None,
+    observed_error: Annotated[
+        Optional[Any], Field(description="Optional error text or structured error to classify.")
+    ] = None,
+    include_debug: Annotated[
+        bool, Field(description="Whether to include additional diagnostic details.")
+    ] = False,
+    metadata: Annotated[
+        Optional[Dict[str, Any]],
+        Field(description="Optional model or method metadata used by the diagnosis."),
+    ] = None,
+    use_live_metadata: Annotated[
+        bool,
+        Field(
+            description="Whether to request live metadata; this preview tool does not fetch it."
+        ),
+    ] = False,
 ) -> Dict[str, Any]:
     """Diagnose model/method/payload issues without executing the candidate call."""
     report = diagnose_odoo_call_report(
@@ -179,15 +200,33 @@ def inspect_model_relationships(
 )
 def diagnose_access(
     ctx: Context,
-    model: str,
-    operation: str = "read",
-    domain: Optional[Any] = None,
-    record_ids: Optional[List[int]] = None,
-    expected_count: Optional[int] = None,
-    include_rules: bool = True,
-    observed_error: Optional[Any] = None,
-    limit: int = 50,
-    instance: Optional[str] = None,
+    model: Annotated[str, Field(description="Technical Odoo model name to inspect.")],
+    operation: Annotated[
+        str, Field(description="Access operation to diagnose, such as read or write.")
+    ] = "read",
+    domain: Annotated[
+        Optional[Any], Field(description="Optional Odoo domain used for the visibility check.")
+    ] = None,
+    record_ids: Annotated[
+        Optional[List[int]], Field(description="Optional record IDs to check directly.")
+    ] = None,
+    expected_count: Annotated[
+        Optional[int],
+        Field(description="Optional expected visible record count for comparison."),
+    ] = None,
+    include_rules: Annotated[
+        bool, Field(description="Whether to include matching record-rule metadata.")
+    ] = True,
+    observed_error: Annotated[
+        Optional[Any], Field(description="Optional error text or structured error to classify.")
+    ] = None,
+    limit: Annotated[
+        int, Field(description="Maximum metadata rows to inspect; capped at 500.")
+    ] = 50,
+    instance: Annotated[
+        Optional[str],
+        Field(description="Optional configured Odoo instance name; uses the default if omitted."),
+    ] = None,
 ) -> Dict[str, Any]:
     """
     Inspect readable ACL/rule metadata for the current Odoo credential.
@@ -463,14 +502,37 @@ def diagnose_access(
     structured_output=True,
 )
 def upgrade_risk_report(
-    source_version: Optional[str] = None,
-    target_version: Optional[str] = None,
-    modules: Optional[List[Dict[str, Any]]] = None,
-    methods: Optional[List[Dict[str, Any]]] = None,
-    source_findings: Optional[List[Dict[str, Any]]] = None,
-    observed_errors: Optional[List[Any]] = None,
-    use_live_metadata: bool = False,
-    include_debug: bool = False,
+    source_version: Annotated[
+        Optional[str], Field(description="Optional current Odoo version.")
+    ] = None,
+    target_version: Annotated[
+        Optional[str], Field(description="Optional target Odoo version.")
+    ] = None,
+    modules: Annotated[
+        Optional[List[Dict[str, Any]]],
+        Field(description="Optional module metadata to assess for upgrade risks."),
+    ] = None,
+    methods: Annotated[
+        Optional[List[Dict[str, Any]]],
+        Field(description="Optional model method metadata to assess for compatibility."),
+    ] = None,
+    source_findings: Annotated[
+        Optional[List[Dict[str, Any]]],
+        Field(description="Optional source-code findings to include in the risk report."),
+    ] = None,
+    observed_errors: Annotated[
+        Optional[List[Any]],
+        Field(description="Optional observed upgrade or migration errors to classify."),
+    ] = None,
+    use_live_metadata: Annotated[
+        bool,
+        Field(
+            description="Whether to request live metadata; this preview tool does not fetch it."
+        ),
+    ] = False,
+    include_debug: Annotated[
+        bool, Field(description="Whether to include additional diagnostic details.")
+    ] = False,
 ) -> Dict[str, Any]:
     """Build an input-driven upgrade risk report without executing Odoo calls."""
     report = build_upgrade_risk_report(
@@ -626,9 +688,20 @@ def build_domain(
 )
 def business_pack_report(
     ctx: Context,
-    pack: str,
-    use_live_metadata: bool = True,
-    instance: Optional[str] = None,
+    pack: Annotated[
+        str,
+        Field(
+            description="Business pack to report, such as sales, crm, inventory, accounting, or hr."
+        ),
+    ],
+    use_live_metadata: Annotated[
+        bool,
+        Field(description="Whether to inspect live models and installed modules."),
+    ] = True,
+    instance: Annotated[
+        Optional[str],
+        Field(description="Optional configured Odoo instance name; uses the default if omitted."),
+    ] = None,
 ) -> Dict[str, Any]:
     """Summarize a domain pack such as sales, crm, inventory, accounting, or hr."""
     try:

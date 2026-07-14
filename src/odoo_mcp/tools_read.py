@@ -8,9 +8,10 @@ search_holidays, list_instances, get_odoo_profile, health_check.
 
 import json
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Optional
 
 from mcp.server.fastmcp import Context
+from pydantic import Field
 
 from .agent_tools import (
     DEFAULT_MAX_RELEVANT_FIELDS,
@@ -69,9 +70,16 @@ def _srv() -> Any:
 )
 def get_odoo_profile(
     ctx: Context,
-    include_modules: bool = True,
-    module_limit: int = 100,
-    instance: Optional[str] = None,
+    include_modules: Annotated[
+        bool, Field(description="Whether to include installed-module metadata.")
+    ] = True,
+    module_limit: Annotated[
+        int, Field(description="Maximum installed modules to include; capped at 500.")
+    ] = 100,
+    instance: Annotated[
+        Optional[str],
+        Field(description="Optional configured Odoo instance name; uses the default if omitted."),
+    ] = None,
 ) -> GetOdooProfileResponse:
     """Return server, user-context, transport, and installed-module metadata."""
     try:
@@ -114,12 +122,26 @@ def get_odoo_profile(
 )
 def schema_catalog(
     ctx: Context,
-    query: Optional[str] = None,
-    models: Optional[List[str]] = None,
-    include_fields: bool = False,
-    refresh: bool = False,
-    limit: int = 50,
-    instance: Optional[str] = None,
+    query: Annotated[
+        Optional[str], Field(description="Optional text used to filter catalog models.")
+    ] = None,
+    models: Annotated[
+        Optional[List[str]],
+        Field(description="Optional technical model names to include in the catalog."),
+    ] = None,
+    include_fields: Annotated[
+        bool, Field(description="Whether to include field metadata for each model.")
+    ] = False,
+    refresh: Annotated[
+        bool, Field(description="Whether to bypass and refresh the cached catalog.")
+    ] = False,
+    limit: Annotated[
+        int, Field(description="Maximum catalog models to return; capped at 500.")
+    ] = 50,
+    instance: Annotated[
+        Optional[str],
+        Field(description="Optional configured Odoo instance name; uses the default if omitted."),
+    ] = None,
 ) -> SchemaCatalogResponse:
     """Return a cached catalog of model names, labels, and optional fields."""
     try:
@@ -756,10 +778,17 @@ def search_employee(
 )
 def search_holidays(
     ctx: Context,
-    start_date: str,
-    end_date: str,
-    employee_id: Optional[int] = None,
-    instance: Optional[str] = None,
+    start_date: Annotated[
+        str, Field(description="Start date in YYYY-MM-DD format.")
+    ],
+    end_date: Annotated[str, Field(description="End date in YYYY-MM-DD format.")],
+    employee_id: Annotated[
+        Optional[int], Field(description="Optional employee ID used to filter holidays.")
+    ] = None,
+    instance: Annotated[
+        Optional[str],
+        Field(description="Optional configured Odoo instance name; uses the default if omitted."),
+    ] = None,
 ) -> SearchHolidaysResponse:
     """
     Searches for holidays within a specified date range.
