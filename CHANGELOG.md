@@ -2,7 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [1.2.0] - 2026-07-14
+
+Field-ops release: context-safe attachment uploads, an Agent Skills pack,
+typo-tolerant model-history lookups, and kinder failure modes around Odoo's
+XML-RPC `None`-marshalling quirks — hardened by a real production
+misattributed-freight correction run end-to-end through the write gate.
+901 tests.
 
 ### Added
 - **Local-file attachment uploads** — `validate_write` accepts `<field>_from_path`
@@ -27,6 +33,9 @@ All notable changes to this project will be documented in this file.
   `odoo-agency-fleet-review`): judgment playbooks (evidence rules, pacing,
   human checkpoints) on top of the MCP tool layer, for Claude Code and other
   skills-compatible agents. Install by copying into `~/.claude/skills/`.
+- **Model-history lookups suggest close names** — `lookup_model_history` now
+  offers nearest-match suggestions when a model name misses, and the
+  cross-version rename map covers additional Odoo model renames.
 
 ### Fixed
 - `get_model_fields` now requests a bounded, marshal-safe `attributes` list
@@ -39,6 +48,19 @@ All notable changes to this project will be documented in this file.
   `relation`, `selection`, `store`, `searchable`); an absent attribute reads
   as `None` via `.get()`, exactly as before. Unblocks `validate_write` on such
   models (e.g. creating an IQD `product.pricelist`).
+- `execute_method` no longer reports a **phantom failure** when a
+  side-effect method returns `None` (`button_draft`, `action_post`,
+  `account.move.line.reconcile`, ...). Odoo executes and commits the call,
+  then its XML-RPC layer faults while serializing the `None` return value
+  ("cannot marshal None unless allow_none is enabled") — the state change is
+  already persisted, so surfacing an error invites a dangerous retry. The
+  tool now returns `success: true, result: null` plus an explicit warning to
+  verify with a read.
+- The blocked-side-effect error on `execute_method` now points at the policy
+  file (`ODOO_MCP_POLICY_FILE`, default `./odoo_mcp_policy.json`, re-read on
+  every request — no server restart) as the primary allowlist mechanism;
+  previously it only mentioned the env vars, and the better, reviewable path
+  was discoverable only by reading source.
 
 ## [1.1.0] - 2026-07-02
 
