@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Per-parameter input descriptions (first 10 tools)** — the highest-traffic
+  tools (`search_records`, `read_record`, `execute_method`, the gated-write
+  trio, accounting/diagnostics/cross-instance entry points) now wrap every
+  non-context parameter in `Annotated[..., Field(description=...)]`, so MCP
+  clients and inspectors render real `inputSchema` property descriptions.
+  Coverage is pinned by `DESCRIBED_INPUT_TOOLS` in `tests/test_schemas.py`;
+  remaining tool groups tracked in #35. (#41)
+
+### Changed
+- Field ranking / smart field selection helpers moved from `agent_tools.py`
+  into a dedicated `field_ranking.py` core module (compatibility re-exports
+  kept, import-linter contract updated). No behavior change. (#42)
+
 ### Fixed
 - **Write-approval token instability across int/float JSON transports** —
   `canonical_json` (`agent_tools.py`) now normalizes integral floats (`1.0`)
