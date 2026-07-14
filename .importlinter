@@ -10,6 +10,7 @@ source_modules =
     odoo_mcp.write_policy
     odoo_mcp.access_helpers
     odoo_mcp.agent_tools
+    odoo_mcp.field_ranking
     odoo_mcp.diagnostics
     odoo_mcp.odoo_client
     odoo_mcp.task_queue

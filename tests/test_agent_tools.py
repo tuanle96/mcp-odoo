@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from odoo_mcp import agent_tools
+from odoo_mcp import field_ranking
 
 
 def _meta(field_type: str = "char", **extra) -> dict:
@@ -915,13 +916,13 @@ def test_rank_relevant_fields_respects_max_fields_cap():
 
 def test_smart_field_score_falls_through_to_default_for_unknown_types():
     # Field type not matching any priority branch returns 10
-    score = agent_tools._smart_field_score("custom_thing", {"type": "reference"})
+    score = field_ranking._smart_field_score("custom_thing", {"type": "reference"})
     assert score == 10
 
 
 def test_smart_field_score_assigns_low_score_to_one2many_many2many_relations():
-    assert agent_tools._smart_field_score("members", {"type": "one2many"}) == 5
-    assert agent_tools._smart_field_score("tags", {"type": "many2many"}) == 5
+    assert field_ranking._smart_field_score("members", {"type": "one2many"}) == 5
+    assert field_ranking._smart_field_score("tags", {"type": "many2many"}) == 5
 
 
 # ----- _scan_python_file path / scan_addons_source path coverage --------
