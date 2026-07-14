@@ -91,6 +91,11 @@ misattributed-freight correction run end-to-end through the write gate.
   every request — no server restart) as the primary allowlist mechanism;
   previously it only mentioned the env vars, and the better, reviewable path
   was discoverable only by reading source.
+- The test suite is now hermetic on a developer machine that carries a real
+  Odoo config: an autouse fixture points `ODOO_CONFIG_FILE` at a missing file
+  so instance resolution behaves like a bare CI runner (previously a
+  `~/.config/odoo/config.json` flipped resolution semantics and failed four
+  instance/knowledge tests locally while CI stayed green).
 
 ## [1.1.0] - 2026-07-02
 
