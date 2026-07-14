@@ -7,6 +7,15 @@ import pytest
 from odoo_mcp import write_policy
 
 
+@pytest.fixture(autouse=True)
+def _run_outside_checkout(monkeypatch, tmp_path):
+    # policy_file_path() falls back to ./odoo_mcp_policy.json in the CWD, and a
+    # developer checkout legitimately carries one at the repo root (that is the
+    # documented default location). Run these tests from an empty directory so
+    # suite results do not depend on the developer's local policy file.
+    monkeypatch.chdir(tmp_path)
+
+
 class TestWritesEnabled:
     """Test writes_enabled() env gate."""
 
