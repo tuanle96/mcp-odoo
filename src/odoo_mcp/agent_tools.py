@@ -72,9 +72,31 @@ BUSINESS_PACKS: dict[str, dict[str, Any]] = {
 }
 
 
+def _normalize_numbers(value: Any) -> Any:
+    """Recursively collapse integral floats (``1.0``) to ``int`` (``1``).
+
+    JSON has one number type; Python's ``json`` module does not. A payload
+    that crosses a JS/TS transport layer and back can turn an int into a
+    float with the same numeric value (``1`` -> ``1.0``), which changes
+    ``canonical_json``'s output and therefore the SHA-256 approval token —
+    even though the value is unchanged from a business standpoint. Booleans
+    are left untouched despite being an ``int`` subclass in Python.
+    """
+    if isinstance(value, dict):
+        return {key: _normalize_numbers(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_normalize_numbers(item) for item in value]
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
+
+
 def canonical_json(value: Any) -> str:
     """Return a stable JSON representation for hashing and comparisons."""
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+    normalized = _normalize_numbers(value)
+    return json.dumps(normalized, sort_keys=True, separators=(",", ":"), default=str)
 
 
 def build_approval_token(payload: dict[str, Any]) -> str:

@@ -253,6 +253,72 @@ def test_verify_write_approval_returns_true_for_matching_token():
     assert is_valid is True
 
 
+# ----- canonical_json / build_approval_token int/float stability -----------
+
+
+def test_canonical_json_treats_integral_float_same_as_int():
+    assert agent_tools.canonical_json({"unit_amount": 1.0}) == agent_tools.canonical_json(
+        {"unit_amount": 1}
+    )
+
+
+def test_canonical_json_normalizes_integral_floats_in_nested_structures():
+    payload = {"values_list": [{"amount": 2.0, "ids": [3.0, 4]}], "record_ids": [5.0]}
+    assert agent_tools.canonical_json(payload) == agent_tools.canonical_json(
+        {"values_list": [{"amount": 2, "ids": [3, 4]}], "record_ids": [5]}
+    )
+
+
+def test_canonical_json_preserves_non_integral_floats():
+    assert agent_tools.canonical_json({"unit_amount": 1.0167}) != agent_tools.canonical_json(
+        {"unit_amount": 1}
+    )
+
+
+def test_canonical_json_does_not_coerce_booleans_to_numbers():
+    assert agent_tools.canonical_json({"active": True}) != agent_tools.canonical_json(
+        {"active": 1}
+    )
+
+
+def test_build_approval_token_matches_across_int_and_float_representation():
+    token_with_float = agent_tools.build_approval_token({"unit_amount": 1.0})
+    token_with_int = agent_tools.build_approval_token({"unit_amount": 1})
+    assert token_with_float == token_with_int
+
+
+def test_verify_write_approval_accepts_token_built_with_integral_float():
+    canonical = {
+        "model": "account.analytic.line",
+        "operation": "create",
+        "record_ids": [],
+        "values": {"unit_amount": 1.0},
+        "context": {},
+        "instance": "default",
+    }
+    # Simulate preview_write hashing a float that arrived as an int through
+    # a re-verification pass (e.g. a JSON transport that dropped the ".0").
+    token = agent_tools.build_approval_token(canonical)
+    reverified = {**canonical, "values": {"unit_amount": 1}, "token": token}
+    is_valid, _ = agent_tools.verify_write_approval(reverified)
+    assert is_valid is True
+
+
+def test_verify_write_approval_accepts_token_built_with_int_reverified_as_float():
+    canonical = {
+        "model": "account.analytic.line",
+        "operation": "create",
+        "record_ids": [],
+        "values": {"unit_amount": 1},
+        "context": {},
+        "instance": "default",
+    }
+    token = agent_tools.build_approval_token(canonical)
+    reverified = {**canonical, "values": {"unit_amount": 1.0}, "token": token}
+    is_valid, _ = agent_tools.verify_write_approval(reverified)
+    assert is_valid is True
+
+
 # ----- validate_write_report metadata branches ------------------------------
 
 

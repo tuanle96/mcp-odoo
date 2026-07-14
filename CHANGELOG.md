@@ -38,6 +38,18 @@ misattributed-freight correction run end-to-end through the write gate.
   cross-version rename map covers additional Odoo model renames.
 
 ### Fixed
+- **Write-approval token instability across int/float JSON transports** —
+  `canonical_json` (`agent_tools.py`) now normalizes integral floats (`1.0`)
+  to `int` (`1`) before hashing, recursively across dicts/lists. Previously,
+  a numeric value that round-tripped through a JSON transport layer where
+  `1` and `1.0` are the same value (common in JS/TS clients and gateways)
+  could change the SHA-256 approval token between `preview_write`/
+  `validate_write` and `execute_approved_write`, causing intermittent
+  `"approval token does not match the canonical payload"` failures on
+  otherwise-valid, unchanged payloads — most visible with "round" numeric
+  field values (e.g. `unit_amount: 1.0` on `account.analytic.line`).
+  Booleans are left untouched. No change to already-issued tokens for
+  payloads that only ever contained plain ints.
 - `get_model_fields` now requests a bounded, marshal-safe `attributes` list
   instead of a full `fields_get`. On Odoo 19, a full `fields_get` faults
   **server-side** for models whose `domain` attribute is `None` (e.g.
