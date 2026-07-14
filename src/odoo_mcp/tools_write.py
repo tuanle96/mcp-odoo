@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import stat
+import xmlrpc.client
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -48,6 +49,10 @@ from .server_core import (
 )
 
 _FROM_PATH_SUFFIX = "_from_path"
+
+# Odoo serializes XML-RPC responses with allow_none=False, so a method that
+# returns None executes (and commits) server-side, then faults with this text.
+_NONE_MARSHAL_FAULT_MARKER = "cannot marshal None unless allow_none is enabled"
 
 
 def _read_attachment_source_file(path: Path, cap: int) -> bytes:
@@ -685,9 +690,12 @@ def execute_method(
                 "success": False,
                 "error": (
                     "Unreviewed side-effect methods are blocked by default. Review "
-                    "custom source and allow exact methods through "
-                    "ODOO_MCP_ALLOWED_SIDE_EFFECT_METHODS=model.method, or set "
-                    "ODOO_MCP_ALLOW_UNKNOWN_METHODS=1 only for trusted deployments."
+                    "custom source, then add the exact 'model.method' to the policy "
+                    "file (ODOO_MCP_POLICY_FILE, default ./odoo_mcp_policy.json, "
+                    "re-read on every request — see odoo_mcp_policy.json.example) "
+                    "or to ODOO_MCP_ALLOWED_SIDE_EFFECT_METHODS=model.method, or "
+                    "set ODOO_MCP_ALLOW_UNKNOWN_METHODS=1 only for trusted "
+                    "deployments."
                 ),
                 "classification": safety,
             }
@@ -705,7 +713,23 @@ def execute_method(
         refusal = check_rate(instance_name, "execute_method")
         if refusal is not None:
             return refusal
-        result = odoo.execute_method(model, method, *args, **kwargs)
+        try:
+            result = odoo.execute_method(model, method, *args, **kwargs)
+        except xmlrpc.client.Fault as fault:
+            if _NONE_MARSHAL_FAULT_MARKER not in str(fault.faultString or ""):
+                raise
+            # Odoo already executed and committed the call; only serializing
+            # the None return value failed. Report success, not a phantom
+            # failure that tempts a retry of a side-effect method.
+            return {
+                "success": True,
+                "result": None,
+                "warning": (
+                    "Method executed and committed server-side; Odoo could not "
+                    "marshal its None return value over XML-RPC, so no result "
+                    "payload is available. Verify state with a read if needed."
+                ),
+            }
         return {"success": True, "result": result}
     except Exception as e:
         return {"success": False, "error": str(e)}

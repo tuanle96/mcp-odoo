@@ -1,6 +1,7 @@
 import asyncio
 import importlib
 import json
+import xmlrpc.client
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
@@ -522,6 +523,57 @@ def test_execute_method_allows_exact_side_effect_allowlist(monkeypatch):
     assert calls == [(("sale.order", "action_confirm", [7]), {})]
     assert blocked["success"] is False
     assert "Unreviewed side-effect" in blocked["error"]
+    assert "odoo_mcp_policy.json" in blocked["error"]
+
+
+def test_execute_method_translates_none_marshal_fault(monkeypatch):
+    server = importlib.import_module("odoo_mcp.server")
+
+    class FakeClient:
+        def execute_method(self, *args, **kwargs):
+            raise xmlrpc.client.Fault(
+                1,
+                "Traceback (most recent call last): ... TypeError: cannot "
+                "marshal None unless allow_none is enabled",
+            )
+
+    monkeypatch.delenv("ODOO_MCP_ALLOW_UNKNOWN_METHODS", raising=False)
+    monkeypatch.setenv(
+        "ODOO_MCP_ALLOWED_SIDE_EFFECT_METHODS", "account.move.button_draft"
+    )
+
+    result = server.execute_method(
+        FakeCtx(FakeClient()),
+        "account.move",
+        "button_draft",
+        args=[[394304]],
+    )
+
+    assert result["success"] is True
+    assert result["result"] is None
+    assert "committed" in result["warning"]
+
+
+def test_execute_method_surfaces_other_faults(monkeypatch):
+    server = importlib.import_module("odoo_mcp.server")
+
+    class FakeClient:
+        def execute_method(self, *args, **kwargs):
+            raise xmlrpc.client.Fault(1, "AccessError: operation not allowed")
+
+    monkeypatch.setenv(
+        "ODOO_MCP_ALLOWED_SIDE_EFFECT_METHODS", "account.move.button_draft"
+    )
+
+    result = server.execute_method(
+        FakeCtx(FakeClient()),
+        "account.move",
+        "button_draft",
+        args=[[394304]],
+    )
+
+    assert result["success"] is False
+    assert "AccessError" in result["error"]
 
 
 def test_validate_write_only_registers_live_metadata_approvals(monkeypatch):
