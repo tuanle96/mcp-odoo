@@ -2,7 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [1.2.1] - 2026-07-14
+
+Community patch: the write-approval gate no longer drops valid tokens on
+int/float transport drift, the 10 highest-traffic tools describe their
+parameters to MCP clients, and the suite is hermetic on developer machines
+that carry a real Odoo config. All three code changes came from community
+PRs. 909 tests.
 
 ### Added
 - **Per-parameter input descriptions (first 10 tools)** — the highest-traffic
