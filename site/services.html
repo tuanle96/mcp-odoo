@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Odoo MCP Services — fixed-price data audit & migration pre-flight</title>
+<meta name="description" content="Two fixed-price, read-only engagements run with the open-source odoo-mcp tooling: an AI-Ready Data Audit in 48 hours ($490 intro) and a Migration Pre-flight in 5 days ($990 intro). Know what's broken — and what upgrading will cost — before you sign anything.">
+<meta property="og:title" content="Odoo MCP Services">
+<meta property="og:description" content="AI-Ready Data Audit in 48h · Migration Pre-flight in 5 days. Fixed price, read-only, evidence-first.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://tuanle96.github.io/mcp-odoo/services.html">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23714B67'/%3E%3Ctext x='7' y='23' font-family='monospace' font-size='17' fill='%23ece7dd'%3E%E2%80%BA_%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&family=Instrument+Serif:ital@0;1&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink: #151513;
+  --ink-2: #1c1c1a;
+  --panel: #201f1c;
+  --line: #35332e;
+  --line-soft: #2a2925;
+  --paper: #ece7dd;
+  --muted: #9b958a;
+  --faint: #6d685f;
+  --plum: #c08bab;
+  --plum-deep: #714B67;
+  --green: #9dc17a;
+  --amber: #d9a441;
+  --serif: "Instrument Serif", Georgia, serif;
+  --sans: "Instrument Sans", -apple-system, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--sans);
+  font-size: 17px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+body::before {
+  content: "";
+  position: fixed; inset: 0;
+  background-image:
+    linear-gradient(var(--line-soft) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line-soft) 1px, transparent 1px);
+  background-size: 72px 72px;
+  opacity: .25;
+  pointer-events: none;
+  z-index: 0;
+  mask-image: radial-gradient(ellipse 90% 60% at 50% 0%, black 30%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse 90% 60% at 50% 0%, black 30%, transparent 75%);
+}
+body::after {
+  content: "";
+  position: fixed; inset: -50%;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 100;
+}
+main, header, footer { position: relative; z-index: 1; }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+a { color: inherit; }
+
+/* ---------- nav ---------- */
+nav {
+  position: sticky; top: 0; z-index: 50;
+  background: color-mix(in srgb, var(--ink) 88%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line-soft);
+}
+.nav-inner { display: flex; align-items: center; justify-content: space-between; height: 60px; }
+.brand {
+  font-family: var(--mono); font-size: 15px; font-weight: 500;
+  text-decoration: none; display: flex; align-items: center; gap: 10px;
+}
+.brand .mark {
+  width: 26px; height: 26px; border-radius: 6px;
+  background: var(--plum-deep); color: var(--paper);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px;
+}
+.brand .suffix { color: var(--plum); }
+.nav-links { display: flex; gap: 28px; align-items: center; }
+.nav-links a {
+  font-family: var(--mono); font-size: 13px; color: var(--muted);
+  text-decoration: none; transition: color .2s;
+}
+.nav-links a:hover { color: var(--paper); }
+.nav-links a.gh {
+  color: var(--paper); border: 1px solid var(--line);
+  padding: 6px 14px; border-radius: 99px; transition: border-color .2s, background .2s;
+}
+.nav-links a.gh:hover { border-color: var(--plum); background: var(--ink-2); }
+@media (max-width: 720px) { .nav-links a:not(.gh) { display: none; } }
+
+/* ---------- hero ---------- */
+.hero { padding: 96px 0 64px; }
+.kicker {
+  font-family: var(--mono); font-size: 13px; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--plum);
+  display: flex; align-items: center; gap: 12px;
+}
+.kicker::before { content: ""; width: 36px; height: 1px; background: var(--plum); }
+h1 {
+  font-family: var(--serif); font-weight: 400;
+  font-size: clamp(40px, 6vw, 70px);
+  line-height: 1.06; letter-spacing: -0.01em;
+  margin: 24px 0 0; max-width: 900px;
+}
+h1 em { font-style: italic; color: var(--plum); }
+.hero-sub { margin-top: 28px; max-width: 620px; color: var(--muted); font-size: 19px; }
+.hero-sub strong { color: var(--paper); font-weight: 500; }
+
+/* ---------- sections ---------- */
+section.wrap { padding-top: 108px; }
+.sec-head { display: flex; align-items: baseline; gap: 20px; margin-bottom: 48px; }
+.sec-no { font-family: var(--mono); font-size: 13px; color: var(--plum); letter-spacing: .1em; white-space: nowrap; }
+h2 { font-family: var(--serif); font-weight: 400; font-size: clamp(30px, 4.4vw, 46px); line-height: 1.1; }
+h2 em { font-style: italic; color: var(--plum); }
+.sec-intro { color: var(--muted); max-width: 640px; margin: -28px 0 48px; }
+
+/* ---------- packages ---------- */
+.pkg-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+.pkg {
+  border: 1px solid var(--line); border-radius: 14px;
+  padding: 34px 32px 32px; background: var(--ink-2);
+  display: flex; flex-direction: column;
+}
+.pkg.hot { border-color: var(--plum); box-shadow: 0 0 0 1px rgba(192,139,171,.25), 0 24px 60px -30px rgba(0,0,0,.8); }
+.pkg .tag {
+  font-family: var(--mono); font-size: 11.5px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--plum); margin-bottom: 16px; display: block;
+}
+.pkg h3 { font-family: var(--serif); font-size: 30px; font-weight: 400; margin-bottom: 6px; }
+.pkg .meta { font-family: var(--mono); font-size: 13px; color: var(--faint); margin-bottom: 18px; }
+.pkg .price { font-family: var(--serif); font-size: 40px; line-height: 1; margin: 6px 0 2px; }
+.pkg .price s { color: var(--faint); font-size: 22px; margin-left: 10px; }
+.pkg .price-note { font-family: var(--mono); font-size: 12px; color: var(--amber); margin-bottom: 20px; }
+.pkg > p { font-size: 15px; color: var(--muted); margin-bottom: 20px; }
+.pkg ul { list-style: none; margin: 0 0 26px; flex: 1; }
+.pkg li { font-size: 14.5px; color: var(--muted); padding: 7px 0 7px 24px; position: relative; }
+.pkg li::before { content: "✓"; position: absolute; left: 0; color: var(--green); font-family: var(--mono); font-size: 12.5px; }
+.pkg li b { color: var(--paper); font-weight: 500; }
+.pkg li code { font-family: var(--mono); font-size: 12.5px; color: var(--paper); background: var(--panel); padding: 1px 6px; border-radius: 4px; }
+.pkg .cta {
+  font-family: var(--mono); font-size: 14px; text-align: center; text-decoration: none;
+  background: var(--plum-deep); color: #f7f3ec;
+  border-radius: 10px; padding: 13px 0; transition: filter .2s;
+}
+.pkg .cta:hover { filter: brightness(1.15); }
+.pkg .cta.alt { background: transparent; border: 1px solid var(--line); color: var(--paper); }
+.pkg .cta.alt:hover { border-color: var(--plum); filter: none; background: var(--panel); }
+@media (max-width: 840px) { .pkg-grid { grid-template-columns: 1fr; } }
+
+/* ---------- how / flow ---------- */
+.flow { border-left: 1px solid var(--line); max-width: 640px; }
+.flow-step { display: flex; gap: 18px; padding: 0 0 30px 0; position: relative; }
+.flow-step::before {
+  content: attr(data-n);
+  font-family: var(--mono); font-size: 12px; color: var(--plum);
+  border: 1px solid var(--line); background: var(--ink);
+  border-radius: 50%; width: 30px; height: 30px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  margin-left: -15.5px;
+}
+.flow-step:last-child { padding-bottom: 0; }
+.flow-step h4 { font-family: var(--mono); font-size: 14px; font-weight: 500; margin-bottom: 4px; }
+.flow-step p { font-size: 14px; color: var(--muted); }
+
+/* ---------- security strip ---------- */
+.sec-strip {
+  border: 1px solid var(--line); border-radius: 14px; background: var(--ink-2);
+  padding: 30px 30px 26px;
+}
+.sec-strip h3 { font-family: var(--sans); font-size: 17px; font-weight: 600; margin-bottom: 14px; }
+.sec-strip ul { list-style: none; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 28px; }
+.sec-strip li { font-size: 14.5px; color: var(--muted); padding: 5px 0 5px 24px; position: relative; }
+.sec-strip li::before { content: "⊘"; position: absolute; left: 0; color: var(--plum); font-family: var(--mono); font-size: 13px; }
+.sec-strip li b { color: var(--paper); font-weight: 500; }
+@media (max-width: 720px) { .sec-strip ul { grid-template-columns: 1fr; } }
+
+/* ---------- agency strip ---------- */
+.agency-strip {
+  border: 1px solid var(--line); border-radius: 14px;
+  padding: 32px 30px; background: transparent;
+  display: flex; gap: 28px; align-items: flex-start; flex-wrap: wrap;
+}
+.agency-strip .mark-lg {
+  width: 44px; height: 44px; border-radius: 10px; flex-shrink: 0;
+  background: var(--plum-deep); color: var(--paper);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-size: 18px;
+}
+.agency-strip p { color: var(--muted); font-size: 15px; max-width: 720px; }
+.agency-strip p strong { color: var(--paper); font-weight: 500; }
+
+/* ---------- faq ---------- */
+.faq { border-top: 1px solid var(--line); max-width: 760px; }
+.faq details { border-bottom: 1px solid var(--line-soft); }
+.faq summary {
+  cursor: pointer; list-style: none; padding: 20px 0;
+  font-family: var(--sans); font-size: 16.5px; font-weight: 500;
+  display: flex; justify-content: space-between; align-items: center; gap: 20px;
+}
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: "+"; font-family: var(--mono); color: var(--plum); font-size: 18px; }
+.faq details[open] summary::after { content: "–"; }
+.faq .a { padding: 0 0 22px; color: var(--muted); font-size: 15px; max-width: 640px; }
+
+/* ---------- footer ---------- */
+footer { margin-top: 120px; border-top: 1px solid var(--line); }
+.foot-inner { display: flex; justify-content: space-between; align-items: flex-start; padding: 48px 0 64px; gap: 40px; flex-wrap: wrap; }
+.foot-brand { font-family: var(--serif); font-size: 28px; }
+.foot-brand em { font-style: italic; color: var(--plum); }
+.foot-sub { font-family: var(--mono); font-size: 12.5px; color: var(--faint); margin-top: 10px; }
+.foot-cols { display: flex; gap: 64px; flex-wrap: wrap; }
+.foot-col h5 {
+  font-family: var(--mono); font-size: 11.5px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--faint); margin-bottom: 14px; font-weight: 500;
+}
+.foot-col a { display: block; font-family: var(--mono); font-size: 13.5px; color: var(--muted); text-decoration: none; margin-bottom: 9px; transition: color .2s; }
+.foot-col a:hover { color: var(--paper); }
+
+/* ---------- motion ---------- */
+.scroll-progress {
+  position: fixed; top: 0; left: 0; height: 2px; width: 0; z-index: 60;
+  background: linear-gradient(90deg, var(--plum-deep), var(--plum), var(--amber));
+  box-shadow: 0 0 10px rgba(192,139,171,.45);
+}
+.reveal { opacity: 0; transform: translateY(22px); transition: opacity .7s cubic-bezier(.2,.7,.3,1), transform .7s cubic-bezier(.2,.7,.3,1); }
+.reveal.in { opacity: 1; transform: none; }
+.hero .reveal { transition-delay: calc(var(--d, 0) * 90ms); }
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; transition: none; }
+  html { scroll-behavior: auto; }
+}
+</style>
+</head>
+<body>
+
+<div class="scroll-progress" id="prog"></div>
+
+<nav>
+  <div class="wrap nav-inner">
+    <a class="brand" href="./"><span class="mark">›_</span>odoo-mcp<span class="suffix">/services</span></a>
+    <div class="nav-links">
+      <a href="#packages">Packages</a>
+      <a href="#how">How it works</a>
+      <a href="#security">Security</a>
+      <a href="#faq">FAQ</a>
+      <a href="cloud.html">Cloud</a>
+      <a class="gh" href="https://github.com/tuanle96/mcp-odoo">GitHub ↗</a>
+    </div>
+  </div>
+</nav>
+
+<main>
+<header class="hero wrap">
+  <p class="kicker reveal in" style="--d:0">Fixed price · read-only · delivered in days</p>
+  <h1 class="reveal in" style="--d:1">Know what’s broken — and what upgrading will cost — <em>before you sign anything.</em></h1>
+  <p class="hero-sub reveal in" style="--d:2">
+    Two productized engagements, run by the maintainer of <a href="https://github.com/tuanle96/mcp-odoo" style="color:var(--paper)">odoo-mcp</a>
+    with the same open-source tooling — <strong>read-only, no module installed, evidence-first</strong>.
+    Every number in the report comes from a tool call against your database, not from a slide deck.
+  </p>
+</header>
+
+<section id="packages" class="wrap">
+  <div class="sec-head reveal">
+    <span class="sec-no">01 /</span>
+    <h2>Two packages. <em>Fixed</em> price. No scope creep.</h2>
+  </div>
+  <div class="pkg-grid">
+    <div class="pkg reveal">
+      <span class="tag">Before AI · before migration</span>
+      <h3>AI-Ready Data Audit</h3>
+      <div class="meta">48-hour turnaround · any Odoo 16–19 · CE &amp; EE</div>
+      <div class="price">$490 <s>$690</s></div>
+      <div class="price-note">intro price — first 10 engagements</div>
+      <p>Messy data is why AI pilots answer confidently and wrongly, and why migrations blow their budgets. Find out exactly how messy — per model, with record IDs — before you spend $15k+ on remediation.</p>
+      <ul>
+        <li><b>Duplicate scan</b> across partners, products, and the models you pick</li>
+        <li><b>Missing required fields &amp; orphaned references</b>, counted and listed</li>
+        <li><b>Format anomalies</b> — emails, VAT/tax IDs, phone numbers</li>
+        <li>Ranked <b>remediation worklist</b> your team (or any partner) can execute</li>
+        <li>HTML report + <b>30-min walkthrough call</b></li>
+      </ul>
+      <!-- TODO(gate-0): swap mailto for Lemon Squeezy / Paddle payment link once the MoR account is live -->
+      <a class="cta" href="mailto:tuanle.works@gmail.com?subject=AI-Ready%20Data%20Audit%20%E2%80%94%20Booking&body=Company%3A%0AOdoo%20version%20%2B%20edition%3A%0AApprox.%20number%20of%20users%3A%0AWhy%20now%20(AI%20pilot%2C%20migration%2C%20cleanup)%3A">Book the audit — $490</a>
+    </div>
+    <div class="pkg hot reveal">
+      <span class="tag">Before you commit to an upgrade quote</span>
+      <h3>Migration Pre-flight</h3>
+      <div class="meta">5 business days · 16→17→18→19 paths · CE &amp; EE</div>
+      <div class="price">$990 <s>$1,500</s></div>
+      <div class="price-note">intro price — first 10 engagements</div>
+      <p>Odoo now surcharges +25% on versions older than three releases, and upgrade quotes without an audit are guesses. This is the audit: what breaks, what it costs, in a report you can hand to any implementation partner.</p>
+      <ul>
+        <li><b>Addon source scan</b> of your custom modules against the target version</li>
+        <li><b>Upgrade risk report</b> — every blocking issue and warning, with file references</li>
+        <li>Action taxonomy per finding: <code>no_action</code> · <code>needs_review</code> · <code>needs_script</code></li>
+        <li><b>Data-quality gate</b> (the full audit on the left, included)</li>
+        <li><b>JSON-2 readiness check</b> — XML-RPC call sites flagged before Odoo 22 removes them</li>
+        <li>Scoped effort estimate + <b>60-min walkthrough call</b></li>
+      </ul>
+      <a class="cta" href="mailto:tuanle.works@gmail.com?subject=Migration%20Pre-flight%20%E2%80%94%20Booking&body=Company%20or%20agency%3A%0ACurrent%20Odoo%20version%20%2B%20edition%3A%0ATarget%20version%3A%0ANumber%20of%20custom%20addons%20(rough)%3A">Book the pre-flight — $990</a>
+    </div>
+  </div>
+</section>
+
+<section id="how" class="wrap">
+  <div class="sec-head reveal">
+    <span class="sec-no">02 /</span>
+    <h2>How an engagement <em>runs</em>.</h2>
+  </div>
+  <div class="flow reveal">
+    <div class="flow-step" data-n="1"><div><h4>15-minute intro call</h4><p>Scope the models (audit) or addons + target version (pre-flight). You create a <b>read-only user + API key</b> — we send instructions, it takes five minutes.</p></div></div>
+    <div class="flow-step" data-n="2"><div><h4>We run the tooling — nothing gets installed</h4><p>The audit runs over XML-RPC/JSON-2 with the open-source odoo-mcp server: field-level ACL on, write gate off, every call logged. Your database is never modified.</p></div></div>
+    <div class="flow-step" data-n="3"><div><h4>Report + walkthrough</h4><p>You get the HTML report, the raw worklist (CSV), and a walkthrough call. Every finding cites the records or files behind it.</p></div></div>
+    <div class="flow-step" data-n="4"><div><h4>Credentials deleted</h4><p>We revoke and delete the access after delivery and confirm it in writing. Want fixes executed too? That’s a separate, gated engagement — never bundled silently.</p></div></div>
+  </div>
+</section>
+
+<section id="security" class="wrap">
+  <div class="sec-head reveal">
+    <span class="sec-no">03 /</span>
+    <h2>Read-only <em>by design</em>, not by promise.</h2>
+  </div>
+  <div class="sec-strip reveal">
+    <h3>The same guarantees the open-source server enforces:</h3>
+    <ul>
+      <li><b>Write gate stays off</b> — create/write/unlink are blocked at the server layer, not by policy</li>
+      <li><b>Field-level ACL</b> — sensitive columns (salaries, bank accounts) excluded before anything reaches an LLM</li>
+      <li><b>JSONL audit log</b> of every call, shared with you at delivery</li>
+      <li><b>Read-only credentials</b> recommended and verified at kickoff</li>
+      <li><b>No data retention</b> — working copies and access deleted after the engagement</li>
+      <li><b>Open-source tooling</b> — audit the code that audits you: <a href="https://github.com/tuanle96/mcp-odoo" style="color:var(--paper)">github.com/tuanle96/mcp-odoo</a></li>
+    </ul>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="agency-strip reveal">
+    <span class="mark-lg">≡</span>
+    <p><strong>Run an agency?</strong> White-label these reports for your own clients — you sell the engagement at your rate, we run the tooling, your logo on the deliverable. Or skip the middleman entirely: the same reports arrive automatically every week with <a href="cloud.html" style="color:var(--paper)">Odoo MCP Cloud</a>. Mention “partner” when you book and we’ll talk margins.</p>
+  </div>
+</section>
+
+<section id="faq" class="wrap">
+  <div class="sec-head reveal">
+    <span class="sec-no">04 /</span>
+    <h2>Fair <em>questions</em>.</h2>
+  </div>
+  <div class="faq reveal">
+    <details>
+      <summary>Our Odoo is on-prem behind a VPN. Can you still audit it?</summary>
+      <div class="a">Three options: temporary IP-allowlisted access, a VPN account for the engagement window, or — if nothing may leave the network — you run the open-source tooling yourself with our runbook and we analyze the exported reports. Same deliverable, same price.</div>
+    </details>
+    <details>
+      <summary>What exactly can you see with the credentials?</summary>
+      <div class="a">Whatever the read-only user you create can see — Odoo’s own record rules still apply — minus the fields we exclude via field-level ACL before any tool result is processed. The audit log we hand over shows every single call made.</div>
+    </details>
+    <details>
+      <summary>What if the audit finds nothing significant?</summary>
+      <div class="a">If the report contains nothing actionable — no duplicates worth merging, no upgrade blockers, no data risks — you get a full refund. It hasn’t happened yet on a database older than a year.</div>
+    </details>
+    <details>
+      <summary>Do you also do the migration / the cleanup?</summary>
+      <div class="a">By design, no — the report is written so any implementation partner (including your existing one) can execute it, which keeps the audit honest: we have no incentive to inflate findings. Supervised remediation of specific worklist items can be scoped separately.</div>
+    </details>
+    <details>
+      <summary>How do I pay?</summary>
+      <div class="a">Card checkout link (or invoice for companies) after the intro call — you pay only when the scope is confirmed. 50% refund if we miss the deadline.</div>
+    </details>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap foot-inner">
+    <div>
+      <div class="foot-brand">odoo-<em>mcp</em></div>
+      <p class="foot-sub">MIT © Lê Anh Tuấn · services run on the same<br>open-source tools you can read on GitHub.</p>
+    </div>
+    <div class="foot-cols">
+      <div class="foot-col">
+        <h5>Product</h5>
+        <a href="./">Odoo MCP (open source)</a>
+        <a href="services.html">Fixed-price services</a>
+        <a href="cloud.html">Cloud for agencies</a>
+      </div>
+      <div class="foot-col">
+        <h5>Project</h5>
+        <a href="https://github.com/tuanle96/mcp-odoo">GitHub</a>
+        <a href="https://pypi.org/project/odoo-mcp/">PyPI</a>
+        <a href="https://github.com/tuanle96/mcp-odoo/blob/main/SECURITY.md">Security</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function () {
+  const io = new IntersectionObserver(entries => {
+    entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
+  }, { threshold: 0.12 });
+  document.querySelectorAll(".reveal:not(.in)").forEach(el => io.observe(el));
+
+  const prog = document.getElementById("prog");
+  let ticking = false;
+  window.addEventListener("scroll", () => {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => {
+      const y = window.scrollY || 0;
+      const h = document.documentElement.scrollHeight - window.innerHeight;
+      if (prog) prog.style.width = (h > 0 ? (y / h) * 100 : 0) + "%";
+      ticking = false;
+    });
+  }, { passive: true });
+})();
+</script>
+</body>
+</html>

@@ -19,6 +19,12 @@
   <a href="https://skills.sh/tuanle96/mcp-odoo"><img alt="Agent Skills" src="https://skills.sh/b/tuanle96/mcp-odoo"></a>
 </p>
 
+<p align="center">
+  <a href="https://tuanle96.github.io/mcp-odoo/cloud.html"><strong>☁️ Odoo MCP Cloud</strong> — hosted for agencies, private beta waitlist</a>
+  &nbsp;·&nbsp;
+  <a href="https://tuanle96.github.io/mcp-odoo/services.html"><strong>🔍 Fixed-price audits</strong> — data quality &amp; migration pre-flight</a>
+</p>
+
 Odoo MCP turns any Odoo 16+ database into a Model Context Protocol server — using only your existing credentials. **No App Store module, no permission setup, no admin access required.** Built for local agents, IDEs, and automation tools that need real Odoo context without hand-rolled scripts or unsafe direct write access.
 
 It speaks XML-RPC for Odoo 16-18 and External JSON-2 for Odoo 19+. It exposes a compact MCP surface with read tools, diagnostics, schema discovery, migration helpers, local addon scanning, and a gated write workflow. One server can serve [multiple named Odoo instances](#multiple-odoo-instances) at once.
