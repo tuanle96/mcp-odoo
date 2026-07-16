@@ -13,6 +13,11 @@ from mcp.server.fastmcp import Context
 
 from .field_policy import get_field_policy
 from .knowledge_index import get_knowledge_store
+from .schemas import (
+    IndexKnowledgeResponse,
+    KnowledgeStatsResponse,
+    SearchKnowledgeResponse,
+)
 from .server_core import (
     PREVIEW_TOOL,
     READ_ONLY_TOOL,
@@ -71,7 +76,7 @@ def index_knowledge(
     limit: int = 500,
     replace: bool = False,
     instance: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> IndexKnowledgeResponse:
     """Index records for free-text relevance search without further RPC calls.
 
     Data stays in process memory on this machine. ``fields=None`` uses the
@@ -106,7 +111,7 @@ def search_knowledge(
     model: str,
     limit: int = 5,
     instance: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> SearchKnowledgeResponse:
     """Rank indexed records against a free-text query (accent-insensitive).
 
     Purely local: never contacts Odoo. Run index_knowledge for the model
@@ -116,9 +121,7 @@ def search_knowledge(
         validate_model_name(model)
         limit = clamp_limit(limit, maximum=50)
         instance_name = str(_srv().resolve_instance_name(instance))
-        result = get_knowledge_store().search(
-            instance_name, model, query, limit=limit
-        )
+        result = get_knowledge_store().search(instance_name, model, query, limit=limit)
         return {"tool": "search_knowledge", **result}
     except Exception as e:
         return {"success": False, "tool": "search_knowledge", "error": str(e)}
@@ -129,7 +132,7 @@ def search_knowledge(
     annotations=PREVIEW_TOOL,
     structured_output=True,
 )
-def knowledge_stats() -> Dict[str, Any]:
+def knowledge_stats() -> KnowledgeStatsResponse:
     """List per-model index sizes, total documents, and the configured cap."""
     try:
         return {

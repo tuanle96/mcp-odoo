@@ -15,6 +15,7 @@ from typing import Any, Callable, Dict, Optional
 
 from mcp.server.fastmcp import Context
 
+from .schemas import AsyncTaskResponse, ListAsyncTasksResponse
 from .accounting_tools import MAX_AGING_LINES, parse_as_of
 from .agent_tools import scan_addons_source_report
 from .server_core import (
@@ -159,7 +160,7 @@ def submit_async_task(
     operation: str,
     params: Optional[Dict[str, Any]] = None,
     instance: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> AsyncTaskResponse:
     """Submit a background task; poll with get_async_task.
 
     Allowlisted operations: scan_addons_source (params: addons_paths,
@@ -198,7 +199,7 @@ def submit_async_task(
     annotations=PREVIEW_TOOL,
     structured_output=True,
 )
-def get_async_task(task_id: str) -> Dict[str, Any]:
+def get_async_task(task_id: str) -> AsyncTaskResponse:
     """Return task status; includes the result once status is succeeded."""
     try:
         return {"tool": "get_async_task", **get_task_manager().status(task_id)}
@@ -211,7 +212,7 @@ def get_async_task(task_id: str) -> Dict[str, Any]:
     annotations=PREVIEW_TOOL,
     structured_output=True,
 )
-def cancel_async_task(task_id: str) -> Dict[str, Any]:
+def cancel_async_task(task_id: str) -> AsyncTaskResponse:
     """Cancel a task: pending tasks never start; running ones are discarded."""
     try:
         return {"tool": "cancel_async_task", **get_task_manager().cancel(task_id)}
@@ -224,7 +225,7 @@ def cancel_async_task(task_id: str) -> Dict[str, Any]:
     annotations=PREVIEW_TOOL,
     structured_output=True,
 )
-def list_async_tasks() -> Dict[str, Any]:
+def list_async_tasks() -> ListAsyncTasksResponse:
     """List live and recently finished tasks (results omitted; poll by id)."""
     try:
         return {

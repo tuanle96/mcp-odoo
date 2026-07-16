@@ -80,6 +80,21 @@ DESCRIBED_INPUT_TOOLS = {
     },
 }
 
+TYPED_DOMAIN_TOOLS = {
+    "index_knowledge": "indexed",
+    "search_knowledge": "results",
+    "knowledge_stats": "indexes",
+    "receivable_payable_aging": "buckets",
+    "accounting_health_summary": "open_receivable_items",
+    "submit_async_task": "task_id",
+    "get_async_task": "task_id",
+    "cancel_async_task": "task_id",
+    "list_async_tasks": "tasks",
+    "search_across_instances": "merged",
+    "aggregate_across_instances": "combined_measures",
+    "accounting_health_across_instances": "combined_buckets",
+}
+
 
 def _tools_by_name():
     tools = asyncio.run(server.mcp.list_tools())
@@ -108,6 +123,17 @@ def test_target_tools_describe_every_input_parameter_and_hide_context():
             assert schema.get("description", "").strip(), (name, parameter)
 
 
+def test_domain_tools_expose_typed_output_schemas():
+    tools = _tools_by_name()
+    for name, marker_field in TYPED_DOMAIN_TOOLS.items():
+        schema = tools[name].outputSchema
+        assert schema is not None, name
+        props = schema.get("properties", {})
+        assert "success" in props, name
+        assert "error" in props, name
+        assert marker_field in props, (name, sorted(props))
+
+
 def test_envelope_models_accept_success_and_error_shapes():
     ok = schemas.SearchRecordsResponse.model_validate(
         {
@@ -131,6 +157,29 @@ def test_envelope_models_accept_success_and_error_shapes():
     assert extra.success is False
 
 
+def test_accounting_health_schema_accepts_runtime_payload():
+    response = schemas.AccountingHealthSummaryResponse.model_validate(
+        {
+            "success": True,
+            "open_receivable_items": 4,
+            "open_payable_items": 3,
+            "draft_invoices": 2,
+        }
+    )
+    assert response.open_receivable_items == 4
+    assert response.open_payable_items == 3
+    assert response.draft_invoices == 2
+
+
+def test_aging_schema_advertises_runtime_payload_fields():
+    properties = schemas.ReceivablePayableAgingResponse.model_json_schema()[
+        "properties"
+    ]
+    assert {"partners", "line_count", "skipped_lines"} <= properties.keys()
+    assert "top_partners" not in properties
+    assert "currency" not in properties
+
+
 def test_load_server_instructions_default(monkeypatch):
     monkeypatch.delenv("ODOO_MCP_INSTRUCTIONS_FILE", raising=False)
     assert (
@@ -149,9 +198,7 @@ def test_load_server_instructions_appends_file(tmp_path, monkeypatch):
 
 
 def test_load_server_instructions_unreadable_fails_closed(monkeypatch, tmp_path):
-    monkeypatch.setenv(
-        "ODOO_MCP_INSTRUCTIONS_FILE", str(tmp_path / "missing.txt")
-    )
+    monkeypatch.setenv("ODOO_MCP_INSTRUCTIONS_FILE", str(tmp_path / "missing.txt"))
     with pytest.raises(ValueError, match="unreadable"):
         server_core.load_server_instructions()
 
@@ -161,6 +208,9 @@ def test_load_server_instructions_truncates(monkeypatch, tmp_path):
     path.write_text("x" * (server_core.MAX_INSTRUCTIONS_CHARS + 500), encoding="utf-8")
     monkeypatch.setenv("ODOO_MCP_INSTRUCTIONS_FILE", str(path))
     text = server_core.load_server_instructions()
-    assert len(text) <= server_core.MAX_INSTRUCTIONS_CHARS + len(
-        server_core.DEFAULT_SERVER_INSTRUCTIONS
-    ) + 2
+    assert (
+        len(text)
+        <= server_core.MAX_INSTRUCTIONS_CHARS
+        + len(server_core.DEFAULT_SERVER_INSTRUCTIONS)
+        + 2
+    )
