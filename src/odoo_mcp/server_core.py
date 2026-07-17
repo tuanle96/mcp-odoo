@@ -408,6 +408,126 @@ def restrict_attachment_upload_path(raw_path: str) -> Path:
 
 
 # ---------------------------------------------------------------------------
+# Field file I/O path helpers (read_field_to_file / write_field_from_file)
+# ---------------------------------------------------------------------------
+
+FIELD_FILE_ROOTS_ENV = "ODOO_MCP_FIELD_FILE_ROOTS"
+
+
+def configured_field_file_roots() -> List[Path]:
+    """Return trusted local roots operators allow field file I/O from.
+
+    Configured by ``ODOO_MCP_FIELD_FILE_ROOTS`` (OS-PATHSEP list of absolute
+    directories). Used by both ``read_field_to_file`` and
+    ``write_field_from_file`` — a value the user can override per call via
+    the ``file_root`` argument on those tools.
+    """
+    roots: List[Path] = []
+    for raw_path in os.environ.get(FIELD_FILE_ROOTS_ENV, "").split(os.pathsep):
+        if not raw_path:
+            continue
+        roots.append(Path(raw_path).expanduser().resolve(strict=False))
+    return roots
+
+
+def _suggest_field_file_roots() -> str:
+    """Build a per-platform hint listing safe default roots.
+
+    The list is a *suggestion*, not an automatic fallback — we still refuse
+    the call without explicit operator consent. ``/tmp`` is *deliberately*
+    not suggested (it is world-readable on most Linux systems and would
+    expose long field payloads to other local users / processes).
+    """
+    home = Path.home()
+    if os.name == "nt":
+        local_app = os.environ.get("LOCALAPPDATA") or str(home / "AppData" / "Local")
+        return (
+            f"  - Windows:  {local_app}\\odoo-mcp\\Cache\\field-files\n"
+            f"               (or any user-owned absolute path)"
+        )
+    # POSIX (Linux + macOS) — XDG_CACHE_HOME defaults to ~/.cache
+    xdg_cache = os.environ.get("XDG_CACHE_HOME") or str(home / ".cache")
+    return (
+        f"  - Linux:    {xdg_cache}/odoo-mcp/field-files\n"
+        f"  - macOS:    {xdg_cache}/odoo-mcp/field-files\n"
+        f"               (or any user-owned absolute path with mode 0700)"
+    )
+
+
+def resolve_file_root_override(file_root: Optional[str]) -> Path:
+    """Resolve the ``file_root`` argument: explicit value wins, else first configured root.
+
+    Raises ValueError when no root is configured *and* no override was
+    supplied — fail-closed is the only safe default here. The error
+    message names the env var, lists platform-suggested paths, and warns
+    against ``/tmp``.
+    """
+    if file_root:
+        candidate = Path(file_root).expanduser().resolve(strict=False)
+        if not candidate.is_absolute():
+            raise ValueError(
+                f"file_root override must be an absolute path; got {file_root!r}"
+            )
+        return candidate
+    roots = configured_field_file_roots()
+    if not roots:
+        raise ValueError(
+            f"{FIELD_FILE_ROOTS_ENV} is not configured and no file_root override "
+            "was supplied — refusing all field file I/O. To enable "
+            "read_field_to_file / write_field_from_file, do ONE of:\n"
+            f"  1. Set {FIELD_FILE_ROOTS_ENV} to one or more absolute directories "
+            "(OS-PATHSEP separated):\n"
+            f"{_suggest_field_file_roots()}\n"
+            "  2. Pass file_root=\"/abs/path\" on each tool call (operator-only).\n"
+            "\n"
+            "Security: do NOT point these roots at /tmp — /tmp is typically "
+            "world-readable on Linux/macOS, which would expose long field "
+            "payloads (HTML comments, source code, internal notes) to other "
+            "local users and processes. Use a per-user directory with mode "
+            "0700 instead."
+        )
+    return roots[0]
+
+
+def restrict_field_file_path(
+    raw_path: str, file_root: Optional[str] = None
+) -> tuple[Path, Path]:
+    """Validate a field file I/O path against an allow-listed root.
+
+    Mirrors the hardened pattern from ``restrict_attachment_upload_path``:
+    the path must be **absolute** and must sit inside (or below) the
+    resolved root. Returns ``(resolved_path, resolved_root)`` so the caller
+    can echo the exact root it landed in.
+
+    Unlike a ``chroot``, sub-directories of the root are allowed — but no
+    symlink or ``..`` traversal may escape it. The combination of
+    ``Path.resolve(strict=False)`` (which already collapses ``..`` and
+    follows symlinks *before* the containment check) plus the explicit
+    relative-to test is sufficient for this containment guarantee.
+
+    Callers MUST additionally use ``O_NOFOLLOW`` / ``O_EXCL`` on the
+    resulting fd to close the TOCTOU window — see ``_read_field_file`` /
+    ``_write_field_file`` in ``tools_write.py``.
+    """
+    resolved_root = resolve_file_root_override(file_root)
+    # Check absolute-path-ness *before* resolve() — otherwise a relative
+    # path silently gets expanded to cwd and the check below would let it
+    # through on any machine whose cwd happens to live inside a root.
+    raw = Path(raw_path).expanduser()
+    if not raw.is_absolute():
+        raise ValueError(
+            f"field file path must be absolute; got {raw_path!r}"
+        )
+    candidate = raw.resolve(strict=False)
+    if not (candidate == resolved_root or _is_relative_to(candidate, resolved_root)):
+        raise ValueError(
+            f"{candidate} is outside the configured field file root "
+            f"{resolved_root}."
+        )
+    return candidate, resolved_root
+
+
+# ---------------------------------------------------------------------------
 # N+1 detection
 # ---------------------------------------------------------------------------
 
@@ -530,6 +650,11 @@ def runtime_security_report() -> Dict[str, Any]:
         "audit_log": audit_posture(),
         "oauth": oauth_posture(),
         "field_acl": field_policy_posture(),
+        "field_file_roots": {
+            "env": FIELD_FILE_ROOTS_ENV,
+            "count": len(configured_field_file_roots()),
+            "roots": [str(root) for root in configured_field_file_roots()],
+        },
         "n_plus_one": n_plus_one_report(),
         "notes": [
             "HTTP transports are local-only by default in the CLI entry point.",

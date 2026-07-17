@@ -157,6 +157,25 @@ def max_attachment_upload_bytes() -> int:
     return max(1, min(value, ATTACHMENT_BYTES_HARD_CAP))
 
 
+DEFAULT_MAX_FIELD_FILE_BYTES = 10 * 1024 * 1024
+
+
+def max_field_file_bytes() -> int:
+    """Read the configured field file I/O size cap (default 10 MiB).
+
+    Backs both ``read_field_to_file`` (incoming field value streamed to disk)
+    and ``write_field_from_file`` (local file contents streamed into a field).
+    Bounded by the same ``ATTACHMENT_BYTES_HARD_CAP`` as attachment uploads,
+    so the operator has one shared ceiling to reason about.
+    """
+    raw = os.environ.get("ODOO_MCP_MAX_FIELD_FILE_BYTES", "").strip()
+    try:
+        value = int(raw) if raw else DEFAULT_MAX_FIELD_FILE_BYTES
+    except ValueError:
+        value = DEFAULT_MAX_FIELD_FILE_BYTES
+    return max(1, min(value, ATTACHMENT_BYTES_HARD_CAP))
+
+
 def truthy_env(name: str) -> bool:
     """Read a common boolean environment flag."""
     return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}

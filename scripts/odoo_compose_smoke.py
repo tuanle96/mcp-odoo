@@ -753,6 +753,7 @@ def assert_tool_surface(tool_names: set[str]) -> None:
         "get_model_fields",
         "search_records",
         "read_record",
+        "read_field_to_file",
         "search_employee",
         "search_holidays",
         "diagnose_odoo_call",
@@ -766,6 +767,7 @@ def assert_tool_surface(tool_names: set[str]) -> None:
         "preview_write",
         "validate_write",
         "execute_approved_write",
+        "write_field_from_file",
         "scan_addons_source",
         "build_domain",
         "business_pack_report",
@@ -1087,8 +1089,8 @@ async def mcp_stdio_smoke(
                 await session.call_tool("health_check", arguments={}),
                 "health_check",
             )
-            if health.get("server", {}).get("tool_count") != 41:
-                raise AssertionError(f"health_check did not report 41 tools: {health}")
+            if health.get("server", {}).get("tool_count") != 43:
+                raise AssertionError(f"health_check did not report 43 tools: {health}")
             if "chatter_direct_enabled" not in health.get("runtime", {}):
                 raise AssertionError(
                     f"health_check did not surface chatter_direct posture: {health}"

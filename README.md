@@ -43,7 +43,7 @@ Once configured (see [Setup](#setup)), ask your agent things like:
 
 | Capability | What it gives you |
 | --- | --- |
-| 41 MCP tools | Read records and attachments, aggregate server-side, post chatter, inspect schema, build domains, scan addons, diagnose calls and upgrade logs, check data quality, access rules, resolve model renames, validate writes, and fan out across instances. |
+| 43 MCP tools | Read records and attachments, aggregate server-side, post chatter, inspect schema, build domains, scan addons, diagnose calls and upgrade logs, check data quality, access rules, resolve model renames, validate writes, stream long fields through the filesystem, and fan out across instances. |
 | Field-level ACL | Opt-in per-instance, per-model field allow/deny enforced on every read path (records, aggregates, knowledge index, resources). First open-source Odoo MCP with it. See [docs/field-acl.md](docs/field-acl.md). |
 | Cross-instance queries | Read-only fan-out across many client DBs with merged, attributed, partial-failure-tolerant results — no warehouse, no sync. See [docs/partner-playbook.md](docs/partner-playbook.md). |
 | Workflow prompts | 11 prompts including 6 end-to-end business workflows (invoice approval, PO match, onboarding, expense review, month-end close, pre-migration data quality) that route writes through the gate. |
@@ -60,6 +60,7 @@ Once configured (see [Setup](#setup)), ask your agent things like:
 | Smart field selection | `search_records` and `read_record` curate business-relevant fields when no `fields` argument is supplied — drops audit, message, binary, and unstored compute noise. Pass `fields=["*"]` to opt out. |
 | Server-side aggregation | `aggregate_records` pushes groupby/sum/count/avg into Postgres via `formatted_read_group` (Odoo 19+) or `read_group` (16-18). |
 | Chatter integration | `chatter_post` adds messages to any `mail.thread` record under the same approval-token gate as writes — or directly via `MCP_CHATTER_DIRECT=1`. |
+| File I/O for long fields | `read_field_to_file` and `write_field_from_file` route HTML/Code/rich-text payloads through the filesystem (escaping-safe, no context-window blow-up). Gated by an allow-listed root (`ODOO_MCP_FIELD_FILE_ROOTS`) — see [docs/field-file-io.md](docs/field-file-io.md). |
 | Locale plumbing | `ODOO_LOCALE` injects `context.lang` automatically on every Odoo call (caller can override). |
 | Structured logging | JSON formatter and rotating file handler via `ODOO_MCP_LOG_LEVEL`, `ODOO_MCP_LOG_JSON`, `ODOO_MCP_LOG_FILE`. |
 | Safe writes | Direct `create`, `write`, and `unlink` are blocked; approved writes require live metadata, a same-session token, explicit confirmation, and an env gate. |
@@ -247,6 +248,8 @@ Optional environment variables:
 | `ODOO_MCP_MAX_ATTACHMENT_BYTES` | `1048576` | Download cap for `read_attachment` content (hard cap 16 MiB). |
 | `ODOO_MCP_ATTACHMENT_UPLOAD_ROOTS` | unset | Colon-separated local directories `validate_write` may read `<field>_from_path` uploads from (mirrors `ODOO_ADDONS_PATHS`). Required — fails closed with no roots configured. |
 | `ODOO_MCP_MAX_ATTACHMENT_UPLOAD_BYTES` | `10485760` | Size cap for `<field>_from_path` local-file uploads (hard cap 16 MiB). |
+| `ODOO_MCP_FIELD_FILE_ROOTS` | unset | Colon-separated absolute directories `read_field_to_file` and `write_field_from_file` may read from / write into. Required — fails closed otherwise; never overwrites existing files. See [docs/field-file-io.md](docs/field-file-io.md). |
+| `ODOO_MCP_MAX_FIELD_FILE_BYTES` | `10485760` | Size cap for `read_field_to_file`/`write_field_from_file` payloads (hard cap 16 MiB). |
 | `ODOO_MCP_AUTH_ISSUER_URL` | unset | OAuth 2.1: authorization server issuer. With the two vars below, the HTTP transport becomes a protected resource server (RFC 9728 metadata + bearer validation). |
 | `ODOO_MCP_AUTH_INTROSPECTION_URL` | unset | RFC 7662 token introspection endpoint of the authorization server. |
 | `ODOO_MCP_AUTH_RESOURCE_URL` | unset | Canonical URL of this MCP server (RFC 8707 audience check when the AS binds tokens). |
@@ -336,9 +339,9 @@ odoo-mcp --health
 
 ## MCP Tools
 
-41 tools grouped by use case. Each tool name is a single-purpose handle the agent can call. Tools that talk to Odoo accept an optional `instance` parameter when multiple instances are configured (see [Multiple Odoo instances](#multiple-odoo-instances)).
+43 tools grouped by use case. Each tool name is a single-purpose handle the agent can call. Tools that talk to Odoo accept an optional `instance` parameter when multiple instances are configured (see [Multiple Odoo instances](#multiple-odoo-instances)).
 
-### Read & Discover (11)
+### Read & Discover (13)
 
 | Tool | Purpose |
 | --- | --- |
@@ -353,6 +356,8 @@ odoo-mcp --health
 | `schema_catalog` | Build a bounded model catalog with optional field metadata. |
 | `build_domain` | Build and validate an Odoo domain from structured conditions. |
 | `read_attachment` | Read an `ir.attachment`'s metadata and size-capped base64 content (`ODOO_MCP_MAX_ATTACHMENT_BYTES`, default 1 MiB). |
+| `read_field_to_file` | Stream one field's value (HTML, source, base64 binary) to a local file inside the configured `ODOO_MCP_FIELD_FILE_ROOTS` — never overwrites existing files, respects the field ACL. See [docs/field-file-io.md](docs/field-file-io.md). |
+| `write_field_from_file` | Set one field from a local file's contents via the preview/execute approval gate. Token never carries file content; execute re-reads the file and re-checks the SHA-256 fingerprint before writing. |
 
 ### Write & Operate (5)
 

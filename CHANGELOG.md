@@ -2,6 +2,88 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-07-17
+
+Field-file I/O release: agents can now route single-field payloads
+between Odoo and the local filesystem instead of forcing them through
+the JSON-RPC envelope — useful for HTML, source code, and other long
+rich-text fields where LLMs routinely mistransform JSON-escaped
+content. The destructive write is gated by the same preview/execute +
+two-phase-confirmation flow used by `chatter_post` and
+`execute_approved_write`. 931 tests.
+
+### Added
+- **`read_field_to_file` (read domain)** — read a single field's value
+  straight to a local file. The file content never re-enters the agent's
+  context window; only the SHA-256 fingerprint, byte count, and
+  encoding cross the wire. Honors the field ACL (redacted values become
+  a `[REDACTED by field ACL]` placeholder, response flags it via
+  `field_was_redacted`). Text fields default to UTF-8; binary fields
+  default to base64 (caller can override). Symlink-safe, refuses
+  overwrite, absolute-path-only.
+- **`write_field_from_file` (write domain)** — write a field's value
+  from a local file via the standard two-phase preview/execute flow.
+  Preview returns an approval token carrying only the file's
+  SHA-256 + size fingerprint (no content); execute re-reads the file,
+  re-checks the hash (catches tamper and TOCTOU), fetches live
+  `fields_get` metadata (refuses `readonly=True`), then routes through
+  the same `confirm=true` + `ODOO_MCP_ENABLE_WRITES=1` gates as every
+  other write. Binary round-trip via base64; otherwise UTF-8.
+- **`ODOO_MCP_FIELD_FILE_ROOTS` allow-list** — colon-separated (or
+  `os.pathsep`-separated) absolute directories the two tools are
+  permitted to read from / write into. Hardened pattern lifted from
+  `ODOO_MCP_ATTACHMENT_UPLOAD_ROOTS`: every path is `Path.resolve()`d
+  before the containment check, so `..` traversal and symlink escapes
+  cannot reach outside the operator's allow-list. Per-call override via
+  the `file_root` argument on both tools.
+- **Fail-closed default with actionable error** — with no env var and
+  no per-call override, both tools reject every call. The error names
+  the env var, lists platform-specific safe defaults (`~/.cache/odoo-mcp/field-files`
+  on Linux/macOS, `%LOCALAPPDATA%\odoo-mcp\Cache\field-files` on
+  Windows), and **explicitly warns against `/tmp`** (typically
+  world-readable — long field payloads would leak to other local
+  users / processes).
+- **Runtime posture in `health_check.runtime.field_file_roots`** —
+  non-secret summary of the configured roots (env var name + count +
+  resolved paths), so an operator can audit what is wired up without
+  reading server logs.
+- **`docs/field-file-io.md`** — exhaustive operator guide (config,
+  examples for HTML comments, binary attachments, and long internal
+  notes; full threat-model table).
+
+### Security
+- TOCTOU on read closed via `O_NOFOLLOW` on the create fd plus
+  `O_CREAT | O_EXCL` (no overwrite, no symlink swap race).
+- TOCTOU on write closed via `O_NOFOLLOW` on the input fd: size cap
+  and SHA-256 are derived from the bytes read through that same fd, so
+  a swap between the path check and the read is rejected.
+- File tamper between preview and execute caught by the
+  re-read + SHA-256 re-check on the execute call (the approval token
+  itself includes the expected hash, so any divergence fires either
+  the explicit hash check or the token-mismatch check, whichever runs
+  first — both are equally valid rejections).
+- Field ACL integration for read: redacted values never appear in
+  file content, response payload, or audit-log entry.
+
+### Fixed
+- **`write_field_from_file` `execute_kw` argument shape** — the
+  initial implementation called
+  `odoo.execute_method(model, "write", [[ids], {vals}])`, which
+  `OdooClient.execute_method(self, model, method, *args, **kwargs)`
+  forwarded as `execute_kw("project.task", "write", [[ids], {vals}])`
+  — a **single** positional arg. Odoo's XML-RPC dispatcher then unpacked
+  it as `ProjectTask.write(*[[ids], {vals}])` → `write([ids], {vals})`,
+  and Odoo faulted with
+  `TypeError: ProjectTask.write() missing 1 required positional argument: 'vals'`.
+  Now called as `odoo.execute_method(model, "write", [ids], {vals})` so
+  ids + vals arrive at Odoo as **two separate** positional arguments
+  (mirrors `execute_approved_write`, which always splatted `*args`).
+  New regression test
+  `test_write_field_from_file_does_not_pack_args_into_single_list`
+  (plus the `execute_method` test stub now records the unpacked
+  `*args` form, matching `OdooClient`'s signature) so a re-introduction
+  of the nested-list form fires immediately.
+
 ## [1.2.1] - 2026-07-14
 
 Community patch: the write-approval gate no longer drops valid tokens on
