@@ -117,6 +117,19 @@ class ReadRecordResponse(ToolResponse):
     redacted_fields: Optional[List[str]] = None
 
 
+class BuildDomainResponse(ToolResponse):
+    domain: Optional[List[Any]] = Field(
+        default=None, description="Validated Odoo domain expression."
+    )
+    conditions: Optional[List[List[Any]]] = Field(
+        default=None, description="Normalized field/operator/value conditions."
+    )
+    issues: Optional[List[Dict[str, Any]]] = Field(
+        default=None, description="Validation errors and warnings."
+    )
+    metadata_used: Optional[Dict[str, Any]] = None
+
+
 class ReadAttachmentResponse(ToolResponse):
     attachment: Optional[Dict[str, Any]] = Field(
         default=None, description="ir.attachment metadata row."

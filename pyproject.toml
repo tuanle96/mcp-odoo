@@ -75,6 +75,7 @@ disallow_incomplete_defs = true
 [[tool.mypy.overrides]]
 module = [
     "odoo_mcp.tools_read",
+    "odoo_mcp.tools_diagnostics",
     "odoo_mcp.tools_accounting",
     "odoo_mcp.tools_async",
     "odoo_mcp.tools_cross_instance",
