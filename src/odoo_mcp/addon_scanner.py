@@ -19,7 +19,19 @@ def scan_addons_source_report(
     max_file_bytes: int = 300_000,
 ) -> dict[str, Any]:
     """Scan local Odoo addon source without importing addon code."""
-    paths = _normalize_scan_paths(addons_paths)
+    return _scan_addons_source_report(
+        paths=_normalize_scan_paths(addons_paths),
+        max_files=max_files,
+        max_file_bytes=max_file_bytes,
+    )
+
+
+def _scan_addons_source_report(
+    *,
+    paths: list[str],
+    max_files: int,
+    max_file_bytes: int,
+) -> dict[str, Any]:
     findings: list[dict[str, Any]] = []
     modules: list[dict[str, Any]] = []
     scanned_files = 0

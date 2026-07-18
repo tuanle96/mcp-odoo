@@ -14,6 +14,7 @@ from importlib import resources
 from typing import Any
 
 from .addon_scanner import (
+    _scan_addons_source_report as _scan_addons_source_report,
     _api_depends_arguments as _api_depends_arguments,
     _computed_fields_by_method as _computed_fields_by_method,
     _contains_super_method_call as _contains_super_method_call,
@@ -28,7 +29,6 @@ from .addon_scanner import (
     _scan_xml_file as _scan_xml_file,
     _super_call_returned as _super_call_returned,
     _super_method_call as _super_method_call,
-    scan_addons_source_report as scan_addons_source_report,
 )
 from .field_ranking import (
     DEFAULT_MAX_QUERY_FIELDS,  # noqa: F401
@@ -92,6 +92,20 @@ BUSINESS_PACKS: dict[str, dict[str, Any]] = {
         "safe_reports": ["employee_lookup", "leave_calendar", "leave_status"],
     },
 }
+
+
+def scan_addons_source_report(
+    *,
+    addons_paths: list[str] | None = None,
+    max_files: int = 200,
+    max_file_bytes: int = 300_000,
+) -> dict[str, Any]:
+    """Scan addon source while preserving legacy helper monkeypatches."""
+    return _scan_addons_source_report(
+        paths=_normalize_scan_paths(addons_paths),
+        max_files=max_files,
+        max_file_bytes=max_file_bytes,
+    )
 
 
 def _normalize_numbers(value: Any) -> Any:
