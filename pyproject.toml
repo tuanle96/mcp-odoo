@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "odoo-mcp"
 version = "1.2.1"
-description = "MCP Server for Odoo Integration"
+description = "Odoo MCP for AI agents — 41 tools, gated writes, multi-instance. Free hosted product: ERPipe (mcp.erpipe.com)"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -16,7 +16,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Operating System :: OS Independent",
 ]
-keywords = ["odoo", "mcp", "server"]
+keywords = ["odoo", "mcp", "server", "model-context-protocol", "chatgpt", "claude", "erpipe"]
 authors = [
     {name = "Lê Anh Tuấn", email = "justin.le.1105@gmail.com"}
 ]
@@ -32,6 +32,7 @@ Documentation = "https://github.com/tuanle96/mcp-odoo#readme"
 Changelog = "https://github.com/tuanle96/mcp-odoo/blob/main/CHANGELOG.md"
 Issues = "https://github.com/tuanle96/mcp-odoo/issues"
 Security = "https://github.com/tuanle96/mcp-odoo/security"
+"Hosted (ERPipe)" = "https://mcp.erpipe.com/"
 
 [project.optional-dependencies]
 dev = [
