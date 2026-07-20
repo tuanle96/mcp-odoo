@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Odoo MCP Cloud — one AI console for every client you manage</title>
-<meta name="description" content="Hosted Odoo MCP for agencies and partners: per-employee tokens instead of password spreadsheets, a central audit trail of every AI action, and a white-label fleet report in your inbox every Monday. Private beta Q3 2026.">
-<meta property="og:title" content="Odoo MCP Cloud">
-<meta property="og:description" content="Every client. One AI console. Zero password spreadsheets. Hosted Odoo MCP for agencies — private beta Q3 2026.">
+<title>ERPipe — free hosted MCP for Odoo (live)</title>
+<meta name="description" content="ERPipe is live: free v1 hosted Odoo MCP at mcp.erpipe.com. Workspace OAuth, multi-instance routing, gated writes, HITL approvals, and an audit dashboard. ChatGPT-first remote MCP — no process to run.">
+<meta property="og:title" content="ERPipe — free hosted MCP for Odoo">
+<meta property="og:description" content="Live free v1: connect ChatGPT or Claude to real Odoo over https://mcp.erpipe.com/mcp. Multi-instance, write gates, audit trail. Self-host the full Python server forever.">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://tuanle96.github.io/mcp-odoo/cloud.html">
+<meta property="og:url" content="https://mcp.erpipe.com/">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23714B67'/%3E%3Ctext x='7' y='23' font-family='monospace' font-size='17' fill='%23ece7dd'%3E%E2%80%BA_%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -275,55 +275,56 @@ footer { margin-top: 120px; border-top: 1px solid var(--line); }
 
 <nav>
   <div class="wrap nav-inner">
-    <a class="brand" href="./"><span class="mark">›_</span>odoo-mcp<span class="suffix">/cloud</span></a>
+    <a class="brand" href="./"><span class="mark">›_</span>odoo-mcp<span class="suffix">/erpipe</span></a>
     <div class="nav-links">
       <a href="#why">Why</a>
       <a href="#how">How it works</a>
       <a href="#pricing">Pricing</a>
       <a href="#faq">FAQ</a>
       <a href="services.html">Services</a>
-      <a class="gh" href="https://github.com/tuanle96/mcp-odoo">GitHub ↗</a>
+      <a class="gh" href="https://mcp.erpipe.com/">Open ERPipe ↗</a>
     </div>
   </div>
 </nav>
 
 <main>
 <header class="hero wrap">
-  <p class="kicker reveal in" style="--d:0">Hosted · for Odoo agencies &amp; partners</p>
-  <h1 class="reveal in" style="--d:1">Every client. One AI console. <em>Zero password spreadsheets.</em></h1>
+  <p class="kicker reveal in" style="--d:0">ERPipe · free v1 · <strong>live in production</strong></p>
+  <h1 class="reveal in" style="--d:1">Remote MCP for Odoo. <em>One workspace URL.</em></h1>
   <p class="hero-sub reveal in" style="--d:2">
-    Odoo MCP Cloud runs the free AI layer for your whole client fleet — hosted, audited, white-label.
-    Your team gets <strong>one URL and personal tokens</strong> instead of shared client logins.
-    You get an answer to the question every client asks: <strong>“what exactly did the AI touch?”</strong>
+    <strong>ERPipe is live</strong> at <a href="https://mcp.erpipe.com/" style="color:var(--plum)">mcp.erpipe.com</a>.
+    Free hosted remote MCP — workspace OAuth, multi-instance routing, gated writes with HITL approvals,
+    and an audit dashboard. Connect <strong>ChatGPT</strong>, Claude, or Cursor once to
+    <code style="font-family:var(--mono);font-size:.9em">https://mcp.erpipe.com/mcp</code>.
+    Prefer local stdio and the full 41-tool pack? Stay on this open-source server.
   </p>
   <div class="hero-cta reveal in" style="--d:3">
-    <!-- TODO(gate-0): replace mailto with Tally/Formspark embed + dedicated address before publishing -->
-    <a class="btn-solid" href="mailto:tuanle.works@gmail.com?subject=Odoo%20MCP%20Cloud%20%E2%80%94%20Waitlist&body=Agency%2Fcompany%3A%0AHow%20many%20client%20Odoo%20instances%3A%0AOdoo%20versions%20in%20your%20fleet%3A%0ABiggest%20pain%20today%3A%20">Join the private-beta waitlist</a>
+    <a class="btn-solid" href="https://mcp.erpipe.com/app/login">Create free workspace →</a>
     <a class="btn-ghost" href="https://github.com/tuanle96/mcp-odoo#readme">or self-host free, forever <span class="arrow">→</span></a>
   </div>
-  <p class="beta-note reveal in" style="--d:4">Private beta Q3 2026 · waitlist gets first month free + founding pricing locked for 12 months.</p>
+  <p class="beta-note reveal in" style="--d:4">No card · fair-use caps · real Odoo only (no shared sandbox) · TypeScript core: <a href="https://github.com/tuanle96/erpipe" style="color:var(--plum)">github.com/tuanle96/erpipe</a></p>
 </header>
 
 <section id="why" class="wrap">
   <div class="sec-head reveal">
     <span class="sec-no">01 /</span>
-    <h2>Built for the way agencies <em>actually</em> run 20+ clients.</h2>
+    <h2>What free v1 <em>actually</em> ships (now).</h2>
   </div>
   <div class="feat-grid">
     <div class="feat reveal">
       <span class="before">the password spreadsheet</span>
-      <h3>Per-employee tokens, revoked in one click</h3>
-      <p>Stop sharing client Odoo logins across the team. Each person gets their own scoped token (<code>read</code> or <code>read+write</code>) per client. Someone leaves? Revoke takes effect in under a minute — no client password rotations.</p>
+      <h3>Workspace OAuth, not shared logins</h3>
+      <p>One grant covers every Odoo instance in the workspace. Write scope is explicit on consent; connection writes still default <strong>OFF</strong>. Revoke sessions from the dashboard.</p>
     </div>
     <div class="feat reveal">
-      <span class="before">the Monday-morning phone call</span>
-      <h3>Fleet report in your inbox at 7:00</h3>
-      <p>AR/AP aging, accounting health, and data-quality flags across every client database — one white-label email, your logo on it, ready to forward. Know before your client does.</p>
+      <span class="before">“which database was that?”</span>
+      <h3>Multi-instance, one MCP URL</h3>
+      <p>Add up to 10 HTTPS Odoo instances per workspace. Every Odoo-bound tool takes an explicit <code>instance</code> key. Read-only fleet tools fan out with attribution and partial errors.</p>
     </div>
     <div class="feat reveal">
       <span class="before">“trust us, it’s fine”</span>
-      <h3>Audit trail for every AI action</h3>
-      <p>When a client asks what the AI read or changed, you show them: every tool call logged per client, per token, per day — searchable, exportable. Writes only ever run through the approval gate.</p>
+      <h3>Audit + HITL write gate</h3>
+      <p>Every tool call is audited. Writes go preview → validate → owner approve (HITL inbox) → execute, with a durable operation journal. Pause/resume kill switch per instance.</p>
     </div>
   </div>
 </section>
@@ -331,111 +332,92 @@ footer { margin-top: 120px; border-top: 1px solid var(--line); }
 <section id="how" class="wrap">
   <div class="sec-head reveal">
     <span class="sec-no">02 /</span>
-    <h2>From signup to a working fleet in <em>one afternoon</em>.</h2>
+    <h2>From signup to ChatGPT in <em>minutes</em>.</h2>
   </div>
   <div class="flow reveal">
-    <div class="flow-step" data-n="1"><div><h4>Add your client instances</h4><p>URL, database, and an API key per client — we recommend a read-only user. Credentials are envelope-encrypted and only ever decrypted inside that client’s isolated runtime.</p></div></div>
-    <div class="flow-step" data-n="2"><div><h4>Invite your team</h4><p>Each teammate gets personal tokens scoped to the clients they work on. No shared secrets, full revocation.</p></div></div>
-    <div class="flow-step" data-n="3"><div><h4>Paste one URL into Claude, Cursor, or your agent</h4><p>Streamable HTTP endpoint per workspace. All 41 open-source tools — reads, diagnostics, migration helpers, gated writes — same behaviour as self-hosted.</p></div></div>
-    <div class="flow-step" data-n="4"><div><h4>Get the weekly fleet report</h4><p>Cross-instance health, aging, and data-quality summary lands in your inbox — white-label on the Agency plan.</p></div></div>
+    <div class="flow-step" data-n="1"><div><h4>Create a free workspace</h4><p>Magic-link or social sign-in at <a href="https://mcp.erpipe.com/app/login" style="color:var(--plum)">mcp.erpipe.com</a>. No card.</p></div></div>
+    <div class="flow-step" data-n="2"><div><h4>Add HTTPS Odoo instance(s)</h4><p>Wizard probes auth/transport (XML-RPC or JSON-2). Credentials are envelope-encrypted; SSRF guards require public HTTPS hosts.</p></div></div>
+    <div class="flow-step" data-n="3"><div><h4>Connect ChatGPT (or Claude) once</h4><p>Developer Mode / remote MCP → <code>https://mcp.erpipe.com/mcp</code>. OAuth workspace grant. Use <code>list_instances</code>, then pass <code>instance</code> on tools.</p></div></div>
+    <div class="flow-step" data-n="4"><div><h4>Govern writes from the dashboard</h4><p>Enable writes when ready, review HITL approvals, read audit/usage. Hosted surface: <strong>37 tools + 7 prompts</strong>.</p></div></div>
   </div>
 </section>
 
 <section id="pricing" class="wrap">
   <div class="sec-head reveal">
     <span class="sec-no">03 /</span>
-    <h2>Planned pricing. <em>Founding</em> rates via the waitlist.</h2>
+    <h2>Free v1. <em>No card.</em> Self-host always free.</h2>
   </div>
   <div class="price-grid">
     <div class="price-card reveal">
-      <div class="tier">Self-host</div>
+      <div class="tier">Self-host (this repo)</div>
       <div class="amount">$0 <span>forever</span></div>
-      <div class="who">the open core, MIT</div>
+      <div class="who">Python · MIT · 41 tools</div>
       <ul>
-        <li>All 41 tools, all features</li>
-        <li>Multi-instance &amp; field ACL</li>
-        <li>Run it on your own metal</li>
-        <li class="na">You operate &amp; update it</li>
+        <li>Full local surface (async, knowledge, plugins…)</li>
+        <li>stdio / Docker / Streamable HTTP</li>
+        <li>You operate it</li>
       </ul>
       <a class="cta" href="https://github.com/tuanle96/mcp-odoo#readme">Install from GitHub</a>
     </div>
-    <div class="price-card reveal">
-      <div class="tier">Solo</div>
-      <div class="amount">$19 <span>/ mo</span></div>
-      <div class="who">freelancers · 1 instance</div>
-      <ul>
-        <li>1 hosted instance</li>
-        <li>Personal tokens + OAuth</li>
-        <li>Auto-updates, zero ops</li>
-        <li class="na">No fleet reports</li>
-      </ul>
-      <a class="cta" href="mailto:tuanle.works@gmail.com?subject=Odoo%20MCP%20Cloud%20%E2%80%94%20Waitlist%20(Solo)">Join waitlist</a>
-    </div>
-    <div class="price-card reveal">
-      <div class="tier">Team</div>
-      <div class="amount">$49 <span>/ mo</span></div>
-      <div class="who">one company · 3 instances</div>
-      <ul>
-        <li>3 hosted instances</li>
-        <li>Team access, per-user tokens</li>
-        <li>Audit dashboard + CSV export</li>
-        <li class="na">No white-label</li>
-      </ul>
-      <a class="cta" href="mailto:tuanle.works@gmail.com?subject=Odoo%20MCP%20Cloud%20%E2%80%94%20Waitlist%20(Team)">Join waitlist</a>
-    </div>
     <div class="price-card hot reveal">
-      <div class="tier">Agency ★</div>
-      <div class="amount">$199 <span>/ mo</span></div>
-      <div class="who">partners · unlimited clients</div>
+      <div class="tier">ERPipe hosted</div>
+      <div class="amount">$0 <span>v1 live</span></div>
+      <div class="who">mcp.erpipe.com · no credit card</div>
       <ul>
-        <li>Unlimited client instances</li>
-        <li>Cross-instance queries &amp; async jobs</li>
-        <li>White-label weekly fleet reports</li>
-        <li>Central audit across all clients</li>
-        <li>Priority support</li>
+        <li>37 tools + multi-instance fleet reads</li>
+        <li>Workspace OAuth + dashboard</li>
+        <li>HITL approvals + audit journal</li>
+        <li>Fair-use rate limits (10 instances / 5 concurrent / 300 calls·min)</li>
+        <li class="na">No billing in v1</li>
       </ul>
-      <a class="cta" href="mailto:tuanle.works@gmail.com?subject=Odoo%20MCP%20Cloud%20%E2%80%94%20Waitlist%20(Agency)&body=Agency%2Fcompany%3A%0AHow%20many%20client%20Odoo%20instances%3A%0AOdoo%20versions%20in%20your%20fleet%3A">Join waitlist</a>
+      <a class="cta" href="https://mcp.erpipe.com/app/login">Open free workspace</a>
     </div>
   </div>
-  <p class="price-note reveal">Pricing is planned, not final — waitlist members lock founding rates for 12 months. Compare: one hour of a consultant’s time per month costs more than the Agency plan.</p>
+  <p class="price-note reveal">Hosted free v1 is live today. If paid plans appear later, existing workspaces get clear notice — nothing is charged without an announced plan change.</p>
 </section>
 
 <section class="wrap">
   <div class="core-strip reveal">
     <span class="mark-lg">›_</span>
-    <p><strong>The open core stays open.</strong> Odoo MCP Cloud is a hosted control plane around the same MIT-licensed server everyone can run for free — nothing moves behind the paywall, ever. You pay for operations: encrypted credential storage, isolated per-client runtimes, OAuth, the audit dashboard, and the fleet reports. If you outgrow us — or never trusted anyone else with client credentials in the first place — <a href="https://github.com/tuanle96/mcp-odoo" style="color:var(--paper)">self-host the exact same tools</a>.</p>
+    <p><strong>Open core stays open.</strong> Hosted is the multi-tenant control plane (OAuth, encrypted credentials, Durable Objects journal, audit UI) around the same product family.
+    Need air-gapped ops, plugins, or the full 41-tool local pack? <a href="https://github.com/tuanle96/mcp-odoo" style="color:var(--paper)">Self-host this Python server</a>
+    or use the <a href="https://github.com/tuanle96/erpipe" style="color:var(--paper)">TypeScript packages</a>.</p>
   </div>
 </section>
 
 <section id="faq" class="wrap">
   <div class="sec-head reveal">
     <span class="sec-no">04 /</span>
-    <h2>Questions agencies <em>actually</em> ask.</h2>
+    <h2>Questions people <em>actually</em> ask.</h2>
   </div>
   <div class="faq reveal">
     <details>
-      <summary>Where do my client credentials live?</summary>
-      <div class="a">Envelope-encrypted at rest. They are only decrypted inside your client’s isolated runtime container at start-up, never written to disk in plaintext, and never appear in logs. We recommend read-only API keys per client — the write gate stays off unless you turn it on.</div>
+      <summary>Is ERPipe live or still waitlist?</summary>
+      <div class="a"><strong>Live.</strong> Create a workspace at <a href="https://mcp.erpipe.com/">mcp.erpipe.com</a>. MCP endpoint: <code>https://mcp.erpipe.com/mcp</code>.</div>
     </details>
     <details>
-      <summary>Does my clients’ data train any model?</summary>
-      <div class="a">No. Odoo MCP Cloud doesn’t bundle an LLM — you bring the model you already use (Claude, GPT, Gemini, a local Ollama). We host the tool layer between your agent and Odoo. Data flows to whichever LLM provider <em>you</em> configured, under your existing agreement with them.</div>
+      <summary>Where do credentials live?</summary>
+      <div class="a">Envelope-encrypted at rest. Decrypted only on the request path — never in logs or the platform admin UI. Prefer read-only API keys; writes stay off until you enable them and complete the approval flow.</div>
+    </details>
+    <details>
+      <summary>Does my data train any model?</summary>
+      <div class="a">No. We don’t bundle an LLM — you bring ChatGPT, Claude, Cursor, or another MCP client. We host the tool layer between your agent and Odoo.</div>
     </details>
     <details>
       <summary>What if the AI tries to change something?</summary>
-      <div class="a">Same behaviour as the open-source server: direct create/write/unlink are blocked. Writes require a preview, live validation, a session-bound approval token, and explicit confirmation — and every step lands in the audit log you can show your client.</div>
+      <div class="a">Direct create/write/unlink stay blocked. Hosted path: preview → validate → owner HITL approve → execute, with a durable journal (no auto-retry on unknown). Pause kills tools without touching the writes toggle.</div>
     </details>
     <details>
-      <summary>Which Odoo versions and editions?</summary>
-      <div class="a">Odoo 16 → 19+, Community and Enterprise, on-prem or Odoo.sh — XML-RPC today, External JSON-2 for 19+, ready years before Odoo 22 removes XML-RPC.</div>
+      <summary>Which Odoo versions? Does Odoo Online work?</summary>
+      <div class="a">Odoo 16–19 via HTTPS XML-RPC or JSON-2. <strong>Odoo Online:</strong> external API only on plans that allow it (typically Custom). Self-host / Community is fine when the host is publicly reachable over HTTPS.</div>
     </details>
     <details>
-      <summary>When does the beta start?</summary>
-      <div class="a">Private beta Q3 2026 with five agencies, public launch planned around Odoo Experience (Sept 24–26). Waitlist members get first pick, first month free, and founding pricing locked for 12 months.</div>
+      <summary>Hosted 37 tools vs self-host 41 — what’s missing?</summary>
+      <div class="a">Hosted focuses on remote agents: core read/diagnose/gated write/report tools, multi-instance fleet reads, instance lifecycle, and webhook event pull. Local-only packs (async workers, BM25 knowledge index, addon source scans, plugins, full 11-prompt set) stay on this Python server.</div>
     </details>
     <details>
-      <summary>Can I resell this to my clients?</summary>
-      <div class="a">That’s the point of the Agency plan — white-label reports and per-client isolation are built for it. A formal partner/reseller margin is planned; tell us on the waitlist form that you want it and you’ll be first in line.</div>
+      <summary>How is this related to odoo-mcp?</summary>
+      <div class="a">Same author and product family. <strong>odoo-mcp</strong> = open-source local MCP server. <strong>ERPipe</strong> = hosted multi-tenant product (+ TypeScript open core at github.com/tuanle96/erpipe). Use both: local for max surface, hosted for ChatGPT/remote teams.</div>
     </details>
   </div>
 </section>
@@ -444,21 +426,21 @@ footer { margin-top: 120px; border-top: 1px solid var(--line); }
 <footer>
   <div class="wrap foot-inner">
     <div>
-      <div class="foot-brand">odoo-<em>mcp</em></div>
-      <p class="foot-sub">MIT © Lê Anh Tuấn · the open core is free forever.<br>Cloud is how it pays the bills.</p>
+      <div class="foot-brand">odoo-<em>mcp</em> / ERPipe</div>
+      <p class="foot-sub">MIT © Lê Anh Tuấn · open core free forever.<br>Hosted free v1 live at mcp.erpipe.com.</p>
     </div>
     <div class="foot-cols">
       <div class="foot-col">
         <h5>Product</h5>
         <a href="./">Odoo MCP (open source)</a>
+        <a href="https://mcp.erpipe.com/">ERPipe hosted</a>
         <a href="services.html">Fixed-price services</a>
-        <a href="cloud.html">Cloud for agencies</a>
       </div>
       <div class="foot-col">
         <h5>Project</h5>
-        <a href="https://github.com/tuanle96/mcp-odoo">GitHub</a>
+        <a href="https://github.com/tuanle96/mcp-odoo">GitHub (Python)</a>
+        <a href="https://github.com/tuanle96/erpipe">GitHub (TypeScript)</a>
         <a href="https://pypi.org/project/odoo-mcp/">PyPI</a>
-        <a href="https://github.com/tuanle96/mcp-odoo/blob/main/SECURITY.md">Security</a>
       </div>
     </div>
   </div>

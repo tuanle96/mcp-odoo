@@ -20,10 +20,29 @@
 </p>
 
 <p align="center">
-  <a href="https://tuanle96.github.io/mcp-odoo/cloud.html"><strong>☁️ Odoo MCP Cloud</strong> — hosted for agencies, private beta waitlist</a>
+  <a href="https://mcp.erpipe.com/"><strong>🚀 ERPipe hosted</strong> — free v1 · live at mcp.erpipe.com</a>
   &nbsp;·&nbsp;
-  <a href="https://tuanle96.github.io/mcp-odoo/services.html"><strong>🔍 Fixed-price audits</strong> — data quality &amp; migration pre-flight</a>
+  <a href="https://github.com/tuanle96/erpipe"><strong>TypeScript open core</strong></a>
+  &nbsp;·&nbsp;
+  <a href="https://tuanle96.github.io/mcp-odoo/services.html"><strong>🔍 Fixed-price audits</strong></a>
 </p>
+
+> **Want ChatGPT / Claude on a stable remote URL without running a process?**  
+> **[ERPipe](https://mcp.erpipe.com/)** is the hosted product from the same author — free v1 public beta, live in production.  
+> Sign up → add HTTPS Odoo instance(s) → connect once to `https://mcp.erpipe.com/mcp` (workspace OAuth, multi-instance, gated writes, audit dashboard).  
+> This repo stays the **local / self-host Python server** (full 41-tool surface, stdio, Docker). TypeScript building blocks: [`erpipe`](https://github.com/tuanle96/erpipe).
+
+| | **This repo (`odoo-mcp`)** | **[ERPipe hosted](https://mcp.erpipe.com/)** |
+|--|--|--|
+| Run where | Your laptop / Docker / CI | Cloudflare (managed) |
+| Install | `uvx odoo-mcp --setup` | Sign up at [mcp.erpipe.com](https://mcp.erpipe.com/) |
+| MCP URL | stdio or local HTTP | `https://mcp.erpipe.com/mcp` |
+| Clients | Claude Code, Cursor, local agents | **ChatGPT** (primary), Claude, Cursor, any remote MCP client |
+| Tool surface | **41 tools** + 11 prompts (full local pack) | **37 tools** + 7 prompts (workspace multi-instance + governance) |
+| Multi-instance | Config file / env on your machine | Dashboard + explicit `instance` key per tool |
+| Writes | Env gate + approval tokens (+ optional MCP elicitation) | Default OFF · HITL inbox · journal · field policy |
+| Audit | Optional JSONL file | Dashboard + D1 audit trail |
+| Cost | Free forever (MIT) | Free v1 beta (fair-use caps) |
 
 Odoo MCP turns any Odoo 16+ database into a Model Context Protocol server — using only your existing credentials. **No App Store module, no permission setup, no admin access required.** Built for local agents, IDEs, and automation tools that need real Odoo context without hand-rolled scripts or unsafe direct write access.
 
