@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.2] - 2026-07-21
+
+Metadata and packaging release: publish a clearer PyPI/registry short
+description that points at the live free hosted product
+[ERPipe](https://mcp.erpipe.com/), plus typed discovery contracts that
+landed on `main` after 1.2.1.
+
+### Added
+- **Typed output schemas for domain tools** — knowledge, accounting, async,
+  and cross-instance tools advertise Pydantic-backed `outputSchema` contracts
+  through `tools/list` (additive; runtime envelopes unchanged). Thanks
+  @barry166. (#50)
+- **Typed `build_domain` success/error contracts** for agent consumers.
+
+### Changed
+- **Package / catalog short descriptions** promote live ERPipe hosted free v1
+  (`mcp.erpipe.com`) while keeping this package the local/self-host 41-tool
+  server. README, site, MCP Desktop Extension manifest, and comparison docs
+  aligned.
+- PyPI `summary` keywords include `erpipe`, `chatgpt`, `claude`, and
+  `model-context-protocol`; project URL `Hosted (ERPipe)` added.
+
 ## [1.2.1] - 2026-07-14
 
 Community patch: the write-approval gate no longer drops valid tokens on
