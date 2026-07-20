@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.tuanle96/mcp-odoo",
-  "description": "Local/self-host Odoo MCP: gated writes, diagnostics, multi-instance. Free hosted product: ERPipe at mcp.erpipe.com.",
+  "description": "Odoo MCP: gated writes, multi-instance. Free hosted: ERPipe (mcp.erpipe.com)",
   "version": "1.2.2",
   "websiteUrl": "https://tuanle96.github.io/mcp-odoo/",
   "repository": {
