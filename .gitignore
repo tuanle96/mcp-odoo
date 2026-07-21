@@ -66,3 +66,6 @@ AGENTS.md
 # Local harness CI workflows depend on the untracked .harness/ toolchain
 .github/workflows/harness.yml
 .github/workflows/eval-nightly.yml
+
+# local helper scripts
+*.sh
