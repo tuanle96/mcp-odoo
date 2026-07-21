@@ -171,14 +171,17 @@ def test_read_field_to_file_requires_configured_root_when_no_override(
 
     assert result["success"] is False
     error = result["error"]
-    # The error must name the env var, mention both remediation paths,
-    # and explicitly warn against /tmp (world-readable on Linux/macOS).
+    # The error must name the env var and explicitly warn against /tmp
+    # (world-readable on Linux/macOS). The remediation is now ONLY to
+    # set ODOO_MCP_FIELD_FILE_ROOTS — file_root cannot widen the
+    # allow-list (see test_file_root_cannot_widen_allow_list below).
     assert "ODOO_MCP_FIELD_FILE_ROOTS" in error
-    assert "file_root=" in error
     assert "/tmp" in error
     assert "world-readable" in error
     # The error should also explain why: refuses all field file I/O.
     assert "refusing" in error.lower() or "fail" in error.lower()
+    # file_root is no longer advertised as a remediation.
+    assert "Pass file_root=" not in error
 
 
 def test_missing_root_error_lists_platform_specific_suggestions(
@@ -209,13 +212,16 @@ def test_missing_root_error_lists_platform_specific_suggestions(
         assert "macOS" in result["error"]
 
 
-def test_read_field_to_file_uses_explicit_file_root_override(
+def test_read_field_to_file_uses_explicit_file_root_override_as_selector(
     tmp_path, monkeypatch
 ):
+    """``file_root`` is a SELECTOR among configured roots (it must equal
+    one of them after resolve) — it cannot invent a new root. The
+    configured root must be set even when ``file_root`` is supplied."""
     server = _import_server()
     allowed = tmp_path / "allowed"
     allowed.mkdir()
-    monkeypatch.delenv("ODOO_MCP_FIELD_FILE_ROOTS", raising=False)
+    monkeypatch.setenv("ODOO_MCP_FIELD_FILE_ROOTS", str(allowed))
 
     output_path = allowed / "explicit_root.html"
     client = _FieldIOClient()
@@ -234,6 +240,125 @@ def test_read_field_to_file_uses_explicit_file_root_override(
     assert output_path.exists()
 
 
+def test_file_root_cannot_widen_allow_list(tmp_path, monkeypatch):
+    """Regression test for the prompt-injection bypass: ``file_root``
+    used to accept any absolute path even when it was outside the
+    configured ``ODOO_MCP_FIELD_FILE_ROOTS`` list — letting a
+    prompt-injected agent pass ``file_root="/"`` and then read / write
+    through any path under it. The selector semantics now reject this
+    outright."""
+    server = _import_server()
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    monkeypatch.setenv("ODOO_MCP_FIELD_FILE_ROOTS", str(allowed))
+
+    ctx = FakeCtx(_FieldIOClient())
+    # ``/`` is not in the configured roots list.
+    result = server.read_field_to_file(
+        ctx,
+        "res.partner",
+        7,
+        "comment",
+        str(allowed / "out.html"),
+        file_root="/",
+    )
+
+    assert result["success"] is False
+    error_text = result["error"].lower()
+    assert (
+        "not one of the configured" in error_text
+        or "cannot widen" in error_text
+    )
+
+    # Same bypass attempt against the write tool.
+    input_path = allowed / "snippet.html"
+    input_path.write_text("payload", encoding="utf-8")
+    write_result = server.write_field_from_file(
+        ctx,
+        "res.partner",
+        9,
+        "comment",
+        str(input_path),
+        file_root="/home/user",
+    )
+    assert write_result["success"] is False
+    assert (
+        "not one of the configured" in write_result["error"].lower()
+        or "cannot widen" in write_result["error"].lower()
+    )
+
+
+def test_file_root_requires_env_var_even_when_supplied(tmp_path, monkeypatch):
+    """Setting ``file_root`` no longer lets you skip
+    ``ODOO_MCP_FIELD_FILE_ROOTS`` — the env var is always required."""
+    server = _import_server()
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    monkeypatch.delenv("ODOO_MCP_FIELD_FILE_ROOTS", raising=False)
+
+    ctx = FakeCtx(_FieldIOClient())
+    result = server.read_field_to_file(
+        ctx,
+        "res.partner",
+        7,
+        "comment",
+        str(allowed / "out.html"),
+        file_root=str(allowed),
+    )
+
+    assert result["success"] is False
+    assert "ODOO_MCP_FIELD_FILE_ROOTS" in result["error"]
+
+
+def test_relative_file_root_rejected_before_resolve(tmp_path, monkeypatch):
+    """Relative ``file_root`` values such as ``\"scratch\"`` must be
+    rejected before ``Path.resolve()`` silently joins them to ``$CWD``."""
+    server = _import_server()
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    monkeypatch.setenv("ODOO_MCP_FIELD_FILE_ROOTS", str(allowed))
+
+    ctx = FakeCtx(_FieldIOClient())
+    result = server.read_field_to_file(
+        ctx,
+        "res.partner",
+        7,
+        "comment",
+        str(allowed / "out.html"),
+        file_root="scratch",
+    )
+
+    assert result["success"] is False
+    assert "absolute" in result["error"].lower()
+
+
+def test_multi_root_accepts_path_under_second_root(tmp_path, monkeypatch):
+    """When no ``file_root`` is supplied, the candidate must be validated
+    against ALL configured roots — not just the first one. Configs like
+    ``ODOO_MCP_FIELD_FILE_ROOTS=/srv/a:/srv/b`` must accept paths under
+    either root."""
+    server = _import_server()
+    root_a = tmp_path / "a"
+    root_b = tmp_path / "b"
+    root_a.mkdir()
+    root_b.mkdir()
+    monkeypatch.setenv(
+        "ODOO_MCP_FIELD_FILE_ROOTS", f"{root_a}{__import__('os').pathsep}{root_b}"
+    )
+
+    ctx = FakeCtx(_FieldIOClient())
+    result = server.read_field_to_file(
+        ctx,
+        "res.partner",
+        7,
+        "comment",
+        str(root_b / "out.html"),
+    )
+
+    assert result["success"] is True, result
+    assert result["file_root"] == str(root_b.resolve())
+
+
 def test_read_field_to_file_handles_binary_field_with_base64(tmp_path, monkeypatch):
     server = _import_server()
     _install_root(monkeypatch, tmp_path)
@@ -250,6 +375,41 @@ def test_read_field_to_file_handles_binary_field_with_base64(tmp_path, monkeypat
     assert result["success"] is True, result
     assert result["encoding"] == "base64"
     assert output_path.read_bytes() == raw_bytes
+
+
+def test_read_field_to_file_rejects_base64_on_non_binary_field(
+    tmp_path, monkeypatch
+):
+    """``encoding=\"base64\"`` is only valid on fields whose
+    ``fields_get.type`` is ``binary``. Without this guard, an
+    arbitrary text field would be silently base64-decoded into garbage
+    bytes (with ``validate=False`` making it best-effort). Reject up
+    front with a clear error naming the field and the metadata type."""
+    server = _import_server()
+    _install_root(monkeypatch, tmp_path)
+    output_path = tmp_path / "out.bin"
+
+    ctx = FakeCtx(_FieldIOClient())
+    # ``comment`` is type=\"html\" in the fake field meta, not binary.
+    result = server.read_field_to_file(
+        ctx,
+        "res.partner",
+        7,
+        "comment",
+        str(output_path),
+        encoding="base64",
+    )
+
+    assert result["success"] is False
+    error_text = result["error"].lower()
+    assert "encoding" in error_text and "base64" in error_text
+    assert "binary" in error_text
+    # The error must name the field and the metadata-reported type so
+    # the agent knows what to fix.
+    assert "comment" in result["error"]
+    assert "html" in result["error"]
+    # The file must NOT have been written.
+    assert not output_path.exists()
 
 
 def test_read_field_to_file_blocks_symlink_escape_within_root(

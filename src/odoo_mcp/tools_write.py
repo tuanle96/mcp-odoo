@@ -763,9 +763,13 @@ def write_field_from_file(
         str,
         Field(
             description=(
-                "Name of the field to set. Binary fields are read as raw bytes; "
-                "for non-binary fields, set encoding='base64' to decode a base64 "
-                "blob from disk."
+                "Name of the field to set. The on-disk interpretation is "
+                "controlled by ``encoding`` — it does NOT mirror Odoo's "
+                "field type. ``encoding='base64'`` (default for binary "
+                "fields) means the file holds RAW BYTES that the server "
+                "will base64-encode for Odoo's wire format; "
+                "``encoding='utf-8'`` (default for text/HTML fields) "
+                "means the file is text decoded as a Unicode string."
             )
         ),
     ],
@@ -782,8 +786,10 @@ def write_field_from_file(
         Optional[str],
         Field(
             description=(
-                "Optional absolute root directory the input_path must sit "
-                "inside; defaults to the first entry of ODOO_MCP_FIELD_FILE_ROOTS."
+                "Optional selector for which configured root the input_path "
+                "must sit inside; must equal one of the ODOO_MCP_FIELD_FILE_ROOTS "
+                "entries. Defaults to the first entry. The argument cannot "
+                "widen the operator's allow-list."
             )
         ),
     ] = None,
@@ -791,8 +797,11 @@ def write_field_from_file(
         Optional[str],
         Field(
             description=(
-                "How to interpret the file contents: 'utf-8' (default for text), "
-                "'base64' (default for binary Odoo fields)."
+                "How to interpret the file contents: 'utf-8' (default for "
+                "text/HTML fields, file is read as text and pushed as a "
+                "Unicode string) or 'base64' (default for binary fields, "
+                "file holds raw bytes that are base64-encoded for Odoo's "
+                "wire format)."
             )
         ),
     ] = None,

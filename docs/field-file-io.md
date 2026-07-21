@@ -107,11 +107,11 @@ export ODOO_MCP_FIELD_FILE_ROOTS="/srv/agent-scratch:/srv/team-scratch"
 export ODOO_MCP_FIELD_FILE_ROOTS="C:/agent-scratch;C:/team-scratch"
 ```
 
-> **No default root, by design.** If neither `ODOO_MCP_FIELD_FILE_ROOTS`
-> nor a per-call `file_root` override is configured, the tools refuse
-> every call. The error message names the env var, lists platform-specific
-> safe defaults (below), and **explicitly warns against `/tmp`** — see
-> [Enabling the tools](#enabling-the-tools) below.
+> **No default root, by design.** If `ODOO_MCP_FIELD_FILE_ROOTS` is not
+> set, both tools refuse every call. The error message names the env
+> var, lists platform-specific safe defaults (below), and **explicitly
+> warns against `/tmp`** — see [Enabling the tools](#enabling-the-tools)
+> below.
 
 - **Absolute paths only.** Relative paths are rejected with a clear error
   before any file system call.
@@ -119,8 +119,13 @@ export ODOO_MCP_FIELD_FILE_ROOTS="C:/agent-scratch;C:/team-scratch"
   configured root (and into sub-directories), but cannot escape it via
   `..` traversal or symlinks — `Path.resolve(strict=False)` collapses
   both before the containment check.
-- **Fail closed.** Without `ODOO_MCP_FIELD_FILE_ROOTS` and without a
-  per-call `file_root` override, both tools reject every call.
+- **Fail closed.** Without `ODOO_MCP_FIELD_FILE_ROOTS`, both tools reject
+  every call. The `file_root` argument cannot stand in for the env var.
+- **`file_root` is a selector, not a bypass.** When supplied, it must
+  equal one of the configured roots after resolve — it cannot widen the
+  operator's allow-list. A prompt-injected agent that passes
+  `file_root="/"` or `file_root="/home/user"` is rejected, even when the
+  env allow-list is set.
 - **No overwrite on read.** `read_field_to_file` refuses if the
   destination path already exists; both the pre-check and `O_CREAT | O_EXCL`
   on open cover a TOCTOU race with a symlink swap.
@@ -135,21 +140,20 @@ export ODOO_MCP_FIELD_FILE_ROOTS="C:/agent-scratch;C:/team-scratch"
 
 There is **no implicit default**. To make `read_field_to_file` /
 `write_field_from_file` work, set `ODOO_MCP_FIELD_FILE_ROOTS` to one or
-more absolute directories (OS-PATHSEP separated), or pass `file_root=`
-on each call. When the tools reject a call because no root is
-configured, the error includes platform-specific safe defaults:
+more absolute directories (OS-PATHSEP separated). The `file_root`
+argument on each tool call is a *selector* among the configured roots —
+it cannot introduce a new root the operator has not approved. When the
+tools reject a call because no root is configured, the error includes
+platform-specific safe defaults:
 
 ```text
-ODOO_MCP_FIELD_FILE_ROOTS is not configured and no file_root override
-was supplied — refusing all field file I/O. To enable
-read_field_to_file / write_field_from_file, do ONE of:
+ODOO_MCP_FIELD_FILE_ROOTS is not configured — refusing all field file I/O.
+To enable read_field_to_file / write_field_from_file, set ODOO_MCP_FIELD_FILE_ROOTS
+to one or more absolute directories (OS-PATHSEP separated):
 
-  1. Set ODOO_MCP_FIELD_FILE_ROOTS to one or more absolute directories
-     (OS-PATHSEP separated):
-    - Linux:    /home/<user>/.cache/odoo-mcp/field-files
-    - macOS:    /home/<user>/.cache/odoo-mcp/field-files
-               (or any user-owned absolute path with mode 0700)
-  2. Pass file_root="/abs/path" on each tool call (operator-only).
+  - Linux:    /home/<user>/.cache/odoo-mcp/field-files
+  - macOS:    /home/<user>/.cache/odoo-mcp/field-files
+              (or any user-owned absolute path with mode 0700)
 
 Security: do NOT point these roots at /tmp — /tmp is typically
 world-readable on Linux/macOS, which would expose long field payloads
@@ -168,7 +172,7 @@ The path suggestions honour `$XDG_CACHE_HOME` on POSIX and
 > every other process and user on the box. The tools refuse this category
 > of mistake in the error message rather than silently honouring it.
 
-### Per-call `file_root` override
+### Per-call `file_root` selector
 
 ```jsonc
 {
@@ -176,9 +180,23 @@ The path suggestions honour `$XDG_CACHE_HOME` on POSIX and
 }
 ```
 
-Useful when an agent is invoked against a temporary working area not in
-the default root set. The override still has to be absolute and is
-resolved at call time, so it can never widen the operator's allow-list.
+Used to pick *which* configured root the path must sit inside, when
+`ODOO_MCP_FIELD_FILE_ROOTS` lists more than one. The argument is a
+**selector**, not a free-form path:
+
+- It must equal one of the entries in `ODOO_MCP_FIELD_FILE_ROOTS` after
+  resolve (so `file_root="/srv/a"` is only valid when `/srv/a` is in
+  the configured list).
+- It must be absolute. Relative values are rejected before
+  `Path.resolve()` runs, so `file_root="scratch"` does not silently
+  become `$CWD/scratch`.
+- It cannot widen the operator's allow-list. A prompt-injected agent
+  passing `file_root="/"` or `file_root="/home/user"` is rejected with
+  a clear error.
+- When omitted, the candidate is validated against *all* configured
+  roots (so multi-root configs like
+  `ODOO_MCP_FIELD_FILE_ROOTS=/srv/a:/srv/b` accept paths under either
+  root without an explicit selector).
 
 ## Environment variables
 

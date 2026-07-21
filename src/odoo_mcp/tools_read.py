@@ -721,16 +721,33 @@ def read_field_to_file(
 
         # Choose encoding. Binary fields always round-trip via base64-decode;
         # for text fields the caller may override via ``encoding`` but cannot
-        # force base64 on a non-binary type (caller mistake).
+        # force base64 on a non-binary type (caller mistake — see below).
         fields_metadata = _cached_fields_metadata(
             app_context, odoo, model, instance_name
         )
         field_meta = fields_metadata.get(field) if isinstance(fields_metadata, dict) else None
         declared_binary = isinstance(field_meta, dict) and field_meta.get("type") == "binary"
+        declared_type = (
+            field_meta.get("type") if isinstance(field_meta, dict) else None
+        )
         if encoding is None:
             chosen_encoding = "base64" if declared_binary else "utf-8"
         else:
             chosen_encoding = encoding.strip().lower()
+        # Enforce the documented contract: ``encoding="base64"`` is only
+        # legal on fields whose ``fields_get.type`` is ``binary``. Without
+        # this guard, ``base64.b64decode(text, validate=False)`` would
+        # silently produce garbage bytes (and ``validate=False`` makes
+        # even that best-effort). Reject up front with a clear error
+        # naming the field and the metadata-reported type so the agent
+        # knows what to fix.
+        if chosen_encoding == "base64" and not declared_binary:
+            raise ValueError(
+                f"encoding='base64' is only valid on binary fields; "
+                f"field {field!r} on {model} has fields_get.type="
+                f"{declared_type!r}. Pass encoding='utf-8' (or omit it) "
+                "for non-binary fields."
+            )
 
         if field_was_redacted:
             payload: bytes = _REDACTED_FIELD_PLACEHOLDER.encode("utf-8")
@@ -739,7 +756,7 @@ def read_field_to_file(
         elif chosen_encoding == "base64":
             if isinstance(raw_value, str):
                 try:
-                    payload = base64.b64decode(raw_value, validate=False)
+                    payload = base64.b64decode(raw_value, validate=True)
                 except Exception as exc:
                     raise ValueError(
                         f"field {field!r} declared binary but value is not "

@@ -454,38 +454,70 @@ def _suggest_field_file_roots() -> str:
     )
 
 
-def resolve_file_root_override(file_root: Optional[str]) -> Path:
-    """Resolve the ``file_root`` argument: explicit value wins, else first configured root.
+def _no_roots_configured_error() -> ValueError:
+    """Build the fail-closed error for the no-roots-configured case.
 
-    Raises ValueError when no root is configured *and* no override was
-    supplied — fail-closed is the only safe default here. The error
-    message names the env var, lists platform-suggested paths, and warns
+    Shared between ``resolve_file_root_override`` and
+    ``restrict_field_file_path`` so every code path that runs without
+    ``ODOO_MCP_FIELD_FILE_ROOTS`` returns the same actionable message:
+    names the env var, lists platform-suggested paths, and warns
     against ``/tmp``.
     """
+    return ValueError(
+        f"{FIELD_FILE_ROOTS_ENV} is not configured — refusing all field "
+        "file I/O. To enable read_field_to_file / write_field_from_file, "
+        f"set {FIELD_FILE_ROOTS_ENV} to one or more absolute directories "
+        "(OS-PATHSEP separated):\n"
+        f"{_suggest_field_file_roots()}\n"
+        "\n"
+        "Security: do NOT point these roots at /tmp — /tmp is typically "
+        "world-readable on Linux/macOS, which would expose long field "
+        "payloads (HTML comments, source code, internal notes) to other "
+        "local users and processes. Use a per-user directory with mode "
+        "0700 instead."
+    )
+
+
+def resolve_file_root_override(file_root: Optional[str]) -> Path:
+    """Resolve the ``file_root`` argument as a selector among configured roots.
+
+    The operator's allow-list (``ODOO_MCP_FIELD_FILE_ROOTS``) is the only
+    source of truth — ``file_root`` cannot widen it. The argument is
+    treated as a selector: when supplied, it must equal one of the
+    configured roots after resolve. When omitted, the first configured
+    root is returned.
+
+    Raises ValueError when no root is configured — fail-closed is the
+    only safe default here. The error message names the env var, lists
+    platform-suggested paths, and warns against ``/tmp``.
+    """
+    roots = configured_field_file_roots()
+    if not roots:
+        raise _no_roots_configured_error()
     if file_root:
-        candidate = Path(file_root).expanduser().resolve(strict=False)
-        if not candidate.is_absolute():
+        # Check absolute-ness on the expanduser'd path *before* resolve() —
+        # otherwise a relative path silently gets expanded to cwd and the
+        # check below would let it through on any machine whose cwd happens
+        # to live inside a root.
+        raw = Path(file_root).expanduser()
+        if not raw.is_absolute():
             raise ValueError(
                 f"file_root override must be an absolute path; got {file_root!r}"
             )
+        candidate = raw.resolve(strict=False)
+        # ``file_root`` is a *selector* among the configured roots — it
+        # cannot invent a new root that the operator has not approved.
+        # This blocks the prompt-injection bypass where an agent passes
+        # file_root="/" or file_root="/home/user" and then reads / writes
+        # through paths the allow-list would have rejected.
+        if not any(candidate == root for root in roots):
+            raise ValueError(
+                f"file_root {candidate} is not one of the configured "
+                f"{FIELD_FILE_ROOTS_ENV} roots: {[str(r) for r in roots]}. "
+                "The file_root argument can only select among configured "
+                "roots; it cannot widen the operator's allow-list."
+            )
         return candidate
-    roots = configured_field_file_roots()
-    if not roots:
-        raise ValueError(
-            f"{FIELD_FILE_ROOTS_ENV} is not configured and no file_root override "
-            "was supplied — refusing all field file I/O. To enable "
-            "read_field_to_file / write_field_from_file, do ONE of:\n"
-            f"  1. Set {FIELD_FILE_ROOTS_ENV} to one or more absolute directories "
-            "(OS-PATHSEP separated):\n"
-            f"{_suggest_field_file_roots()}\n"
-            "  2. Pass file_root=\"/abs/path\" on each tool call (operator-only).\n"
-            "\n"
-            "Security: do NOT point these roots at /tmp — /tmp is typically "
-            "world-readable on Linux/macOS, which would expose long field "
-            "payloads (HTML comments, source code, internal notes) to other "
-            "local users and processes. Use a per-user directory with mode "
-            "0700 instead."
-        )
     return roots[0]
 
 
@@ -495,9 +527,9 @@ def restrict_field_file_path(
     """Validate a field file I/O path against an allow-listed root.
 
     Mirrors the hardened pattern from ``restrict_attachment_upload_path``:
-    the path must be **absolute** and must sit inside (or below) the
-    resolved root. Returns ``(resolved_path, resolved_root)`` so the caller
-    can echo the exact root it landed in.
+    the path must be **absolute** and must sit inside (or below) one of
+    the configured roots. Returns ``(resolved_path, resolved_root)`` so
+    the caller can echo the exact root it landed in.
 
     Unlike a ``chroot``, sub-directories of the root are allowed — but no
     symlink or ``..`` traversal may escape it. The combination of
@@ -505,11 +537,22 @@ def restrict_field_file_path(
     follows symlinks *before* the containment check) plus the explicit
     relative-to test is sufficient for this containment guarantee.
 
+    When ``file_root`` is supplied it acts only as a selector among the
+    configured roots (see ``resolve_file_root_override``) — it cannot
+    widen the operator's allow-list. When omitted, the candidate is
+    validated against *all* configured roots and the matching root is
+    returned, so multi-root configs like
+    ``ODOO_MCP_FIELD_FILE_ROOTS=/srv/a:/srv/b`` accept paths under
+    either root.
+
     Callers MUST additionally use ``O_NOFOLLOW`` / ``O_EXCL`` on the
-    resulting fd to close the TOCTOU window — see ``_read_field_file`` /
-    ``_write_field_file`` in ``tools_write.py``.
+    resulting fd to close the TOCTOU window — see ``_read_field_file``
+    in ``tools_write.py`` and the ``O_CREAT|O_EXCL|O_NOFOLLOW`` block in
+    ``read_field_to_file`` (``tools_read.py``).
     """
-    resolved_root = resolve_file_root_override(file_root)
+    roots = configured_field_file_roots()
+    if not roots:
+        raise _no_roots_configured_error()
     # Check absolute-path-ness *before* resolve() — otherwise a relative
     # path silently gets expanded to cwd and the check below would let it
     # through on any machine whose cwd happens to live inside a root.
@@ -519,12 +562,50 @@ def restrict_field_file_path(
             f"field file path must be absolute; got {raw_path!r}"
         )
     candidate = raw.resolve(strict=False)
-    if not (candidate == resolved_root or _is_relative_to(candidate, resolved_root)):
+    if file_root:
+        # Selector semantics: ``file_root`` must equal one of the
+        # configured roots. Re-validate here so a caller cannot sneak a
+        # different root past the containment check by passing a
+        # ``file_root`` we did not previously see.
+        raw_root = Path(file_root).expanduser()
+        if not raw_root.is_absolute():
+            raise ValueError(
+                f"file_root override must be an absolute path; got {file_root!r}"
+            )
+        resolved_root = raw_root.resolve(strict=False)
+        if not any(resolved_root == root for root in roots):
+            raise ValueError(
+                f"file_root {resolved_root} is not one of the configured "
+                f"{FIELD_FILE_ROOTS_ENV} roots: {[str(r) for r in roots]}. "
+                "The file_root argument can only select among configured "
+                "roots; it cannot widen the operator's allow-list."
+            )
+        # Containment check against the selected root only.
+        if not (
+            candidate == resolved_root
+            or _is_relative_to(candidate, resolved_root)
+        ):
+            raise ValueError(
+                f"{candidate} is outside the configured field file root "
+                f"{resolved_root}."
+            )
+        return candidate, resolved_root
+    # No override: validate against ALL configured roots (mirrors the
+    # attachment-upload path which iterates over every root).
+    matching_root = next(
+        (
+            root
+            for root in roots
+            if candidate == root or _is_relative_to(candidate, root)
+        ),
+        None,
+    )
+    if matching_root is None:
         raise ValueError(
-            f"{candidate} is outside the configured field file root "
-            f"{resolved_root}."
+            f"{candidate} is outside all configured {FIELD_FILE_ROOTS_ENV} "
+            f"roots: {[str(r) for r in roots]}."
         )
-    return candidate, resolved_root
+    return candidate, matching_root
 
 
 # ---------------------------------------------------------------------------
