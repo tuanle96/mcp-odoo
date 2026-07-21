@@ -127,13 +127,27 @@ def diagnose_odoo_call(
     structured_output=True,
 )
 def generate_json2_payload(
-    model: str,
-    method: str,
-    args: Optional[List[Any]] = None,
-    kwargs: Optional[Dict[str, Any]] = None,
-    base_url: Optional[str] = None,
-    database: Optional[str] = None,
-    include_database_header: bool = True,
+    model: Annotated[str, Field(description="Technical Odoo model name, e.g. 'res.partner'.")],
+    method: Annotated[str, Field(description="Odoo model method name to invoke, e.g. 'search_read'.")],
+    args: Annotated[
+        Optional[List[Any]],
+        Field(description="Optional positional arguments to pass to the Odoo method."),
+    ] = None,
+    kwargs: Annotated[
+        Optional[Dict[str, Any]],
+        Field(description="Optional keyword arguments to pass to the Odoo method."),
+    ] = None,
+    base_url: Annotated[
+        Optional[str],
+        Field(description="Optional override of the Odoo base URL; defaults to the configured instance URL."),
+    ] = None,
+    database: Annotated[
+        Optional[str],
+        Field(description="Optional override of the Odoo database name; defaults to the configured instance DB."),
+    ] = None,
+    include_database_header: Annotated[
+        bool, Field(description="Whether to include the X-Odoo-Database header in the preview.")
+    ] = True,
 ) -> Dict[str, Any]:
     """Generate a JSON-2 endpoint, headers, and named JSON body."""
     return generate_json2_payload_report(
@@ -154,12 +168,29 @@ def generate_json2_payload(
 )
 def inspect_model_relationships(
     ctx: Context,
-    model: str,
-    fields_metadata: Optional[Dict[str, Any]] = None,
-    include_readonly: bool = True,
-    include_computed: bool = True,
-    use_live_metadata: bool = True,
-    instance: Optional[str] = None,
+    model: Annotated[str, Field(description="Technical Odoo model name to inspect, e.g. 'res.partner'.")],
+    fields_metadata: Annotated[
+        Optional[Dict[str, Any]],
+        Field(
+            description=(
+                "Optional pre-fetched fields_get dict to analyze. When omitted and "
+                "use_live_metadata is true, the tool fetches it via bounded fields_get."
+            )
+        ),
+    ] = None,
+    include_readonly: Annotated[
+        bool, Field(description="Whether to include readonly fields in the report; default true.")
+    ] = True,
+    include_computed: Annotated[
+        bool, Field(description="Whether to include computed (non-stored) fields; default true.")
+    ] = True,
+    use_live_metadata: Annotated[
+        bool, Field(description="When true and no fields_metadata is provided, fetch live fields_get from Odoo.")
+    ] = True,
+    instance: Annotated[
+        Optional[str],
+        Field(description="Optional configured Odoo instance name; uses the default if omitted."),
+    ] = None,
 ) -> Dict[str, Any]:
     """Summarize relationship fields using provided metadata or bounded fields_get."""
     try:
@@ -565,9 +596,13 @@ def upgrade_risk_report(
     structured_output=True,
 )
 def analyze_upgrade_log(
-    log_text: str,
-    source_version: Optional[str] = None,
-    target_version: Optional[str] = None,
+    log_text: Annotated[str, Field(description="Raw Odoo install/update/upgrade log text to classify.")],
+    source_version: Annotated[
+        Optional[str], Field(description="Optional source Odoo version, e.g. '16.0'.")
+    ] = None,
+    target_version: Annotated[
+        Optional[str], Field(description="Optional target Odoo version, e.g. '17.0'.")
+    ] = None,
 ) -> Dict[str, Any]:
     """
     Parse an Odoo install/update/upgrade log and classify known failure
@@ -613,12 +648,39 @@ def lookup_model_history(name: str) -> Dict[str, Any]:
     structured_output=True,
 )
 def fit_gap_report(
-    requirements: List[Any],
-    available_models: Optional[List[str]] = None,
-    available_fields: Optional[Dict[str, Any]] = None,
-    installed_modules: Optional[List[Any]] = None,
-    business_context: Optional[Dict[str, Any]] = None,
-    use_live_metadata: bool = False,
+    requirements: Annotated[
+        List[Any],
+        Field(
+            description=(
+                "List of requirement objects or strings to bucketize. Each item is "
+                "normalized into a requirement dict before classification."
+            )
+        ),
+    ],
+    available_models: Annotated[
+        Optional[List[str]],
+        Field(description="Optional list of Odoo model names already in the target environment."),
+    ] = None,
+    available_fields: Annotated[
+        Optional[Dict[str, Any]],
+        Field(
+            description=(
+                "Optional {model: [field, ...]} map of currently available fields to "
+                "use when judging each requirement's fit."
+            )
+        ),
+    ] = None,
+    installed_modules: Annotated[
+        Optional[List[Any]],
+        Field(description="Optional list of installed Odoo modules to constrain the analysis."),
+    ] = None,
+    business_context: Annotated[
+        Optional[Dict[str, Any]],
+        Field(description="Optional free-form business context (industry, size, etc.)."),
+    ] = None,
+    use_live_metadata: Annotated[
+        bool, Field(description="Reserved flag; this preview tool is input-driven in this release.")
+    ] = False,
 ) -> Dict[str, Any]:
     """Normalize requirements into standard/config/Studio/custom/avoid/unknown buckets."""
     report = build_fit_gap_report(
@@ -641,9 +703,21 @@ def fit_gap_report(
     structured_output=True,
 )
 def scan_addons_source(
-    addons_paths: Optional[List[str]] = None,
-    max_files: int = 200,
-    max_file_bytes: int = 300_000,
+    addons_paths: Annotated[
+        Optional[List[str]],
+        Field(
+            description=(
+                "Optional list of absolute filesystem paths to Odoo addon roots. "
+                "When omitted, falls back to ODOO_ADDONS_PATHS."
+            )
+        ),
+    ] = None,
+    max_files: Annotated[
+        int, Field(description="Maximum number of addon files to scan; default 200, capped at 1000.")
+    ] = 200,
+    max_file_bytes: Annotated[
+        int, Field(description="Skip files larger than this many bytes; default 300000 (300 KB).")
+    ] = 300_000,
 ) -> Dict[str, Any]:
     """Summarize manifests, custom models, risky methods, views, and ACL files."""
     try:
@@ -665,9 +739,27 @@ def scan_addons_source(
     structured_output=True,
 )
 def build_domain(
-    conditions: List[Dict[str, Any]],
-    logical_operator: str = "and",
-    fields_metadata: Optional[Dict[str, Any]] = None,
+    conditions: Annotated[
+        List[Dict[str, Any]],
+        Field(
+            description=(
+                "List of {field, operator, value} condition objects. They are combined "
+                "with the chosen logical_operator."
+            )
+        ),
+    ],
+    logical_operator: Annotated[
+        str, Field(description='How to combine conditions: "and" or "or". Default "and".')
+    ] = "and",
+    fields_metadata: Annotated[
+        Optional[Dict[str, Any]],
+        Field(
+            description=(
+                "Optional {field: fields_get entry} map used to validate field names, "
+                "operators, and value shapes."
+            )
+        ),
+    ] = None,
 ) -> Dict[str, Any]:
     """Build safe domain arrays for search_records and Odoo ORM calls."""
     try:

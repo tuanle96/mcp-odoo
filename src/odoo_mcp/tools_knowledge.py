@@ -7,9 +7,10 @@ Records are fetched once over the existing read surface, then ranked
 locally with BM25 — no embeddings service and no data leaving the machine.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Optional
 
 from mcp.server.fastmcp import Context
+from pydantic import Field
 
 from .field_policy import get_field_policy
 from .knowledge_index import get_knowledge_store
@@ -70,12 +71,36 @@ def fetch_and_index(
 )
 def index_knowledge(
     ctx: Context,
-    model: str,
-    domain: Optional[Any] = None,
-    fields: Optional[List[str]] = None,
-    limit: int = 500,
-    replace: bool = False,
-    instance: Optional[str] = None,
+    model: Annotated[str, Field(description="Technical Odoo model name to index, e.g. 'res.partner'.")],
+    domain: Annotated[
+        Optional[Any],
+        Field(
+            description=(
+                "Optional Odoo domain filter — same shape as search_records.domain. "
+                "Used to bound the slice of records fed into the local index."
+            )
+        ),
+    ] = None,
+    fields: Annotated[
+        Optional[List[str]],
+        Field(
+            description=(
+                "Optional subset of field names to store in the index. Omit for the "
+                "same smart-field selection as search_records; the index payload is "
+                "always field-ACL redacted before storage."
+            )
+        ),
+    ] = None,
+    limit: Annotated[
+        int, Field(description="Maximum records to fetch and index; default 500, capped at 2000.")
+    ] = 500,
+    replace: Annotated[
+        bool, Field(description="When true, drop the existing index for this model before re-indexing.")
+    ] = False,
+    instance: Annotated[
+        Optional[str],
+        Field(description="Optional configured Odoo instance name; uses the default if omitted."),
+    ] = None,
 ) -> IndexKnowledgeResponse:
     """Index records for free-text relevance search without further RPC calls.
 

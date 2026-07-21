@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.1] - 2026-07-21
+
+### Fixed
+- **JSON-Schema wrapping bug for list/dict tool parameters** — tool
+  parameters declared as `Optional[List[…]]`, `List[…]`, or
+  `Optional[Dict[…]]` without an `Annotated[…, Field(description=…)]`
+  wrapper were emitted into the JSON schema as a `{"item": […]}` object
+  wrapper instead of a proper array. Clients (MCP inspector, Cline,
+  Claude Desktop) then rejected the call with a `list_type` validation
+  error: `Input should be a valid list [type=list_type, input_value=
+  {'item': [...]}, input_type=dict]`. The fix wraps every affected
+  parameter in `Annotated[…, Field(description=…)]` so Pydantic emits
+  a clean `{"type": "array", "items": …}` (or `{"type": "object"}`)
+  schema. The `domain`, `fields`, `field_names`, `group_by`, `measures`,
+  `checks`, `key_fields`, `args`, `kwargs`, `values`, `values_list`,
+  `record_ids`, `context`, `partner_ids`, `attachment_ids`,
+  `available_models`, `available_fields`, `installed_modules`,
+  `conditions`, `addons_paths`, and `instances` parameters are now all
+  array-safe. Tools fixed: `get_model_fields`, `search_records`,
+  `read_record`, `aggregate_records`, `index_knowledge`,
+  `data_quality_report`, `generate_json2_payload`,
+  `inspect_model_relationships`, `analyze_upgrade_log`,
+  `fit_gap_report`, `scan_addons_source`, `build_domain`,
+  `preview_write`, `validate_write`, `chatter_post`,
+  `search_across_instances`, `aggregate_across_instances`. No behavior
+  change at runtime — only the `tools/list` JSON-Schema surface is
+  corrected, so the existing test suite and all call sites are
+  unchanged.
+
 ## [1.3.0] - 2026-07-17
 
 Field-file I/O release: agents can now route single-field payloads

@@ -206,13 +206,35 @@ async def _elicit_write_confirmation(
     structured_output=True,
 )
 def preview_write(
-    model: str,
-    operation: str,
-    values: Optional[Dict[str, Any]] = None,
-    values_list: Optional[List[Dict[str, Any]]] = None,
-    record_ids: Optional[List[int]] = None,
-    context: Optional[Dict[str, Any]] = None,
-    instance: Optional[str] = None,
+    model: Annotated[str, Field(description="Technical Odoo model name, e.g. 'res.partner'.")],
+    operation: Annotated[
+        str, Field(description='Write operation: "create", "write", or "unlink".')
+    ],
+    values: Annotated[
+        Optional[Dict[str, Any]],
+        Field(description="Optional single-record payload for create/write."),
+    ] = None,
+    values_list: Annotated[
+        Optional[List[Dict[str, Any]]],
+        Field(
+            description=(
+                "Optional batch payload for create — one dict per record, max 100. "
+                "Executes as a single atomic Odoo create(vals_list) call."
+            )
+        ),
+    ] = None,
+    record_ids: Annotated[
+        Optional[List[int]],
+        Field(description="Optional list of record IDs (required for write/unlink)."),
+    ] = None,
+    context: Annotated[
+        Optional[Dict[str, Any]],
+        Field(description="Optional Odoo context dict applied to the write call."),
+    ] = None,
+    instance: Annotated[
+        Optional[str],
+        Field(description="Optional configured Odoo instance name; uses the default if omitted."),
+    ] = None,
 ) -> Dict[str, Any]:
     """Build a canonical approval token for a later approved write.
 
@@ -251,15 +273,42 @@ def preview_write(
 )
 def validate_write(
     ctx: Context,
-    model: str,
-    operation: str,
-    values: Optional[Dict[str, Any]] = None,
-    values_list: Optional[List[Dict[str, Any]]] = None,
-    record_ids: Optional[List[int]] = None,
-    context: Optional[Dict[str, Any]] = None,
-    fields_metadata: Optional[Dict[str, Any]] = None,
-    use_live_metadata: bool = True,
-    instance: Optional[str] = None,
+    model: Annotated[str, Field(description="Technical Odoo model name, e.g. 'res.partner'.")],
+    operation: Annotated[
+        str, Field(description='Write operation: "create", "write", or "unlink".')
+    ],
+    values: Annotated[
+        Optional[Dict[str, Any]],
+        Field(description="Optional single-record payload for create/write."),
+    ] = None,
+    values_list: Annotated[
+        Optional[List[Dict[str, Any]]],
+        Field(description="Optional batch payload for create — one dict per record, max 100."),
+    ] = None,
+    record_ids: Annotated[
+        Optional[List[int]],
+        Field(description="Optional list of record IDs (required for write/unlink)."),
+    ] = None,
+    context: Annotated[
+        Optional[Dict[str, Any]],
+        Field(description="Optional Odoo context dict applied to the write call."),
+    ] = None,
+    fields_metadata: Annotated[
+        Optional[Dict[str, Any]],
+        Field(
+            description=(
+                "Optional pre-fetched fields_get dict for validation. When omitted "
+                "and use_live_metadata is true, the tool fetches it via bounded fields_get."
+            )
+        ),
+    ] = None,
+    use_live_metadata: Annotated[
+        bool, Field(description="When true and no fields_metadata is provided, fetch live fields_get from Odoo.")
+    ] = True,
+    instance: Annotated[
+        Optional[str],
+        Field(description="Optional configured Odoo instance name; uses the default if omitted."),
+    ] = None,
 ) -> Dict[str, Any]:
     """Validate write shape and return an approval payload when safe."""
     try:
@@ -549,16 +598,40 @@ def _build_chatter_payload(
 )
 def chatter_post(
     ctx: Context,
-    model: str,
-    record_id: int,
-    body: str,
-    message_type: str = "comment",
-    subtype_xmlid: Optional[str] = None,
-    partner_ids: Optional[List[int]] = None,
-    attachment_ids: Optional[List[int]] = None,
-    approval: Optional[Dict[str, Any]] = None,
-    confirm: bool = False,
-    instance: Optional[str] = None,
+    model: Annotated[str, Field(description="Technical Odoo model name, e.g. 'project.task'.")],
+    record_id: Annotated[int, Field(description="ID of the record to post the message on.")],
+    body: Annotated[str, Field(description="Message body text (plaintext or HTML).")],
+    message_type: Annotated[
+        str, Field(description="Message type: 'comment' (default) or 'notification'.")
+    ] = "comment",
+    subtype_xmlid: Annotated[
+        Optional[str],
+        Field(description="Optional mail.message.subtype XMLID, e.g. 'mail.mt_note'."),
+    ] = None,
+    partner_ids: Annotated[
+        Optional[List[int]],
+        Field(description="Optional list of res.partner IDs to notify in addition to followers."),
+    ] = None,
+    attachment_ids: Annotated[
+        Optional[List[int]],
+        Field(description="Optional list of ir.attachment IDs to attach to the message."),
+    ] = None,
+    approval: Annotated[
+        Optional[Dict[str, Any]],
+        Field(
+            description=(
+                "Execute-mode only: the approval payload returned from a previous "
+                "preview call. Omit on the first call to receive a preview token."
+            )
+        ),
+    ] = None,
+    confirm: Annotated[
+        bool, Field(description="Required true to execute; ignored in preview mode.")
+    ] = False,
+    instance: Annotated[
+        Optional[str],
+        Field(description="Optional configured Odoo instance name; uses the default if omitted."),
+    ] = None,
 ) -> Dict[str, Any]:
     """Post a message on the chatter of a mail.thread-derived record.
 

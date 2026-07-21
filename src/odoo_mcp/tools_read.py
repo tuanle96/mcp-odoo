@@ -335,11 +335,22 @@ def list_models(
 )
 def get_model_fields(
     ctx: Context,
-    model: str,
-    field_names: Optional[List[str]] = None,
-    relevance: Optional[str] = None,
-    max_fields: int = DEFAULT_MAX_RELEVANT_FIELDS,
-    instance: Optional[str] = None,
+    model: Annotated[str, Field(description="Technical Odoo model name, e.g. 'res.partner'.")],
+    field_names: Annotated[
+        Optional[List[str]],
+        Field(description="Optional subset of field names to return; omit for all fields."),
+    ] = None,
+    relevance: Annotated[
+        Optional[str],
+        Field(description='When "top", rank by business relevance and cap at max_fields.'),
+    ] = None,
+    max_fields: Annotated[
+        int, Field(description="Maximum fields to return when relevance='top'; default 15.")
+    ] = DEFAULT_MAX_RELEVANT_FIELDS,
+    instance: Annotated[
+        Optional[str],
+        Field(description="Optional configured Odoo instance name; uses the default if omitted."),
+    ] = None,
 ) -> GetModelFieldsResponse:
     """
     Read field definitions for a model.
@@ -402,14 +413,49 @@ def get_model_fields(
 )
 def search_records(
     ctx: Context,
-    model: str,
-    domain: Optional[Any] = None,
-    fields: Optional[List[str]] = None,
-    limit: int = 10,
-    offset: int = 0,
-    order: Optional[str] = None,
-    query: Optional[str] = None,
-    instance: Optional[str] = None,
+    model: Annotated[str, Field(description="Technical Odoo model name, e.g. 'res.partner'.")],
+    domain: Annotated[
+        Optional[Any],
+        Field(
+            description=(
+                "Optional Odoo domain filter. Accepts a standard Odoo domain list, "
+                "a JSON string, or {\"conditions\": [{\"field\": ..., \"operator\": ..., "
+                "\"value\": ...}]}. Multiple conditions are AND-combined."
+            )
+        ),
+    ] = None,
+    fields: Annotated[
+        Optional[List[str]],
+        Field(
+            description=(
+                "Optional subset of field names to return. Omit for smart-field "
+                "selection; pass ['*'] for every available field."
+            )
+        ),
+    ] = None,
+    limit: Annotated[
+        int, Field(description="Maximum records to return; default 10, capped at 100.")
+    ] = 10,
+    offset: Annotated[
+        int, Field(description="Number of records to skip; default 0.")
+    ] = 0,
+    order: Annotated[
+        Optional[str],
+        Field(description="Optional Odoo sort order, e.g. 'name asc' or 'date desc'."),
+    ] = None,
+    query: Annotated[
+        Optional[str],
+        Field(
+            description=(
+                "Optional free-text shortcut: the server builds an OR ilike domain "
+                "across the model's searchable text fields and ANDs it with `domain`."
+            )
+        ),
+    ] = None,
+    instance: Annotated[
+        Optional[str],
+        Field(description="Optional configured Odoo instance name; uses the default if omitted."),
+    ] = None,
 ) -> SearchRecordsResponse:
     """
     Search and read records with bounded read-only semantics.
@@ -479,10 +525,21 @@ def search_records(
 )
 def read_record(
     ctx: Context,
-    model: str,
-    record_id: int,
-    fields: Optional[List[str]] = None,
-    instance: Optional[str] = None,
+    model: Annotated[str, Field(description="Technical Odoo model name, e.g. 'res.partner'.")],
+    record_id: Annotated[int, Field(description="ID of the record to read.")],
+    fields: Annotated[
+        Optional[List[str]],
+        Field(
+            description=(
+                "Optional subset of field names to return. Omit for smart-field "
+                "selection; pass ['*'] for every available field."
+            )
+        ),
+    ] = None,
+    instance: Annotated[
+        Optional[str],
+        Field(description="Optional configured Odoo instance name; uses the default if omitted."),
+    ] = None,
 ) -> ReadRecordResponse:
     """
     Read one record by ID with bounded read-only semantics.
@@ -855,15 +912,56 @@ def read_attachment(
 )
 def aggregate_records(
     ctx: Context,
-    model: str,
-    group_by: List[str],
-    measures: Optional[List[str]] = None,
-    domain: Optional[Any] = None,
-    lazy: bool = False,
-    limit: Optional[int] = None,
-    offset: int = 0,
-    order: Optional[str] = None,
-    instance: Optional[str] = None,
+    model: Annotated[str, Field(description="Technical Odoo model name, e.g. 'res.partner'.")],
+    group_by: Annotated[
+        List[str],
+        Field(
+            description=(
+                "Fields to group by; suffix a date/datetime field with ':granularity' "
+                "(day, week, month, quarter, year). Must include at least one field."
+            )
+        ),
+    ],
+    measures: Annotated[
+        Optional[List[str]],
+        Field(
+            description=(
+                'Optional list of "field:agg" measure specs. Default aggregator is sum. '
+                "Allowed: sum, avg, min, max, count, count_distinct, array_agg, "
+                "bool_and, bool_or."
+            )
+        ),
+    ] = None,
+    domain: Annotated[
+        Optional[Any],
+        Field(
+            description=(
+                "Optional Odoo domain filter — same shape as search_records.domain."
+            )
+        ),
+    ] = None,
+    lazy: Annotated[
+        bool,
+        Field(
+            description=(
+                "When true, return only the first groupby level (legacy read_group mode)."
+            )
+        ),
+    ] = False,
+    limit: Annotated[
+        Optional[int], Field(description="Maximum rows to return; default uncapped.")
+    ] = None,
+    offset: Annotated[
+        int, Field(description="Number of rows to skip; default 0.")
+    ] = 0,
+    order: Annotated[
+        Optional[str],
+        Field(description="Optional sort order, e.g. 'date desc' or 'unit_amount desc'."),
+    ] = None,
+    instance: Annotated[
+        Optional[str],
+        Field(description="Optional configured Odoo instance name; uses the default if omitted."),
+    ] = None,
 ) -> AggregateRecordsResponse:
     """Group records server-side and aggregate measures.
 
