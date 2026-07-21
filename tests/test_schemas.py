@@ -81,6 +81,7 @@ DESCRIBED_INPUT_TOOLS = {
 }
 
 TYPED_DOMAIN_TOOLS = {
+    "build_domain": "domain",
     "index_knowledge": "indexed",
     "search_knowledge": "results",
     "knowledge_stats": "indexes",
@@ -155,6 +156,20 @@ def test_envelope_models_accept_success_and_error_shapes():
         {"success": False, "error": "rate limited", "rate_limit": {"tool": "x"}}
     )
     assert extra.success is False
+
+
+def test_build_domain_schema_accepts_runtime_payload():
+    response = schemas.BuildDomainResponse.model_validate(
+        {
+            "success": True,
+            "tool": "build_domain",
+            "domain": [["name", "ilike", "azure"]],
+            "conditions": [["name", "ilike", "azure"]],
+            "issues": [],
+            "metadata_used": {"fields_get": False},
+        }
+    )
+    assert response.domain == [["name", "ilike", "azure"]]
 
 
 def test_accounting_health_schema_accepts_runtime_payload():

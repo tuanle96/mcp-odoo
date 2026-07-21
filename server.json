@@ -1,8 +1,8 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.tuanle96/mcp-odoo",
-  "description": "Odoo MCP server: safe gated writes, access diagnostics, schema discovery, multi-instance routing.",
-  "version": "1.1.0",
+  "description": "Odoo MCP: gated writes, multi-instance. Free hosted: ERPipe (mcp.erpipe.com)",
+  "version": "1.2.2",
   "websiteUrl": "https://tuanle96.github.io/mcp-odoo/",
   "repository": {
     "url": "https://github.com/tuanle96/mcp-odoo",
@@ -12,7 +12,7 @@
     {
       "registryType": "pypi",
       "identifier": "odoo-mcp",
-      "version": "1.1.0",
+      "version": "1.2.2",
       "transport": {
         "type": "stdio"
       },

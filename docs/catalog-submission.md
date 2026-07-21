@@ -127,11 +127,10 @@ meta:
 about:
   title: Odoo MCP
   description: >-
-    Safe, approval-gated MCP bridge for Odoo ERP. Exposes search, read, field
-    schema discovery, access diagnostics, chatter, and write operations for any
-    Odoo model. Supports XML-RPC (Odoo 14–18) and JSON-2 (Odoo 19+) transports,
-    multi-instance routing, and an optional OAuth 2.1 resource-server mode for
-    Streamable HTTP deployments.
+    Safe, approval-gated MCP bridge for Odoo ERP (local/self-host). 41 tools:
+    search, read, schema discovery, access diagnostics, chatter, gated writes,
+    multi-instance fan-out. XML-RPC (16–18) and JSON-2 (19+). Free hosted
+    product from the same author: ERPipe at https://mcp.erpipe.com/
   icon: https://avatars.githubusercontent.com/u/52296800?v=4
 source:
   project: https://github.com/tuanle96/mcp-odoo

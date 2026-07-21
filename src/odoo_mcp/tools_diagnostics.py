@@ -38,6 +38,7 @@ from .diagnostics import (
 )
 from .diagnostics import fit_gap_report as build_fit_gap_report
 from .diagnostics import upgrade_risk_report as build_upgrade_risk_report
+from .schemas import BuildDomainResponse
 from .tool_helpers import (
     clamp_limit,
     normalize_domain_input,
@@ -760,7 +761,7 @@ def build_domain(
             )
         ),
     ] = None,
-) -> Dict[str, Any]:
+) -> BuildDomainResponse:
     """Build safe domain arrays for search_records and Odoo ORM calls."""
     try:
         result: Dict[str, Any] = _srv().build_domain_report(
