@@ -282,7 +282,13 @@ def formatted_read_group_missing(exc: Exception) -> bool:
 
 
 def normalize_domain_input(domain: Any) -> List[Any]:
-    """Normalize common MCP/JSON domain shapes to an Odoo domain list."""
+    """Normalize common MCP/JSON domain shapes to an Odoo domain list.
+
+    Bad input (e.g. shell-style ``&&`` glued to a non-list string, malformed
+    JSON, or an unparseable Python literal) raises ``ValueError`` rather
+    than silently degrading to an empty list — that would otherwise turn
+    every typo into "match every record" and produce runaway aggregates.
+    """
     if domain is None:
         return []
     if isinstance(domain, SearchDomain):
@@ -297,8 +303,15 @@ def normalize_domain_input(domain: Any) -> List[Any]:
                 import ast
 
                 domain_value = ast.literal_eval(domain_value)
-            except (SyntaxError, ValueError):
-                return []
+            except (SyntaxError, ValueError) as exc:
+                raise ValueError(
+                    "Domain string is neither valid JSON nor a Python "
+                    f"literal: {exc}. Pass a list of 3-tuples, e.g. "
+                    '[["is_timesheet", "=", true], ["project_id", "=", 37]], '
+                    'or use the & prefix operator: '
+                    '["&", ["is_timesheet", "=", true], '
+                    '["project_id", "=", 37]].'
+                ) from exc
 
     if isinstance(domain_value, dict):
         conditions = domain_value.get("conditions")

@@ -50,6 +50,10 @@ from .tool_helpers import (
     normalize_domain_input,
     validate_model_name,
 )
+# ``safe_tool_call`` was removed: the friendly-envelope translation now lives
+# in ``server_core._TranslationAwareFastMCP`` (subclass override of
+# ``FastMCP.call_tool``), which is the only layer that actually sees the
+# Pydantic ``ValidationError`` raised during argument binding.
 from .server_core import (
     READ_ONLY_TOOL,
     PREVIEW_TOOL,
@@ -406,7 +410,9 @@ def get_model_fields(
 @mcp.tool(
     description=(
         "Search Odoo records with read-only search_read; optional free-text "
-        "`query` matches across name/ref/email-like fields"
+        "`query` matches across name/ref/email-like fields. "
+        "If unsure which ``instance`` to pass, call ``list_instances`` first "
+        "or omit the argument to use the configured default."
     ),
     annotations=READ_ONLY_TOOL,
     structured_output=True,
@@ -922,7 +928,9 @@ def read_attachment(
 @mcp.tool(
     description=(
         "Aggregate Odoo records server-side using Postgres groupby/sum/count. "
-        "Uses formatted_read_group on Odoo 19+ and read_group on earlier versions."
+        "Uses formatted_read_group on Odoo 19+ and read_group on earlier versions. "
+        "If unsure which ``instance`` to pass, call ``list_instances`` first "
+        "or omit the argument to use the configured default."
     ),
     annotations=READ_ONLY_TOOL,
     structured_output=True,
@@ -944,8 +952,11 @@ def aggregate_records(
         Field(
             description=(
                 'Optional list of "field:agg" measure specs. Default aggregator is sum. '
-                "Allowed: sum, avg, min, max, count, count_distinct, array_agg, "
-                "bool_and, bool_or."
+                "Allowed aggregators: sum, avg, min, max, count, count_distinct, "
+                "array_agg, bool_and, bool_or. "
+                "Note: \"__count\" is the auto-returned row count per group — it "
+                "appears on every row without being requested, so do NOT include "
+                "it as a measure (Odoo will reject it as an unknown field)."
             )
         ),
     ] = None,

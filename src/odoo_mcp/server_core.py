@@ -8,6 +8,8 @@ load_instances_config, resolve_instance_name, resolve_default_instance_name)
 use late-binding via _srv() so monkeypatches applied to the server module work.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import threading
@@ -15,12 +17,13 @@ import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, AsyncIterator, Callable, Dict, List, Optional, cast
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Sequence, cast
 
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.types import Annotations, ToolAnnotations
+from mcp.types import Annotations, ContentBlock, TextContent, ToolAnnotations
 from pydantic import BaseModel, Field
 
+from .error_handling import _format_validation_error
 from .odoo_client import OdooClient
 from .schema_cache import _build_schema_cache
 from .agent_tools import select_smart_fields
@@ -127,12 +130,81 @@ def load_server_instructions() -> str:
     return f"{DEFAULT_SERVER_INSTRUCTIONS}\n\n{text}"
 
 
-mcp = FastMCP(
+class _TranslationAwareFastMCP(FastMCP):
+    """FastMCP subclass that catches Pydantic ``ValidationError`` raised during
+    argument binding and re-emits the friendly ``{"success": False, "tool": …,
+    "error": "Invalid input: …"}`` envelope the rest of the tool surface uses.
+    Subclassing is required because FastMCP's JSON-RPC handler is registered
+    at ``__init__`` time via ``self._mcp_server.call_tool(validate_input=False)
+    (self.call_tool)`` — the bound method is captured by reference. Replacing
+    ``mcp.call_tool`` post-init OR replacing ``mcp._tool_manager.call_tool``
+    both bypass the actual dispatch path. A subclass overrides ``self.call_tool``
+    so the *registered* handler is the wrapper.
+
+    When a tool advertises an ``outputSchema`` (i.e. ``structured_output=True``),
+    FastMCP expects the tool to return a dict matching that schema. Returning a
+    list of ``ContentBlock`` would yield ``Output validation error: outputSchema
+    defined but no structured output returned`` on the MCP transport. We
+    therefore return the envelope as a plain dict when structured output is
+    enabled, and as a ``[TextContent(...)]`` content-block list when it's not
+    (matches how FastMCP itself routes these two return shapes).
+    """
+
+    async def call_tool(  # type: ignore[override]
+        self, name: str, arguments: dict[str, Any]
+    ) -> Any:
+        try:
+            return await super().call_tool(name, arguments)
+        except BaseException as exc:  # noqa: BLE001 — last-line translator
+            translated = _translate_validation_tool_error_to_envelope(
+                exc, tool_name_hint=name
+            )
+            if translated is None:
+                raise
+            tool = self._tool_manager.get_tool(name)
+            structured = bool(getattr(tool, "structured_output", True))
+            if structured:
+                # FastMCP wraps a returned dict into ``structuredContent`` so it
+                # satisfies the tool's ``outputSchema``. Some old callers expect
+                # content blocks; they get the same dict through TextContent.
+                return {
+                    "success": False,
+                    "tool": translated.text and json.loads(translated.text).get("tool", name),
+                    "error": translated.text and json.loads(translated.text).get("error", ""),
+                }
+            return [translated]
+
+
+def _translate_validation_tool_error_to_envelope(
+    exc: BaseException,
+    tool_name_hint: Optional[str] = None,
+) -> Optional[ContentBlock]:
+    """Return a friendly envelope content block, or None if not a validation error."""
+    from mcp.server.fastmcp.exceptions import ToolError
+    from pydantic import ValidationError
+
+    if not isinstance(exc, ToolError):
+        return None
+    cause = exc.__cause__
+    if not isinstance(cause, ValidationError):
+        return None
+
+    tool_name = tool_name_hint or "tool"
+    envelope = {
+        "success": False,
+        "tool": tool_name,
+        "error": f"Invalid input: {_format_validation_error(cause)}",
+    }
+    return TextContent(type="text", text=json.dumps(envelope, sort_keys=True))
+
+
+mcp = _TranslationAwareFastMCP(
     "Odoo MCP Server",
     instructions=load_server_instructions(),
     dependencies=["requests"],
     lifespan=app_lifespan,
 )
+
 
 READ_ONLY_TOOL = ToolAnnotations(
     readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True

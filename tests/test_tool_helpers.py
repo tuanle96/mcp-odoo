@@ -445,10 +445,31 @@ class TestNormalizeDomainInput:
         result = tool_helpers.normalize_domain_input(literal_str)
         assert result == [["name", "=", "Ada"]]
 
-    def test_invalid_json_string_returns_empty(self):
-        """Return empty domain on invalid JSON."""
-        result = tool_helpers.normalize_domain_input('{"broken": json}')
-        assert result == []
+    def test_invalid_json_string_raises(self):
+        """Raise ValueError on invalid JSON (not silently return [])."""
+        # Previously this fell through to `return []` which made typos
+        # masquerade as "match every record" in aggregates. The new contract
+        # is: bad input loud-fails with a helpful message naming both
+        # the legal JSON form and the legal Python-literal form.
+        with pytest.raises(ValueError, match="Domain string is neither valid JSON nor a Python literal"):
+            tool_helpers.normalize_domain_input('{"broken": json}')
+
+    def test_shell_style_and_glue_raises(self):
+        """Raise ValueError on shell-style ``&&`` glued to a non-list string.
+
+        A user naturally writes something like::
+
+            [('task_id', 'in', [1, 2])] && [('project_id', '=', 37)]
+
+        as a single string. That is not valid JSON and not a valid Python
+        literal — the helper must reject it explicitly so the agent gets
+        a clear "use the & prefix" hint instead of a 3723-row aggregate
+        matching every record.
+        """
+        with pytest.raises(ValueError, match="Domain string is neither valid JSON nor a Python literal"):
+            tool_helpers.normalize_domain_input(
+                "[('task_id', 'in', [6126, 7493])] && [('project_id', '=', 37)]"
+            )
 
     def test_dict_with_conditions(self):
         """Parse dict with conditions key."""
@@ -488,10 +509,28 @@ class TestNormalizeDomainInput:
         result = tool_helpers.normalize_domain_input([["name", "=", "Ada"]])
         assert result == [["name", "=", "Ada"]]
 
-    def test_non_list_non_dict_input(self):
-        """Return empty domain for non-list/dict inputs."""
-        assert tool_helpers.normalize_domain_input("string") == []
+    def test_non_string_non_list_non_dict_input_returns_empty(self):
+        """Return empty domain for scalar non-list/dict/non-string inputs.
+
+        Strings are handled by the JSON/Python-literal parser path —
+        they raise on bad input — while ``int``/``float``/``None`` skip
+        both parsers and fall through to the list/dict short-circuit.
+        """
+        # ``int``/``None`` short-circuit through the list/dict branch and
+        # return ``[]`` without raising. (The previous test combined these
+        # with a string case; strings now raise instead, see below.)
         assert tool_helpers.normalize_domain_input(123) == []
+        assert tool_helpers.normalize_domain_input(None) is not None
+        assert tool_helpers.normalize_domain_input(3.14) == []
+
+    def test_unparseable_string_raises(self):
+        """Raise ValueError on a string that is neither JSON nor a Python literal.
+
+        Previously the function silently degraded to ``[]`` here, which
+        turned every typo into "match every record" in aggregates.
+        """
+        with pytest.raises(ValueError, match="Domain string is neither valid JSON nor a Python literal"):
+            tool_helpers.normalize_domain_input("not a valid domain string")
 
     def test_invalid_conditions_filtered_out(self):
         """Filter out malformed conditions."""

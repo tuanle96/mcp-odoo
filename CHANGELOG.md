@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.2] - 2026-07-21
+
+### Fixed
+- **Friendly error envelope on Pydantic argument validation** — when
+  FastMCP's binder rejected a tool call (e.g. `measures=""` instead of
+  a list), the server now returns the same `{"success": False, "tool":
+  …, "error": "Invalid input: measures: …"}` envelope the rest of the
+  error path uses, instead of leaking a raw `ValidationError` stack
+  trace. New `safe_tool_call` decorator in `error_handling.py`
+  applied to `aggregate_records` and `search_records`.
+
+- **`normalize_domain_input` no longer silently returns `[]` for garbage
+  strings** — invalid JSON / Python literal input now raises
+  `ValueError` with a message that names both legal forms (JSON list
+  and Python literal), so agents see a clean error path instead of
+  silently querying the wrong record set. Tests updated and
+  `test_tool_helpers` coverage extended.
+
+- **`aggregate_records` description now warns about `__count`** —
+  `__count` is the auto-returned pseudo-column from
+  `read_group`/`formatted_read_group`; passing it explicitly as a
+  measure produces `Invalid field '__count'`. Description and
+  `list_instances` hint tightened on `aggregate_records` and
+  `search_records`.
+
+- **`RuntimeWarning` removed from the CLI test suite** —
+  `runpy.run_module("odoo_mcp.__main__", run_name="__main__")`
+  triggered CPython's `RuntimeWarning` whenever `odoo_mcp.__main__`
+  was already in `sys.modules`. Replaced with a direct invocation of
+  the entry-point expression (`sys.exit(main())`) — same contract
+  tested, no `sys.modules` pollution, no warning.
+
+### Changed
+- No breaking changes to public API. All 946 tests pass.
+
 ## [1.3.1] - 2026-07-21
 
 ### Fixed
