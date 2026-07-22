@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to publish (defaults to current ref's version)"
+        description: "Additional tag to publish (latest is always published)"
         required: false
         type: string
 
@@ -45,6 +45,8 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ github.event_name == 'release' }}
+            type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' && inputs.tag != '' }}
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Build and push
         uses: docker/build-push-action@v7

@@ -11,13 +11,13 @@ project's repository for current details.
 > routing, HITL write approvals, audit dashboard. Use it when you want ChatGPT /
 > Claude on a remote URL without operating a process. This comparison focuses on
 > **self-host / open-source** bridges; ERPipe's TypeScript open core is
-> [erpipe](https://github.com/tuanle96/erpipe).
+> [erpipe](https://github.com/erpipe-org/erpipe).
 
 ## The options
 
 | Project | Install | Odoo-side setup | License |
 | --- | --- | --- | --- |
-| [odoo-mcp](https://github.com/tuanle96/mcp-odoo) (this project) | `uvx odoo-mcp --setup` | **None** — existing credentials only | MIT |
+| [odoo-mcp](https://github.com/erpipe-org/mcp-odoo) (this project) | `uvx odoo-mcp --setup` | **None** — existing credentials only | MIT |
 | [ERPipe hosted](https://mcp.erpipe.com/) | Sign up (free v1) | **None** — HTTPS Odoo credentials in dashboard | Hosted product · TS core MIT |
 | [mcp-server-odoo](https://github.com/ivnvxd/mcp-server-odoo) (ivnvxd) | `uvx mcp-server-odoo` | None in YOLO mode; optional Odoo module for permission tiers | MPL-2.0 |
 | [MuK MCP Server](https://apps.odoo.com) (MuK IT) | Odoo App Store module | Install module + configure (admin access required) | Proprietary |
@@ -108,4 +108,4 @@ June 2026 — verify against the linked repositories before deciding.
    verified before any action runs.
 
 Questions or corrections to this comparison are welcome —
-[open an issue](https://github.com/tuanle96/mcp-odoo/issues).
+[open an issue](https://github.com/erpipe-org/mcp-odoo/issues).

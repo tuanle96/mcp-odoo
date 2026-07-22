@@ -313,7 +313,7 @@ For public or shared-network use, put the server behind a reverse proxy or platf
 
 ## Docker stdio
 
-The prebuilt image lives at `ghcr.io/tuanle96/mcp-odoo:latest`. Replace `mcp/odoo:latest` below with that tag to skip the local build step.
+The prebuilt image lives at `ghcr.io/erpipe-org/mcp-odoo:latest`. Replace `mcp/odoo:latest` below with that tag to skip the local build step.
 
 ```json
 {
