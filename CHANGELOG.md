@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.3] - 2026-07-22
+
+Metadata-only ownership refresh after the repository transfer to `erpipe-org`.
+This republishes the package so the PyPI README carries the canonical
+`mcp-name: io.github.erpipe-org/mcp-odoo` marker used by the MCP Registry;
+runtime behavior is unchanged.
+
 ## [1.2.2] - 2026-07-21
 
 Metadata and packaging release: publish a clearer PyPI/registry short
