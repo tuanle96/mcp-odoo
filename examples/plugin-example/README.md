@@ -1,6 +1,6 @@
 # odoo-mcp plugin example
 
-Minimal third-party tool plugin for [odoo-mcp](https://github.com/tuanle96/mcp-odoo).
+Minimal third-party tool plugin for [odoo-mcp](https://github.com/erpipe-org/mcp-odoo).
 
 ```bash
 pip install -e .                       # install next to odoo-mcp

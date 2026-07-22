@@ -8,7 +8,7 @@
 <meta property="og:title" content="Odoo MCP — local self-host · ERPipe hosted free">
 <meta property="og:description" content="41-tool local Odoo MCP. Prefer remote ChatGPT/Claude without a process? Free hosted ERPipe → mcp.erpipe.com.">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://tuanle96.github.io/mcp-odoo/">
+<meta property="og:url" content="https://erpipe-org.github.io/mcp-odoo/">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23714B67'/%3E%3Ctext x='7' y='23' font-family='monospace' font-size='17' fill='%23ece7dd'%3E%E2%80%BA_%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -407,7 +407,7 @@ footer { margin-top: 120px; border-top: 1px solid var(--line); }
       <a href="#install">Install</a>
       <a href="services.html">Services</a>
       <a href="https://mcp.erpipe.com/" style="color:var(--plum)">ERPipe ↗</a>
-      <a class="gh" href="https://github.com/tuanle96/mcp-odoo">GitHub ↗</a>
+      <a class="gh" href="https://github.com/erpipe-org/mcp-odoo">GitHub ↗</a>
     </div>
   </div>
 </nav>
@@ -426,7 +426,7 @@ footer { margin-top: 120px; border-top: 1px solid var(--line); }
     <button class="cmd" data-copy="uvx odoo-mcp --setup">
       <span class="dollar">$</span> uvx odoo-mcp --setup <span class="copy-hint">copy</span>
     </button>
-    <a class="btn-ghost" href="https://github.com/tuanle96/mcp-odoo#readme">Read the docs <span class="arrow">→</span></a>
+    <a class="btn-ghost" href="https://github.com/erpipe-org/mcp-odoo#readme">Read the docs <span class="arrow">→</span></a>
   </div>
 
   <div class="term term-hero reveal in" style="--d:4">
@@ -581,12 +581,12 @@ footer { margin-top: 120px; border-top: 1px solid var(--line); }
         <tr><td>cross-instance fan-out</td><td class="us">3 tools — AR/AP aging, aggregates, search across all DBs; open-source first</td><td class="them">Not available</td></tr>
         <tr><td>workflow prompts</td><td class="us">11 MCP prompts encoding full business processes with gated writes &amp; human checkpoints</td><td class="them">Not available</td></tr>
         <tr><td>field-level ACL</td><td class="us">Deny/allow fields per model per instance — enforced server-side, fail-closed; open-source first</td><td class="them">Not available</td></tr>
-        <tr><td>measured latency (head-to-head, Odoo 19 Docker, XML-RPC)</td><td class="us"><code>search_records</code> 9.9 ms p50; <code>read_record</code> 9.0 ms; <code>list_models</code> 16.8 ms. <code>aggregate_records</code> 12.8 ms — competitor faster at 9.4 ms. <a href="https://github.com/tuanle96/mcp-odoo/blob/main/docs/benchmarks.md" style="color:var(--plum)">Full methodology →</a></td><td class="them"><code>search_records</code> 22.4 ms; <code>read_record</code> 10.9 ms; <code>list_models</code> 19.6 ms; <code>aggregate_records</code> 9.4 ms. Note: v0.6.0 has a ~12 s/call regression in Claude Desktop (issue #68).</td></tr>
+        <tr><td>measured latency (head-to-head, Odoo 19 Docker, XML-RPC)</td><td class="us"><code>search_records</code> 9.9 ms p50; <code>read_record</code> 9.0 ms; <code>list_models</code> 16.8 ms. <code>aggregate_records</code> 12.8 ms — competitor faster at 9.4 ms. <a href="https://github.com/erpipe-org/mcp-odoo/blob/main/docs/benchmarks.md" style="color:var(--plum)">Full methodology →</a></td><td class="them"><code>search_records</code> 22.4 ms; <code>read_record</code> 10.9 ms; <code>list_models</code> 19.6 ms; <code>aggregate_records</code> 9.4 ms. Note: v0.6.0 has a ~12 s/call regression in Claude Desktop (issue #68).</td></tr>
         <tr><td>testing</td><td class="us">Docker harness boots real Odoo 16/17/18/19 stacks per release</td><td class="them">Mock-based only</td></tr>
       </tbody>
     </table>
   </div>
-  <p class="cmp-note reveal">Comparing a specific project? See the per-project breakdown in <a href="https://github.com/tuanle96/mcp-odoo/blob/main/docs/comparison.md">docs/comparison.md</a>.</p>
+  <p class="cmp-note reveal">Comparing a specific project? See the per-project breakdown in <a href="https://github.com/erpipe-org/mcp-odoo/blob/main/docs/comparison.md">docs/comparison.md</a>.</p>
 </section>
 
 <section class="wrap">
@@ -594,16 +594,16 @@ footer { margin-top: 120px; border-top: 1px solid var(--line); }
     <span class="sec-no">04 /</span>
     <h2>Plugs into the agents you <em>already</em> run.</h2>
   </div>
-  <p class="sec-intro reveal">Copy-paste-runnable adapters ship in <a href="https://github.com/tuanle96/mcp-odoo/tree/main/examples" style="color:var(--paper)">examples/</a> — stdio for local clients, Streamable HTTP for everything else.</p>
+  <p class="sec-intro reveal">Copy-paste-runnable adapters ship in <a href="https://github.com/erpipe-org/mcp-odoo/tree/main/examples" style="color:var(--paper)">examples/</a> — stdio for local clients, Streamable HTTP for everything else.</p>
   <div class="clients reveal">
-    <a class="client" href="https://github.com/tuanle96/mcp-odoo/blob/main/examples/README.md">Claude Code</a>
-    <a class="client" href="https://github.com/tuanle96/mcp-odoo/tree/main/examples/cursor">Cursor</a>
-    <a class="client" href="https://github.com/tuanle96/mcp-odoo/blob/main/docs/client-configs.md">Claude Desktop</a>
-    <a class="client" href="https://github.com/tuanle96/mcp-odoo/tree/main/examples/openai-agents">OpenAI Agents SDK</a>
-    <a class="client" href="https://github.com/tuanle96/mcp-odoo/tree/main/examples/langgraph">LangGraph</a>
-    <a class="client" href="https://github.com/tuanle96/mcp-odoo/tree/main/examples/crewai">CrewAI</a>
-    <a class="client" href="https://github.com/tuanle96/mcp-odoo/tree/main/examples/n8n">n8n</a>
-    <a class="client" href="https://github.com/tuanle96/mcp-odoo/blob/main/docs/client-configs.md">Windsurf · VS Code · Zed · Cline →</a>
+    <a class="client" href="https://github.com/erpipe-org/mcp-odoo/blob/main/examples/README.md">Claude Code</a>
+    <a class="client" href="https://github.com/erpipe-org/mcp-odoo/tree/main/examples/cursor">Cursor</a>
+    <a class="client" href="https://github.com/erpipe-org/mcp-odoo/blob/main/docs/client-configs.md">Claude Desktop</a>
+    <a class="client" href="https://github.com/erpipe-org/mcp-odoo/tree/main/examples/openai-agents">OpenAI Agents SDK</a>
+    <a class="client" href="https://github.com/erpipe-org/mcp-odoo/tree/main/examples/langgraph">LangGraph</a>
+    <a class="client" href="https://github.com/erpipe-org/mcp-odoo/tree/main/examples/crewai">CrewAI</a>
+    <a class="client" href="https://github.com/erpipe-org/mcp-odoo/tree/main/examples/n8n">n8n</a>
+    <a class="client" href="https://github.com/erpipe-org/mcp-odoo/blob/main/docs/client-configs.md">Windsurf · VS Code · Zed · Cline →</a>
   </div>
 </section>
 
@@ -620,7 +620,7 @@ footer { margin-top: 120px; border-top: 1px solid var(--line); }
       <div class="codebox" data-copy="uvx odoo-mcp --setup"><span class="g">$</span> uvx odoo-mcp --setup
 <span class="c"># or: pip install odoo-mcp</span>
 <span class="c"># quick smoke check: uvx odoo-mcp --health</span></div>
-      <p class="install-more">Prefer a container? <a href="https://github.com/tuanle96/mcp-odoo#docker">Docker images on GHCR →</a></p>
+      <p class="install-more">Prefer a container? <a href="https://github.com/erpipe-org/mcp-odoo#docker">Docker images on GHCR →</a></p>
     </div>
     <div class="install-card reveal">
       <span class="tag">For AI agents</span>
@@ -632,7 +632,7 @@ footer { margin-top: 120px; border-top: 1px solid var(--line); }
     --env ODOO_USERNAME=agent@mycompany.com \
     --env ODOO_PASSWORD=your-api-key \
     -- uvx odoo-mcp</div>
-      <p class="install-more">Agent install guide: <a href="https://github.com/tuanle96/mcp-odoo/blob/main/llms-install.md">llms-install.md →</a></p>
+      <p class="install-more">Agent install guide: <a href="https://github.com/erpipe-org/mcp-odoo/blob/main/llms-install.md">llms-install.md →</a></p>
     </div>
   </div>
 </section>
@@ -647,26 +647,26 @@ footer { margin-top: 120px; border-top: 1px solid var(--line); }
     <div class="foot-cols">
       <div class="foot-col">
         <h5>Project</h5>
-        <a href="https://github.com/tuanle96/mcp-odoo">GitHub</a>
+        <a href="https://github.com/erpipe-org/mcp-odoo">GitHub</a>
         <a href="https://pypi.org/project/odoo-mcp/">PyPI</a>
-        <a href="https://github.com/tuanle96/mcp-odoo/blob/main/CHANGELOG.md">Changelog</a>
-        <a href="https://github.com/tuanle96/mcp-odoo/blob/main/SECURITY.md">Security</a>
+        <a href="https://github.com/erpipe-org/mcp-odoo/blob/main/CHANGELOG.md">Changelog</a>
+        <a href="https://github.com/erpipe-org/mcp-odoo/blob/main/SECURITY.md">Security</a>
         <a href="services.html">Services</a>
         <a href="https://mcp.erpipe.com/">ERPipe hosted (live)</a>
         <a href="cloud.html">Hosted overview</a>
       </div>
       <div class="foot-col">
         <h5>Docs</h5>
-        <a href="https://github.com/tuanle96/mcp-odoo#readme">README</a>
-        <a href="https://github.com/tuanle96/mcp-odoo/blob/main/docs/client-configs.md">Client configs</a>
-        <a href="https://github.com/tuanle96/mcp-odoo/blob/main/docs/multi-instance.md">Multi-instance</a>
-        <a href="https://github.com/tuanle96/mcp-odoo/blob/main/docs/comparison.md">Comparison</a>
+        <a href="https://github.com/erpipe-org/mcp-odoo#readme">README</a>
+        <a href="https://github.com/erpipe-org/mcp-odoo/blob/main/docs/client-configs.md">Client configs</a>
+        <a href="https://github.com/erpipe-org/mcp-odoo/blob/main/docs/multi-instance.md">Multi-instance</a>
+        <a href="https://github.com/erpipe-org/mcp-odoo/blob/main/docs/comparison.md">Comparison</a>
       </div>
       <div class="foot-col">
         <h5>Listings</h5>
-        <a href="https://registry.modelcontextprotocol.io/v0/servers?search=io.github.tuanle96/mcp-odoo">MCP Registry</a>
-        <a href="https://smithery.ai/server/io.github.tuanle96/mcp-odoo">Smithery</a>
-        <a href="https://github.com/tuanle96/mcp-odoo/pkgs/container/mcp-odoo">GHCR</a>
+        <a href="https://registry.modelcontextprotocol.io/v0/servers?search=io.github.erpipe-org/mcp-odoo">MCP Registry</a>
+        <a href="https://smithery.ai/server/io.github.erpipe-org/mcp-odoo">Smithery</a>
+        <a href="https://github.com/erpipe-org/mcp-odoo/pkgs/container/mcp-odoo">GHCR</a>
       </div>
     </div>
   </div>
