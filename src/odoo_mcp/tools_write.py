@@ -58,6 +58,26 @@ _FROM_PATH_SUFFIX = "_from_path"
 # returns None executes (and commits) server-side, then faults with this text.
 _NONE_MARSHAL_FAULT_MARKER = "cannot marshal None unless allow_none is enabled"
 
+def _normalize_write_response(report: Dict[str, Any]) -> Dict[str, Any]:
+    """Ensure every write-tool envelope carries an explicit ``result`` key.
+
+    FastMCP's inferred ``outputSchema`` for tools with ``structured_output=True``
+    can promote success-path keys (like ``result: <bool>``) to required. The
+    success path of ``_execute_approved_write_gated`` already populates
+    ``result``; the error paths did not. When the underlying framework then
+    tries to validate the error envelope, it fails with
+    ``Output validation error: 'result' is a required property``.
+
+    This helper injects ``result: None`` on any envelope that does not carry
+    the key, so both success and error paths round-trip cleanly through the
+    MCP transport. No change to the ``success`` / ``error`` semantics.
+    """
+    if not isinstance(report, dict) or "result" in report:
+        return report
+    return {**report, "result": None}
+
+
+
 
 def _read_field_file(path: Path, cap: int) -> bytes:
     """Open, size-check, and read ``path`` through a single file descriptor.
@@ -471,43 +491,43 @@ def _execute_approved_write_gated(
     try:
         is_valid, _ = verify_write_approval(approval)
         if not is_valid:
-            return {
+            return _normalize_write_response({
                 "success": False,
                 "tool": "execute_approved_write",
                 "error": (
                     "approval token does not match the canonical payload; "
                     "re-run preview_write and validate_write"
                 ),
-            }
+            })
         app_context = ctx.request_context.lifespan_context
         validation_record = require_validated_write_approval(app_context, approval)
         if validation_record is None:
-            return {
+            return _normalize_write_response({
                 "success": False,
                 "tool": "execute_approved_write",
                 "error": (
                     "approval token has not been validated in this server session "
                     "or has expired; call validate_write first"
                 ),
-            }
+            })
         if write_approval_payload(approval) != validation_record.get("payload"):
-            return {
+            return _normalize_write_response({
                 "success": False,
                 "tool": "execute_approved_write",
                 "error": "approval payload does not match the stored validation record",
-            }
+            })
         if not confirm:
-            return {
+            return _normalize_write_response({
                 "success": False,
                 "tool": "execute_approved_write",
                 "error": "confirm=true is required for destructive execution",
-            }
+            })
         if not writes_enabled():
-            return {
+            return _normalize_write_response({
                 "success": False,
                 "tool": "execute_approved_write",
                 "error": "write execution disabled; set ODOO_MCP_ENABLE_WRITES=1 to enable",
-            }
+            })
 
         model = str(approval.get("model", ""))
         operation = str(approval.get("operation", "")).strip().lower()
@@ -547,16 +567,18 @@ def _execute_approved_write_gated(
 
         result = odoo.execute_method(model, operation, *args, **kwargs)
         app_context.write_approvals.pop(str(approval.get("token", "")), None)
-        return {
+        return _normalize_write_response({
             "success": True,
             "tool": "execute_approved_write",
             "model": model,
             "operation": operation,
             "result": result,
             "instance": approval_instance or _srv().resolve_default_instance_name(),
-        }
+        })
     except Exception as e:
-        return {"success": False, "tool": "execute_approved_write", "error": str(e)}
+        return _normalize_write_response(
+            {"success": False, "tool": "execute_approved_write", "error": str(e)}
+        )
 
 
 def _build_chatter_payload(

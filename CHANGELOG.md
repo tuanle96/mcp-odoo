@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.4] - 2026-07-26
+
+### Fixed
+- **`execute_approved_write` error envelopes missing `result` key** —
+  `_execute_approved_write_gated` (`tools_write.py`) now routes every
+  return path through a new `_normalize_write_response` helper, which
+  injects `result: None` when the envelope does not already carry the
+  key. Prevents `Output validation error: 'result' is a required
+  property` on FastMCP transports whose inferred `outputSchema` for
+  `execute_approved_write` treats the success-path `result` field as
+  required. The five early-return error paths inside the gate
+  (token mismatch, validation record missing, payload mismatch,
+  missing `confirm`, writes disabled) and the `except Exception` arm
+  all now carry `result: None`. The success path is unchanged
+  (envelope already populated `result`). No change to `success` /
+  `error` semantics — `result: null` simply signals "no Odoo return
+  value because we never reached the execute call".
+
+### Added
+- **`tests/test_batch_write.py`** — 4 new regression tests covering:
+  - `_normalize_write_response` injects `result: None` on error envelopes
+    and is a no-op (same identity) when `result` is already present.
+  - The helper is defensive against non-dict input (returns unchanged).
+  - End-to-end: a token-mismatch execute call returns
+    `{"success": false, "result": null, "error": ...}`.
+
+### Changed
+- No breaking changes. All 954 tests pass (was 946 in 1.3.2; +6 for
+  the v1.3.3 nested-`record_ids` regression tests, +4 for the v1.3.4
+  `_normalize_write_response` tests, −2 net for refactors
+  unrelated to these releases).
+
 ## [1.3.3] - 2026-07-26
 
 ### Fixed

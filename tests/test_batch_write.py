@@ -135,3 +135,84 @@ def test_batch_create_executes_end_to_end(monkeypatch):
     assert client.calls == [
         ("res.partner", "create", ([{"name": "Ada"}, {"name": "Grace"}],), {})
     ]
+
+
+# ----- _normalize_write_response (v1.3.4) -----------------------------------
+# Regression: FastMCP's inferred outputSchema for execute_approved_write
+# can promote success-path keys (like result: <bool>) to required. The
+# success return already carries result; the error returns did not, so
+# FastMCP rejected the error envelope with
+# "Output validation error: 'result' is a required property". The fix
+# wraps every return through _normalize_write_response, which injects
+# result: None on envelopes that do not carry the key.
+
+
+def test_normalize_write_response_injects_result_none_on_error_envelope():
+    from odoo_mcp.tools_write import _normalize_write_response
+    out = _normalize_write_response(
+        {"success": False, "tool": "execute_approved_write", "error": "boom"}
+    )
+    assert out == {
+        "success": False,
+        "tool": "execute_approved_write",
+        "error": "boom",
+        "result": None,
+    }
+
+
+def test_normalize_write_response_passthrough_when_result_present():
+    from odoo_mcp.tools_write import _normalize_write_response
+    success = {
+        "success": True,
+        "tool": "execute_approved_write",
+        "model": "res.partner",
+        "operation": "unlink",
+        "result": True,
+        "instance": "default",
+    }
+    assert _normalize_write_response(success) is success
+
+
+def test_normalize_write_response_handles_non_dict():
+    from odoo_mcp.tools_write import _normalize_write_response
+    # Defensive: non-dict input is returned unchanged (no crash).
+    assert _normalize_write_response(None) is None
+    assert _normalize_write_response("not a dict") == "not a dict"
+
+
+def test_execute_approved_write_error_envelope_carries_result_none(monkeypatch):
+    """End-to-end: a token-mismatch error envelope must include result=None.
+
+    Triggers every gate-failure path (token mismatch) and checks that
+    FastMCP's inferred outputSchema check would not reject the envelope
+    for the missing required `result` field.
+    """
+    from odoo_mcp import tools_write
+    from odoo_mcp.server_core import WRITE_APPROVAL_TTL_SECONDS
+
+    # Build a minimal ctx with an empty AppContext (no validated record -> gate fails).
+    class _FakeAppContext:
+        write_approvals = {}
+
+    class _FakeRequestContext:
+        lifespan_context = _FakeAppContext()
+
+    class _FakeCtx:
+        request_context = _FakeRequestContext()
+
+    ctx = _FakeCtx()
+    bogus = {
+        "model": "res.partner",
+        "operation": "unlink",
+        "record_ids": [3598],
+        "values": {},
+        "context": {},
+        "instance": "default",
+        "token": "odoo-write:bogus",
+    }
+    out = tools_write.execute_approved_write(ctx, bogus, confirm=True)
+    assert out["success"] is False
+    assert "result" in out
+    assert out["result"] is None
+    assert "error" in out
+
