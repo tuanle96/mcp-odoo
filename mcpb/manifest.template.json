@@ -10,9 +10,9 @@
     "email": "justin.le.1105@gmail.com",
     "url": "https://github.com/tuanle96"
   },
-  "homepage": "https://tuanle96.github.io/mcp-odoo/",
-  "documentation": "https://github.com/tuanle96/mcp-odoo#readme",
-  "support": "https://github.com/tuanle96/mcp-odoo/issues",
+  "homepage": "https://erpipe-org.github.io/mcp-odoo/",
+  "documentation": "https://github.com/erpipe-org/mcp-odoo#readme",
+  "support": "https://github.com/erpipe-org/mcp-odoo/issues",
   "license": "MIT",
   "keywords": ["odoo", "erp", "accounting", "inventory", "crm", "json-2", "xml-rpc"],
   "server": {

@@ -26,12 +26,12 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://tuanle96.github.io/mcp-odoo/"
-Source = "https://github.com/tuanle96/mcp-odoo"
-Documentation = "https://github.com/tuanle96/mcp-odoo#readme"
-Changelog = "https://github.com/tuanle96/mcp-odoo/blob/main/CHANGELOG.md"
-Issues = "https://github.com/tuanle96/mcp-odoo/issues"
-Security = "https://github.com/tuanle96/mcp-odoo/security"
+Homepage = "https://erpipe-org.github.io/mcp-odoo/"
+Source = "https://github.com/erpipe-org/mcp-odoo"
+Documentation = "https://github.com/erpipe-org/mcp-odoo#readme"
+Changelog = "https://github.com/erpipe-org/mcp-odoo/blob/main/CHANGELOG.md"
+Issues = "https://github.com/erpipe-org/mcp-odoo/issues"
+Security = "https://github.com/erpipe-org/mcp-odoo/security"
 "Hosted (ERPipe)" = "https://mcp.erpipe.com/"
 
 [project.optional-dependencies]

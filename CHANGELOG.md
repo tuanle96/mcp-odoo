@@ -216,6 +216,12 @@ two-phase-confirmation flow used by `chatter_post` and
   (plus the `execute_method` test stub now records the unpacked
   `*args` form, matching `OdooClient`'s signature) so a re-introduction
   of the nested-list form fires immediately.
+## [1.2.3] - 2026-07-22
+
+Metadata-only ownership refresh after the repository transfer to `erpipe-org`.
+This republishes the package so the PyPI README carries the canonical
+`mcp-name: io.github.erpipe-org/mcp-odoo` marker used by the MCP Registry;
+runtime behavior is unchanged.
 
 ## [1.2.2] - 2026-07-21
 
@@ -524,7 +530,7 @@ open-source Odoo MCP server covered. Tool count 36 → 39; 854 tests.
 - Added `lookup_model_history` tool — resolves outdated model names against a curated rename catalog (`account.invoice` → `account.move`, `mail.channel` → `discuss.channel`, payment acquirers, analytic tags, chart templates, and more) so agents stop hallucinating pre-rename names. Static catalog shipped at `odoo_mcp/data/odoo_renames.json`; never contacts Odoo.
 - Added access-error root-cause classification — `diagnose_access` accepts an `observed_error` argument and `diagnose_odoo_call` reports `error_classification`, mapping Odoo error text to `acl`, `record_rule`, `multi_company`, `authentication`, `db_routing`, or `missing_or_filtered` with a recommended next action.
 - Added field-relevance ranking — `get_model_fields` accepts `relevance="top"` and `max_fields` to return only the most business-relevant fields (required/searchable boosted) on wide models like `res.partner`.
-- Added `server.json` and a `mcp-registry-publish` release job — the server publishes to the official MCP registry (registry.modelcontextprotocol.io) as `io.github.tuanle96/mcp-odoo` via GitHub OIDC after each PyPI release.
+- Added `server.json` and a `mcp-registry-publish` release job — the server publishes to the official MCP registry (registry.modelcontextprotocol.io) as `io.github.erpipe-org/mcp-odoo` via GitHub OIDC after each PyPI release.
 
 ### Changed
 - Updated the XML-RPC/JSON-RPC removal timeline to Odoo 22 (fall 2028) following Odoo's postponement from Odoo 20. `diagnose_odoo_call` with `transport="xmlrpc"` now warns (instead of blocking) for Odoo 19–21 targets and errors only for Odoo 22+; `upgrade_risk_report` marks `json2_required` from Odoo 22. The `ODOO20_RPC_REMOVAL` constant is deprecated in favor of `ODOO_RPC_REMOVAL`.

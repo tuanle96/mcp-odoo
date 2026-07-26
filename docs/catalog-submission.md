@@ -17,8 +17,8 @@ triggers once a human manually runs the workflow or a GitHub release fires it.
 ### How it works
 
 1. `server.json` at the repo root describes the server
-   (`io.github.tuanle96/mcp-odoo`, PyPI package `odoo-mcp`).
-2. README.md carries the `mcp-name: io.github.tuanle96/mcp-odoo` ownership
+   (`io.github.erpipe-org/mcp-odoo`, PyPI package `odoo-mcp`).
+2. README.md carries the `mcp-name: io.github.erpipe-org/mcp-odoo` ownership
    marker on line 3 inside an HTML comment. The registry validates it against
    the released PyPI long description, so the marker must exist in the
    **released** package (it has been present since v0.5.0).
@@ -35,7 +35,7 @@ Verified fields:
 | Field | Value | Status |
 |---|---|---|
 | `$schema` | 2025-12-11 schema URL | OK |
-| `name` | `io.github.tuanle96/mcp-odoo` | OK — matches README mcp-name marker |
+| `name` | `io.github.erpipe-org/mcp-odoo` | OK — matches README mcp-name marker |
 | `version` | `0.8.0` | OK — matches pyproject.toml |
 | `packages[0].registryType` | `pypi` | OK |
 | `packages[0].identifier` | `odoo-mcp` | OK |
@@ -68,7 +68,7 @@ The workflow is structurally correct. Verify before the first publish:
   ```
 - [ ] After the first successful run, verify the listing:
   ```bash
-  curl -s "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.tuanle96/mcp-odoo" | jq .
+  curl -s "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.erpipe-org/mcp-odoo" | jq .
   ```
 
 ### To trigger the first publish
@@ -133,7 +133,7 @@ about:
     product from the same author: ERPipe at https://mcp.erpipe.com/
   icon: https://avatars.githubusercontent.com/u/52296800?v=4
 source:
-  project: https://github.com/tuanle96/mcp-odoo
+  project: https://github.com/erpipe-org/mcp-odoo
   branch: main
   commit: REPLACE_WITH_RELEASE_COMMIT_SHA
 config:
@@ -208,14 +208,14 @@ format:
 | **odoo-mcp** | A safety-first MCP bridge for Odoo with diagnostic tools, JSON-2 transport, and approval-gated writes. |
 ```
 
-Reference link: `https://github.com/tuanle96/mcp-odoo`.
+Reference link: `https://github.com/erpipe-org/mcp-odoo`.
 
 ---
 
 ## 3. Smithery (smithery.ai)
 
 1. Sign in at `https://smithery.ai/` with the GitHub account that owns
-   `tuanle96/mcp-odoo`.
+   `erpipe-org/mcp-odoo`.
 2. Open the dashboard's **"Add server"** flow and select the GitHub repository.
 3. Smithery picks up `smithery.yaml` automatically. Confirm the metadata,
    accept the Dockerfile-based runtime, and publish.
@@ -243,7 +243,7 @@ Backup channels: X/Twitter [@openeducat](https://twitter.com/openeducat),
 >
 > Hi OpenEduCat team,
 >
-> I'm the author of odoo-mcp (https://github.com/tuanle96/mcp-odoo), a
+> I'm the author of odoo-mcp (https://github.com/erpipe-org/mcp-odoo), a
 > production-ready MCP server for Odoo ERP. It exposes Odoo's XML-RPC and
 > JSON-2 APIs through the Model Context Protocol with approval-gated writes,
 > schema discovery, and multi-instance routing.
@@ -272,7 +272,7 @@ team and reference the post directly.
 > I read your "MCP for Odoo Partners" post — it lines up closely with what
 > I've been building.
 >
-> I built odoo-mcp (https://github.com/tuanle96/mcp-odoo), an open-source MCP
+> I built odoo-mcp (https://github.com/erpipe-org/mcp-odoo), an open-source MCP
 > server that gives AI agents direct, safety-gated access to Odoo ERP. The
 > server handles field schema discovery, multi-instance routing, and
 > approval-gated writes so agents can operate on Odoo data without running
@@ -301,7 +301,7 @@ After each listing goes live:
 
 ```bash
 # Official MCP Registry
-curl -s "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.tuanle96/mcp-odoo" | jq .
+curl -s "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.erpipe-org/mcp-odoo" | jq .
 
 # PyPI package health
 uvx odoo-mcp --health

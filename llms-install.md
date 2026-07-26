@@ -6,12 +6,12 @@ self-contained — you do not need to read the rest of the repository.
 
 `odoo-mcp` turns any Odoo 16+ database into a Model Context Protocol server
 using only existing credentials. No Odoo-side module, no admin access.
-Human-oriented documentation: https://github.com/tuanle96/mcp-odoo
+Human-oriented documentation: https://github.com/erpipe-org/mcp-odoo
 
 ## Prerequisites
 
 - Python 3.10+ with `uv`/`uvx` (preferred) or `pip`; or Docker
-  (`ghcr.io/tuanle96/mcp-odoo:latest`).
+  (`ghcr.io/erpipe-org/mcp-odoo:latest`).
 - Credentials for an Odoo 16+ instance: URL, database name, username, and a
   password or API key. Ask the user for these if you do not have them.
 

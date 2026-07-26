@@ -1,9 +1,9 @@
 # Agent Skills for odoo-mcp
 
-[![skills.sh](https://skills.sh/b/tuanle96/mcp-odoo)](https://skills.sh/tuanle96/mcp-odoo)
+[![skills.sh](https://skills.sh/b/erpipe-org/mcp-odoo)](https://skills.sh/erpipe-org/mcp-odoo)
 
 Business-workflow playbooks that pair with the odoo-mcp server — the
-[MCP + Skills hybrid](https://github.com/tuanle96/mcp-odoo#readme): MCP
+[MCP + Skills hybrid](https://github.com/erpipe-org/mcp-odoo#readme): MCP
 provides the safe tool layer (gated writes, field ACL, bounded reads),
 these skills provide the judgment layer (pacing, evidence rules, human
 checkpoints). They follow the open
@@ -24,13 +24,13 @@ One command, any skills-compatible agent (Claude Code, Codex, Gemini CLI,
 GitHub Copilot, OpenCode, Warp, …):
 
 ```bash
-npx skills add tuanle96/mcp-odoo
+npx skills add erpipe-org/mcp-odoo
 ```
 
 Or manually for Claude Code:
 
 ```bash
-git clone https://github.com/tuanle96/mcp-odoo
+git clone https://github.com/erpipe-org/mcp-odoo
 cp -r mcp-odoo/skills/odoo-* ~/.claude/skills/
 ```
 
