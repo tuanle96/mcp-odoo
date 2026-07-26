@@ -227,11 +227,37 @@ def run_accounting_health_across(
 )
 def search_across_instances(
     ctx: Context,
-    model: str,
-    domain: Optional[Any] = None,
-    fields: Optional[List[str]] = None,
-    limit_per_instance: int = DEFAULT_LIMIT_PER_INSTANCE,
-    instances: Optional[Any] = None,
+    model: Annotated[str, Field(description="Technical Odoo model name, e.g. 'res.partner'.")],
+    domain: Annotated[
+        Optional[Any],
+        Field(
+            description=(
+                "Optional Odoo domain filter — same shape as search_records.domain. "
+                "Applied uniformly on every queried instance."
+            )
+        ),
+    ] = None,
+    fields: Annotated[
+        Optional[List[str]],
+        Field(
+            description=(
+                "Optional subset of field names to return. Omit for the smart-field "
+                "selection per instance; pass ['*'] for every available field."
+            )
+        ),
+    ] = None,
+    limit_per_instance: Annotated[
+        int, Field(description="Maximum records to fetch per instance; default 50, capped at 500.")
+    ] = DEFAULT_LIMIT_PER_INSTANCE,
+    instances: Annotated[
+        Optional[Any],
+        Field(
+            description=(
+                "Optional instance selector. Omit (or 'all') for every opted-in instance, "
+                "pass a list of names, or a {\"tags\": [\"...\"]} dict."
+            )
+        ),
+    ] = None,
 ) -> SearchAcrossInstancesResponse:
     """Run one search across many instances; rows are tagged with `_instance`.
 
@@ -267,11 +293,38 @@ def search_across_instances(
 )
 def aggregate_across_instances(
     ctx: Context,
-    model: str,
-    group_by: List[str],
-    measures: Optional[List[str]] = None,
-    domain: Optional[Any] = None,
-    instances: Optional[Any] = None,
+    model: Annotated[str, Field(description="Technical Odoo model name, e.g. 'res.partner'.")],
+    group_by: Annotated[
+        List[str],
+        Field(
+            description=(
+                "Fields to group by (suffix ':granularity' for date/datetime). "
+                "Must include at least one field."
+            )
+        ),
+    ],
+    measures: Annotated[
+        Optional[List[str]],
+        Field(
+            description=(
+                'Optional list of "field:agg" measure specs (sum/avg/min/max/count/...). '
+                "Combined totals are additive across instances; averages are not combined."
+            )
+        ),
+    ] = None,
+    domain: Annotated[
+        Optional[Any],
+        Field(description="Optional Odoo domain filter — same shape as search_records.domain."),
+    ] = None,
+    instances: Annotated[
+        Optional[Any],
+        Field(
+            description=(
+                "Optional instance selector. Omit (or 'all') for every opted-in instance, "
+                "pass a list of names, or a {\"tags\": [\"...\"]} dict."
+            )
+        ),
+    ] = None,
 ) -> AggregateAcrossInstancesResponse:
     """Group/aggregate per instance plus additive grand totals across them.
 

@@ -2,7 +2,8 @@
 MCP tools: write domain.
 
 Includes: preview_write, validate_write, execute_approved_write,
-chatter_post, execute_method + WriteConfirmation + elicitation logic.
+chatter_post, execute_method, write_field_from_file + WriteConfirmation +
+elicitation logic.
 """
 
 import base64
@@ -27,6 +28,7 @@ from .audit import record_write_event
 from .diagnostics import DESTRUCTIVE_METHODS, classify_method_safety
 from .tool_helpers import (
     max_attachment_upload_bytes,
+    max_field_file_bytes,
     normalize_domain_input,
     truthy_env,
     validate_method_name,
@@ -46,6 +48,7 @@ from .server_core import (
     register_write_approval,
     require_validated_write_approval,
     restrict_attachment_upload_path,
+    restrict_field_file_path,
     write_approval_payload,
 )
 
@@ -54,6 +57,52 @@ _FROM_PATH_SUFFIX = "_from_path"
 # Odoo serializes XML-RPC responses with allow_none=False, so a method that
 # returns None executes (and commits) server-side, then faults with this text.
 _NONE_MARSHAL_FAULT_MARKER = "cannot marshal None unless allow_none is enabled"
+
+def _normalize_write_response(report: Dict[str, Any]) -> Dict[str, Any]:
+    """Ensure every write-tool envelope carries an explicit ``result`` key.
+
+    FastMCP's inferred ``outputSchema`` for tools with ``structured_output=True``
+    can promote success-path keys (like ``result: <bool>``) to required. The
+    success path of ``_execute_approved_write_gated`` already populates
+    ``result``; the error paths did not. When the underlying framework then
+    tries to validate the error envelope, it fails with
+    ``Output validation error: 'result' is a required property``.
+
+    This helper injects ``result: None`` on any envelope that does not carry
+    the key, so both success and error paths round-trip cleanly through the
+    MCP transport. No change to the ``success`` / ``error`` semantics.
+    """
+    if not isinstance(report, dict) or "result" in report:
+        return report
+    return {**report, "result": None}
+
+
+
+
+def _read_field_file(path: Path, cap: int) -> bytes:
+    """Open, size-check, and read ``path`` through a single file descriptor.
+
+    Mirrors ``_read_attachment_source_file``: opening once with O_NOFOLLOW
+    and reading through that same fd means the size cap and SHA-256 we
+    compute are always over the *actual* bytes returned, not a stale
+    ``stat()`` from an earlier, possibly-swapped file. The path has
+    already passed ``restrict_field_file_path`` so we know it sits inside
+    a configured root; this is the second line of defence.
+    """
+    try:
+        fd = os.open(str(path), os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    except OSError as exc:
+        raise ValueError(f"{path} does not exist or is not a regular file") from exc
+    with os.fdopen(fd, "rb") as handle:
+        file_stat = os.fstat(handle.fileno())
+        if not stat.S_ISREG(file_stat.st_mode):
+            raise ValueError(f"{path} is not a regular file")
+        if file_stat.st_size > cap:
+            raise ValueError(
+                f"{path} is {file_stat.st_size} bytes; cap is {cap} "
+                "(raise ODOO_MCP_MAX_FIELD_FILE_BYTES to allow it)"
+            )
+        return handle.read()
 
 
 def _read_attachment_source_file(path: Path, cap: int) -> bytes:
@@ -177,13 +226,35 @@ async def _elicit_write_confirmation(
     structured_output=True,
 )
 def preview_write(
-    model: str,
-    operation: str,
-    values: Optional[Dict[str, Any]] = None,
-    values_list: Optional[List[Dict[str, Any]]] = None,
-    record_ids: Optional[List[int]] = None,
-    context: Optional[Dict[str, Any]] = None,
-    instance: Optional[str] = None,
+    model: Annotated[str, Field(description="Technical Odoo model name, e.g. 'res.partner'.")],
+    operation: Annotated[
+        str, Field(description='Write operation: "create", "write", or "unlink".')
+    ],
+    values: Annotated[
+        Optional[Dict[str, Any]],
+        Field(description="Optional single-record payload for create/write."),
+    ] = None,
+    values_list: Annotated[
+        Optional[List[Dict[str, Any]]],
+        Field(
+            description=(
+                "Optional batch payload for create — one dict per record, max 100. "
+                "Executes as a single atomic Odoo create(vals_list) call."
+            )
+        ),
+    ] = None,
+    record_ids: Annotated[
+        Optional[List[int]],
+        Field(description="Optional list of record IDs (required for write/unlink)."),
+    ] = None,
+    context: Annotated[
+        Optional[Dict[str, Any]],
+        Field(description="Optional Odoo context dict applied to the write call."),
+    ] = None,
+    instance: Annotated[
+        Optional[str],
+        Field(description="Optional configured Odoo instance name; uses the default if omitted."),
+    ] = None,
 ) -> Dict[str, Any]:
     """Build a canonical approval token for a later approved write.
 
@@ -222,15 +293,42 @@ def preview_write(
 )
 def validate_write(
     ctx: Context,
-    model: str,
-    operation: str,
-    values: Optional[Dict[str, Any]] = None,
-    values_list: Optional[List[Dict[str, Any]]] = None,
-    record_ids: Optional[List[int]] = None,
-    context: Optional[Dict[str, Any]] = None,
-    fields_metadata: Optional[Dict[str, Any]] = None,
-    use_live_metadata: bool = True,
-    instance: Optional[str] = None,
+    model: Annotated[str, Field(description="Technical Odoo model name, e.g. 'res.partner'.")],
+    operation: Annotated[
+        str, Field(description='Write operation: "create", "write", or "unlink".')
+    ],
+    values: Annotated[
+        Optional[Dict[str, Any]],
+        Field(description="Optional single-record payload for create/write."),
+    ] = None,
+    values_list: Annotated[
+        Optional[List[Dict[str, Any]]],
+        Field(description="Optional batch payload for create — one dict per record, max 100."),
+    ] = None,
+    record_ids: Annotated[
+        Optional[List[int]],
+        Field(description="Optional list of record IDs (required for write/unlink)."),
+    ] = None,
+    context: Annotated[
+        Optional[Dict[str, Any]],
+        Field(description="Optional Odoo context dict applied to the write call."),
+    ] = None,
+    fields_metadata: Annotated[
+        Optional[Dict[str, Any]],
+        Field(
+            description=(
+                "Optional pre-fetched fields_get dict for validation. When omitted "
+                "and use_live_metadata is true, the tool fetches it via bounded fields_get."
+            )
+        ),
+    ] = None,
+    use_live_metadata: Annotated[
+        bool, Field(description="When true and no fields_metadata is provided, fetch live fields_get from Odoo.")
+    ] = True,
+    instance: Annotated[
+        Optional[str],
+        Field(description="Optional configured Odoo instance name; uses the default if omitted."),
+    ] = None,
 ) -> Dict[str, Any]:
     """Validate write shape and return an approval payload when safe."""
     try:
@@ -393,43 +491,43 @@ def _execute_approved_write_gated(
     try:
         is_valid, _ = verify_write_approval(approval)
         if not is_valid:
-            return {
+            return _normalize_write_response({
                 "success": False,
                 "tool": "execute_approved_write",
                 "error": (
                     "approval token does not match the canonical payload; "
                     "re-run preview_write and validate_write"
                 ),
-            }
+            })
         app_context = ctx.request_context.lifespan_context
         validation_record = require_validated_write_approval(app_context, approval)
         if validation_record is None:
-            return {
+            return _normalize_write_response({
                 "success": False,
                 "tool": "execute_approved_write",
                 "error": (
                     "approval token has not been validated in this server session "
                     "or has expired; call validate_write first"
                 ),
-            }
+            })
         if write_approval_payload(approval) != validation_record.get("payload"):
-            return {
+            return _normalize_write_response({
                 "success": False,
                 "tool": "execute_approved_write",
                 "error": "approval payload does not match the stored validation record",
-            }
+            })
         if not confirm:
-            return {
+            return _normalize_write_response({
                 "success": False,
                 "tool": "execute_approved_write",
                 "error": "confirm=true is required for destructive execution",
-            }
+            })
         if not writes_enabled():
-            return {
+            return _normalize_write_response({
                 "success": False,
                 "tool": "execute_approved_write",
                 "error": "write execution disabled; set ODOO_MCP_ENABLE_WRITES=1 to enable",
-            }
+            })
 
         model = str(approval.get("model", ""))
         operation = str(approval.get("operation", "")).strip().lower()
@@ -469,16 +567,18 @@ def _execute_approved_write_gated(
 
         result = odoo.execute_method(model, operation, *args, **kwargs)
         app_context.write_approvals.pop(str(approval.get("token", "")), None)
-        return {
+        return _normalize_write_response({
             "success": True,
             "tool": "execute_approved_write",
             "model": model,
             "operation": operation,
             "result": result,
             "instance": approval_instance or _srv().resolve_default_instance_name(),
-        }
+        })
     except Exception as e:
-        return {"success": False, "tool": "execute_approved_write", "error": str(e)}
+        return _normalize_write_response(
+            {"success": False, "tool": "execute_approved_write", "error": str(e)}
+        )
 
 
 def _build_chatter_payload(
@@ -520,16 +620,40 @@ def _build_chatter_payload(
 )
 def chatter_post(
     ctx: Context,
-    model: str,
-    record_id: int,
-    body: str,
-    message_type: str = "comment",
-    subtype_xmlid: Optional[str] = None,
-    partner_ids: Optional[List[int]] = None,
-    attachment_ids: Optional[List[int]] = None,
-    approval: Optional[Dict[str, Any]] = None,
-    confirm: bool = False,
-    instance: Optional[str] = None,
+    model: Annotated[str, Field(description="Technical Odoo model name, e.g. 'project.task'.")],
+    record_id: Annotated[int, Field(description="ID of the record to post the message on.")],
+    body: Annotated[str, Field(description="Message body text (plaintext or HTML).")],
+    message_type: Annotated[
+        str, Field(description="Message type: 'comment' (default) or 'notification'.")
+    ] = "comment",
+    subtype_xmlid: Annotated[
+        Optional[str],
+        Field(description="Optional mail.message.subtype XMLID, e.g. 'mail.mt_note'."),
+    ] = None,
+    partner_ids: Annotated[
+        Optional[List[int]],
+        Field(description="Optional list of res.partner IDs to notify in addition to followers."),
+    ] = None,
+    attachment_ids: Annotated[
+        Optional[List[int]],
+        Field(description="Optional list of ir.attachment IDs to attach to the message."),
+    ] = None,
+    approval: Annotated[
+        Optional[Dict[str, Any]],
+        Field(
+            description=(
+                "Execute-mode only: the approval payload returned from a previous "
+                "preview call. Omit on the first call to receive a preview token."
+            )
+        ),
+    ] = None,
+    confirm: Annotated[
+        bool, Field(description="Required true to execute; ignored in preview mode.")
+    ] = False,
+    instance: Annotated[
+        Optional[str],
+        Field(description="Optional configured Odoo instance name; uses the default if omitted."),
+    ] = None,
 ) -> Dict[str, Any]:
     """Post a message on the chatter of a mail.thread-derived record.
 
@@ -639,6 +763,321 @@ def chatter_post(
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+@mcp.tool(
+    description=(
+        "Set one field on an Odoo record from the contents of a local file "
+        "(two-phase preview/execute; file content never enters the agent context)"
+    ),
+    annotations=DESTRUCTIVE_TOOL,
+    structured_output=True,
+)
+def write_field_from_file(
+    ctx: Context,
+    model: Annotated[
+        str, Field(description="Technical Odoo model name, for example 'res.partner'.")
+    ],
+    record_id: Annotated[
+        int, Field(description="ID of the record to write the field to.")
+    ],
+    field: Annotated[
+        str,
+        Field(
+            description=(
+                "Name of the field to set. The on-disk interpretation is "
+                "controlled by ``encoding`` — it does NOT mirror Odoo's "
+                "field type. ``encoding='base64'`` (default for binary "
+                "fields) means the file holds RAW BYTES that the server "
+                "will base64-encode for Odoo's wire format; "
+                "``encoding='utf-8'`` (default for text/HTML fields) "
+                "means the file is text decoded as a Unicode string."
+            )
+        ),
+    ],
+    input_path: Annotated[
+        str,
+        Field(
+            description=(
+                "Absolute path of the file to read the new field value from. "
+                "Must sit inside the configured field-file root."
+            )
+        ),
+    ],
+    file_root: Annotated[
+        Optional[str],
+        Field(
+            description=(
+                "Optional selector for which configured root the input_path "
+                "must sit inside; must equal one of the ODOO_MCP_FIELD_FILE_ROOTS "
+                "entries. Defaults to the first entry. The argument cannot "
+                "widen the operator's allow-list."
+            )
+        ),
+    ] = None,
+    encoding: Annotated[
+        Optional[str],
+        Field(
+            description=(
+                "How to interpret the file contents: 'utf-8' (default for "
+                "text/HTML fields, file is read as text and pushed as a "
+                "Unicode string) or 'base64' (default for binary fields, "
+                "file holds raw bytes that are base64-encoded for Odoo's "
+                "wire format)."
+            )
+        ),
+    ] = None,
+    approval: Annotated[
+        Optional[Dict[str, Any]],
+        Field(
+            description=(
+                "Execute-mode only: the approval payload returned from a "
+                "previous preview call. Omit on the first call to receive a "
+                "preview token."
+            )
+        ),
+    ] = None,
+    confirm: Annotated[
+        bool,
+        Field(description="Required true to execute; ignored in preview mode."),
+    ] = False,
+    instance: Annotated[
+        Optional[str],
+        Field(description="Optional configured Odoo instance name; uses the default if omitted."),
+    ] = None,
+) -> Dict[str, Any]:
+    """
+    Set a single field on an Odoo record by streaming the contents of a local file.
+
+    Avoids the JSON-RPC escaping and context-bloat pain of long HTML/Code
+    payloads: the file content never enters the agent's context — the
+    preview token only carries the SHA-256 fingerprint, and the execute
+    call re-reads the file server-side, re-checks the hash, and routes
+    through the gated write pipeline.
+
+    Modes:
+    - Default (gated): first call returns ``mode="preview"`` with an
+      approval token. Re-call with the same arguments plus ``approval``
+      and ``confirm=true`` to actually write.
+    - Direct: ``approval`` and ``confirm=true`` together execute the write.
+
+    Security:
+    - Path must be absolute and inside ``file_root`` (or the first
+      configured ODOO_MCP_FIELD_FILE_ROOTS entry).
+    - File is opened with ``O_NOFOLLOW`` and read once; size cap and
+      SHA-256 are derived from the same fd to defeat TOCTOU swaps.
+    - Preview token never contains the file content. Execute re-reads
+      the file and re-checks the hash, so a tampered or swapped file
+      between the two calls is rejected before Odoo is touched.
+    - Field existence + ``readonly=False`` is revalidated against live
+      ``fields_get`` at execute time — preview-only checks would let an
+      attacker mutate the field on the server between the two calls.
+    - Same hard gates as ``execute_approved_write``: requires
+      ``ODOO_MCP_ENABLE_WRITES=1`` and ``confirm=true``.
+    """
+    try:
+        validate_model_name(model)
+        if record_id < 1:
+            raise ValueError("record_id must be greater than 0")
+        if not field or not field.strip():
+            raise ValueError("field must be a non-empty string")
+        cap = max_field_file_bytes()
+
+        # Resolve + size-check + hash the file before building any token.
+        resolved_path, resolved_root = restrict_field_file_path(input_path, file_root)
+        file_bytes = _read_field_file(resolved_path, cap)
+        digest = hashlib.sha256(file_bytes).hexdigest()
+        size_bytes = len(file_bytes)
+
+        instance_name = _srv().resolve_instance_name(instance)
+
+        # Build a deterministic payload: hash + size, no content.
+        canonical: Dict[str, Any] = {
+            "model": model,
+            "operation": "write",
+            "record_ids": [int(record_id)],
+            "field": field,
+            "input_path": str(resolved_path),
+            "content_sha256": f"sha256:{digest}:{size_bytes}",
+            "content_bytes": size_bytes,
+            "encoding": (encoding or "").strip().lower() or None,
+            "instance": instance_name,
+        }
+        token = build_approval_token(canonical)
+
+        # ----- Preview mode -------------------------------------------------
+        if approval is None:
+            record_write_event(
+                "write_field_from_file",
+                outcome="preview",
+                model=model,
+                operation="write",
+                record_ids=[int(record_id)],
+                instance=instance_name,
+                token=token,
+                detail=f"field={field} bytes={size_bytes}",
+            )
+            return {
+                "success": True,
+                "tool": "write_field_from_file",
+                "mode": "preview",
+                "model": model,
+                "record_id": int(record_id),
+                "field": field,
+                "input_path": str(resolved_path),
+                "file_root": str(resolved_root),
+                "encoding": canonical["encoding"],
+                "content_sha256": canonical["content_sha256"],
+                "bytes_written": size_bytes,
+                "approval": {**canonical, "token": token},
+                "warnings": [
+                    "Preview only. Re-call write_field_from_file with the returned "
+                    "approval and confirm=true to actually write the field."
+                ],
+                "metadata_used": {
+                    "instance": instance_name,
+                    "file_root": str(resolved_root),
+                    "encoding": canonical["encoding"],
+                    "max_bytes": cap,
+                },
+            }
+
+        # ----- Execute mode -------------------------------------------------
+        if not confirm:
+            return {
+                "success": False,
+                "tool": "write_field_from_file",
+                "error": "confirm=true is required for destructive execution",
+            }
+        if not writes_enabled():
+            return {
+                "success": False,
+                "tool": "write_field_from_file",
+                "error": (
+                    "write execution disabled; set ODOO_MCP_ENABLE_WRITES=1 to enable"
+                ),
+            }
+
+        provided_token = str(approval.get("token", ""))
+        if provided_token != token:
+            return {
+                "success": False,
+                "tool": "write_field_from_file",
+                "error": (
+                    "approval token does not match the current file content; "
+                    "re-run preview and confirm the SHA-256 fingerprint."
+                ),
+            }
+        # Re-read once more, then compare hash. Catches both a malicious
+        # tamper between the two calls and a benign race where the file
+        # was edited by a different process in between.
+        re_read = _read_field_file(resolved_path, cap)
+        if hashlib.sha256(re_read).hexdigest() != digest:
+            return {
+                "success": False,
+                "tool": "write_field_from_file",
+                "error": (
+                    "file contents changed between preview and execute; "
+                    "re-run preview and confirm."
+                ),
+            }
+        # The two reads were identical; either is fine for the actual write.
+        if len(re_read) != size_bytes:
+            # Should not happen since the hash covers size, but be explicit.
+            return {
+                "success": False,
+                "tool": "write_field_from_file",
+                "error": "file size changed between preview and execute",
+            }
+
+        # Decide encoding for the actual value pushed to Odoo.
+        _, odoo = _resolve_odoo(ctx, instance)
+        fields_metadata = odoo.get_model_fields(model)
+        if not isinstance(fields_metadata, dict) or "error" in fields_metadata:
+            return {
+                "success": False,
+                "tool": "write_field_from_file",
+                "error": (
+                    "could not load live fields_get metadata; refusing to write "
+                    f"{model}.{field}: {fields_metadata.get('error') if isinstance(fields_metadata, dict) else fields_metadata}"
+                ),
+            }
+        if field not in fields_metadata:
+            return {
+                "success": False,
+                "tool": "write_field_from_file",
+                "error": f"field {field!r} does not exist on {model}",
+            }
+        field_meta = fields_metadata[field] if isinstance(fields_metadata.get(field), dict) else {}
+        declared_binary = field_meta.get("type") == "binary"
+        declared_readonly = bool(field_meta.get("readonly"))
+        if declared_readonly:
+            return {
+                "success": False,
+                "tool": "write_field_from_file",
+                "error": f"field {field!r} on {model} is readonly; refusing to write",
+            }
+
+        chosen_encoding = (encoding or "").strip().lower()
+        if not chosen_encoding:
+            chosen_encoding = "base64" if declared_binary else "utf-8"
+
+        if chosen_encoding == "base64":
+            field_value: Any = base64.b64encode(re_read).decode("ascii")
+        else:
+            try:
+                field_value = re_read.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise ValueError(
+                    f"file at {resolved_path} is not valid utf-8; pass "
+                    "encoding='base64' to interpret it as a binary blob"
+                ) from exc
+
+        # IMPORTANT: Odoo's XML-RPC execute_kw expects ids + vals as
+        # *separate* positional arguments — packing them into a single
+        # list ([[ids], {vals}]) would unpack to ProjectTask.write(*[[ids],
+        # {vals}]) which yields write([ids], {vals}) and fails with
+        # 'missing 1 required positional argument: vals'. Mirrors
+        # execute_approved_write above, which already splats *args, **kwargs.
+        result = odoo.execute_method(
+            model,
+            "write",
+            [int(record_id)],
+            {field: field_value},
+        )
+        record_write_event(
+            "write_field_from_file",
+            outcome="success",
+            model=model,
+            operation="write",
+            record_ids=[int(record_id)],
+            instance=instance_name,
+            token=provided_token,
+            detail=f"field={field} bytes={size_bytes}",
+        )
+        return {
+            "success": True,
+            "tool": "write_field_from_file",
+            "mode": "execute",
+            "model": model,
+            "record_id": int(record_id),
+            "field": field,
+            "input_path": str(resolved_path),
+            "file_root": str(resolved_root),
+            "encoding": chosen_encoding,
+            "bytes_written": size_bytes,
+            "content_sha256": f"sha256:{digest}:{size_bytes}",
+            "result": result,
+            "metadata_used": {
+                "instance": instance_name,
+                "file_root": str(resolved_root),
+                "encoding": chosen_encoding,
+                "max_bytes": cap,
+                "field_type": field_meta.get("type") if isinstance(field_meta, dict) else None,
+            },
+        }
+    except Exception as e:
+        return {"success": False, "tool": "write_field_from_file", "error": str(e)}
 
 
 @mcp.tool(

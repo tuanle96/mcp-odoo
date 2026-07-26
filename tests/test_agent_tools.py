@@ -254,6 +254,114 @@ def test_verify_write_approval_returns_true_for_matching_token():
     assert is_valid is True
 
 
+# ----- verify_write_approval nested / mixed record_ids ---------------------
+# Regression tests for the v1.3.3 fix: callers whose transport re-wraps
+# record_ids in a list (e.g. nested [[3598, 3594, ...]]) used to flip the
+# SHA-256 approval token between preview/validate and execute. The fix
+# normalizes record_ids to a flat list[int] in both verify_write_approval
+# and write_approval_payload (mirroring build_write_preview_report), so the
+# approval token stays canonical across transport-induced shape changes.
+
+
+def test_normalized_record_ids_flattens_and_int_casts():
+    """_normalized_record_ids flattens any nesting and casts to int."""
+    assert agent_tools._normalized_record_ids([3598, 3594]) == [3598, 3594]
+    assert agent_tools._normalized_record_ids([[3598, 3594]]) == [3598, 3594]
+    assert agent_tools._normalized_record_ids([[[3598, 3594]]]) == [3598, 3594]
+    # mixed types: digit strings are coerced, booleans are skipped (bool
+    # is an int subclass in Python — never accidentally accept a True/False
+    # as a record id), non-digit strings are dropped.
+    assert agent_tools._normalized_record_ids(["3598", 3594]) == [3598, 3594]
+    assert agent_tools._normalized_record_ids([True, 3598, False]) == [3598]
+    # empty / None
+    assert agent_tools._normalized_record_ids([]) == []
+    assert agent_tools._normalized_record_ids(None) == []
+
+
+def test_verify_write_approval_accepts_nested_record_ids_against_flat_token():
+    """A flat-built token verifies against the same payload with nested record_ids."""
+    canonical = {
+        "model": "res.partner",
+        "operation": "unlink",
+        "record_ids": [3598, 3594, 3593, 3592, 3588],
+        "values": {},
+        "context": {},
+        "instance": "default",
+    }
+    token = agent_tools.build_approval_token(canonical)
+    # Caller arrives with record_ids wrapped in an extra list (the exact
+    # shape that triggered the original bug in the wild).
+    nested = {**canonical, "record_ids": [[3598, 3594, 3593, 3592, 3588]], "token": token}
+    is_valid, _ = agent_tools.verify_write_approval(nested)
+    assert is_valid is True, "token mismatch on nested record_ids — regression of v1.3.2"
+
+
+def test_verify_write_approval_accepts_triple_nested_record_ids():
+    """Three layers of nesting still flatten to canonical."""
+    canonical = {
+        "model": "res.partner",
+        "operation": "unlink",
+        "record_ids": [3598, 3594],
+        "values": {},
+        "context": {},
+        "instance": "default",
+    }
+    token = agent_tools.build_approval_token(canonical)
+    triple = {**canonical, "record_ids": [[[3598, 3594]]], "token": token}
+    is_valid, _ = agent_tools.verify_write_approval(triple)
+    assert is_valid is True
+
+
+def test_verify_write_approval_accepts_string_record_ids():
+    """record_ids can arrive as digit strings (some JSON transports coerce)."""
+    canonical = {
+        "model": "res.partner",
+        "operation": "unlink",
+        "record_ids": [3598, 3594],
+        "values": {},
+        "context": {},
+        "instance": "default",
+    }
+    token = agent_tools.build_approval_token(canonical)
+    str_ids = {**canonical, "record_ids": ["3598", "3594"], "token": token}
+    is_valid, _ = agent_tools.verify_write_approval(str_ids)
+    assert is_valid is True
+
+
+def test_verify_write_approval_drops_non_digit_record_ids():
+    """Non-digit strings in record_ids are silently dropped, not coerced to 0."""
+    canonical = {
+        "model": "res.partner",
+        "operation": "unlink",
+        "record_ids": [3598],
+        "values": {},
+        "context": {},
+        "instance": "default",
+    }
+    token = agent_tools.build_approval_token(canonical)
+    # Caller accidentally includes a label alongside ids; we should drop it
+    # rather than coerce "label" -> 0 and silently target a wrong record.
+    mixed = {**canonical, "record_ids": [3598, "label"], "token": token}
+    is_valid, _ = agent_tools.verify_write_approval(mixed)
+    assert is_valid is True
+
+
+def test_write_approval_payload_normalizes_record_ids():
+    """write_approval_payload produces a flat list[int] for the payload-equality check."""
+    from odoo_mcp.server_core import write_approval_payload
+
+    approval = {
+        "model": "res.partner",
+        "operation": "unlink",
+        "record_ids": [[3598, 3594]],
+        "values": {},
+        "context": {},
+        "instance": "default",
+    }
+    payload = write_approval_payload(approval)
+    assert payload["record_ids"] == [3598, 3594]
+
+
 # ----- canonical_json / build_approval_token int/float stability -----------
 
 

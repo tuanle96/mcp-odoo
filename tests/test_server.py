@@ -108,9 +108,11 @@ def test_server_registers_expected_tools_and_resources_without_lifespan():
         "search_across_instances",
         "aggregate_across_instances",
         "accounting_health_across_instances",
+        "read_field_to_file",
+        "write_field_from_file",
     }
     assert expected_tools <= tools
-    assert len(tools) == 41
+    assert len(tools) == 43
     assert "odoo://models" in resources
     assert {
         "odoo://model/{model_name}",
@@ -816,7 +818,7 @@ def test_profile_health_and_prompts_are_available():
 
     health = call_tool_json(server, "health_check", {})
     assert health["success"] is True
-    assert health["server"]["tool_count"] == 41
+    assert health["server"]["tool_count"] == 43
     assert health["runtime"]["chatter_direct_enabled"] is False
     assert health["runtime"]["broad_unknown_method_mode"]["enabled"] is False
 
@@ -1827,7 +1829,7 @@ def test_max_smart_fields_invalid_env_falls_back_to_default(monkeypatch):
 def test_mcp_surface_counts_reports_v030_totals():
     server = importlib.import_module("odoo_mcp.server")
     counts = server.mcp_surface_counts()
-    assert counts["tool_count"] == 41
+    assert counts["tool_count"] == 43
     assert counts["prompt_count"] == 11
     # 1 fixed resource + 3 templates = 4
     assert counts["resource_count"] == 4
@@ -2140,9 +2142,18 @@ def test_normalize_domain_input_accepts_search_domain_object():
     assert server.normalize_domain_input(sd) == [["name", "=", "Ada"]]
 
 
-def test_normalize_domain_input_returns_empty_for_invalid_string():
+def test_normalize_domain_input_raises_for_invalid_string():
+    """Garbage strings should raise ``ValueError`` rather than silently return ``[]``.
+
+    Returning ``[]`` silently made callers silently query the wrong record
+    set. Fix B deliberately switches to raising so the agent sees a clean
+    error path. The friendly message names both legal forms.
+    """
+    import pytest
+
     server = importlib.import_module("odoo_mcp.server")
-    assert server.normalize_domain_input("def x():") == []
+    with pytest.raises(ValueError, match="Domain string is neither valid JSON"):
+        server.normalize_domain_input("def x():")
 
 
 def test_normalize_domain_input_handles_python_literal_via_ast():
@@ -2168,9 +2179,16 @@ def test_normalize_domain_input_returns_empty_for_empty_list():
     assert server.normalize_domain_input([[]]) == []
 
 
-def test_normalize_domain_input_returns_empty_for_empty_string():
+def test_normalize_domain_input_raises_for_empty_string():
+    """Empty string is treated as a malformed domain and raises ``ValueError``.
+
+    Use ``None`` (or simply omit the argument) for "no filter".
+    """
+    import pytest
+
     server = importlib.import_module("odoo_mcp.server")
-    assert server.normalize_domain_input("") == []
+    with pytest.raises(ValueError, match="Domain string is neither valid JSON"):
+        server.normalize_domain_input("")
 
 
 # ----- write approval helpers -------------------------------------------

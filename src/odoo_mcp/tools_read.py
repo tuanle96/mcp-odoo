@@ -2,11 +2,16 @@
 MCP tools: read domain.
 
 Includes: list_models, get_model_fields, search_records, read_record,
-read_attachment, aggregate_records, schema_catalog, search_employee,
-search_holidays, list_instances, get_odoo_profile, health_check.
+read_field_to_file, read_attachment, aggregate_records, schema_catalog,
+search_employee, search_holidays, list_instances, get_odoo_profile,
+health_check.
 """
 
+import base64
+import hashlib
 import json
+import os
+import stat
 from datetime import datetime, timedelta
 from typing import Annotated, Any, Dict, List, Optional
 
@@ -29,6 +34,7 @@ from .schemas import (
     ListInstancesResponse,
     ListModelsResponse,
     ReadAttachmentResponse,
+    ReadFieldToFileResponse,
     ReadRecordResponse,
     SchemaCatalogResponse,
     SearchRecordsResponse,
@@ -40,14 +46,20 @@ from .tool_helpers import (
     SearchHolidaysResponse,
     clamp_limit,
     max_attachment_bytes,
+    max_field_file_bytes,
     normalize_domain_input,
     validate_model_name,
 )
+# ``safe_tool_call`` was removed: the friendly-envelope translation now lives
+# in ``server_core._TranslationAwareFastMCP`` (subclass override of
+# ``FastMCP.call_tool``), which is the only layer that actually sees the
+# Pydantic ``ValidationError`` raised during argument binding.
 from .server_core import (
     READ_ONLY_TOOL,
     PREVIEW_TOOL,
     mcp,
     plugin_posture,
+    restrict_field_file_path,
     _cached_fields_metadata,
     _resolve_odoo,
     mcp_surface_counts,
@@ -55,6 +67,9 @@ from .server_core import (
     resolve_read_fields,
     runtime_security_report,
 )
+
+
+_REDACTED_FIELD_PLACEHOLDER = "[REDACTED by field ACL]"
 
 
 def _srv() -> Any:
@@ -324,11 +339,22 @@ def list_models(
 )
 def get_model_fields(
     ctx: Context,
-    model: str,
-    field_names: Optional[List[str]] = None,
-    relevance: Optional[str] = None,
-    max_fields: int = DEFAULT_MAX_RELEVANT_FIELDS,
-    instance: Optional[str] = None,
+    model: Annotated[str, Field(description="Technical Odoo model name, e.g. 'res.partner'.")],
+    field_names: Annotated[
+        Optional[List[str]],
+        Field(description="Optional subset of field names to return; omit for all fields."),
+    ] = None,
+    relevance: Annotated[
+        Optional[str],
+        Field(description='When "top", rank by business relevance and cap at max_fields.'),
+    ] = None,
+    max_fields: Annotated[
+        int, Field(description="Maximum fields to return when relevance='top'; default 15.")
+    ] = DEFAULT_MAX_RELEVANT_FIELDS,
+    instance: Annotated[
+        Optional[str],
+        Field(description="Optional configured Odoo instance name; uses the default if omitted."),
+    ] = None,
 ) -> GetModelFieldsResponse:
     """
     Read field definitions for a model.
@@ -384,21 +410,58 @@ def get_model_fields(
 @mcp.tool(
     description=(
         "Search Odoo records with read-only search_read; optional free-text "
-        "`query` matches across name/ref/email-like fields"
+        "`query` matches across name/ref/email-like fields. "
+        "If unsure which ``instance`` to pass, call ``list_instances`` first "
+        "or omit the argument to use the configured default."
     ),
     annotations=READ_ONLY_TOOL,
     structured_output=True,
 )
 def search_records(
     ctx: Context,
-    model: str,
-    domain: Optional[Any] = None,
-    fields: Optional[List[str]] = None,
-    limit: int = 10,
-    offset: int = 0,
-    order: Optional[str] = None,
-    query: Optional[str] = None,
-    instance: Optional[str] = None,
+    model: Annotated[str, Field(description="Technical Odoo model name, e.g. 'res.partner'.")],
+    domain: Annotated[
+        Optional[Any],
+        Field(
+            description=(
+                "Optional Odoo domain filter. Accepts a standard Odoo domain list, "
+                "a JSON string, or {\"conditions\": [{\"field\": ..., \"operator\": ..., "
+                "\"value\": ...}]}. Multiple conditions are AND-combined."
+            )
+        ),
+    ] = None,
+    fields: Annotated[
+        Optional[List[str]],
+        Field(
+            description=(
+                "Optional subset of field names to return. Omit for smart-field "
+                "selection; pass ['*'] for every available field."
+            )
+        ),
+    ] = None,
+    limit: Annotated[
+        int, Field(description="Maximum records to return; default 10, capped at 100.")
+    ] = 10,
+    offset: Annotated[
+        int, Field(description="Number of records to skip; default 0.")
+    ] = 0,
+    order: Annotated[
+        Optional[str],
+        Field(description="Optional Odoo sort order, e.g. 'name asc' or 'date desc'."),
+    ] = None,
+    query: Annotated[
+        Optional[str],
+        Field(
+            description=(
+                "Optional free-text shortcut: the server builds an OR ilike domain "
+                "across the model's searchable text fields and ANDs it with `domain`."
+            )
+        ),
+    ] = None,
+    instance: Annotated[
+        Optional[str],
+        Field(description="Optional configured Odoo instance name; uses the default if omitted."),
+    ] = None,
 ) -> SearchRecordsResponse:
     """
     Search and read records with bounded read-only semantics.
@@ -468,10 +531,21 @@ def search_records(
 )
 def read_record(
     ctx: Context,
-    model: str,
-    record_id: int,
-    fields: Optional[List[str]] = None,
-    instance: Optional[str] = None,
+    model: Annotated[str, Field(description="Technical Odoo model name, e.g. 'res.partner'.")],
+    record_id: Annotated[int, Field(description="ID of the record to read.")],
+    fields: Annotated[
+        Optional[List[str]],
+        Field(
+            description=(
+                "Optional subset of field names to return. Omit for smart-field "
+                "selection; pass ['*'] for every available field."
+            )
+        ),
+    ] = None,
+    instance: Annotated[
+        Optional[str],
+        Field(description="Optional configured Odoo instance name; uses the default if omitted."),
+    ] = None,
 ) -> ReadRecordResponse:
     """
     Read one record by ID with bounded read-only semantics.
@@ -513,6 +587,254 @@ def read_record(
         return result
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+@mcp.tool(
+    description=(
+        "Read one field from an Odoo record and write it to a local file "
+        "(never overwrites existing files; path must sit inside the configured "
+        "field-file root)"
+    ),
+    annotations=READ_ONLY_TOOL,
+    structured_output=True,
+)
+def read_field_to_file(
+    ctx: Context,
+    model: Annotated[
+        str, Field(description="Technical Odoo model name, for example 'res.partner'.")
+    ],
+    record_id: Annotated[
+        int, Field(description="ID of the record to read the field from.")
+    ],
+    field: Annotated[
+        str,
+        Field(
+            description=(
+                "Name of the field to extract. Binary fields are returned "
+                "as base64-decoded bytes (encoding='base64'); everything else "
+                "as UTF-8 text."
+            )
+        ),
+    ],
+    output_path: Annotated[
+        str,
+        Field(
+            description=(
+                "Absolute path of the file to create. Must be empty — the call "
+                "fails if a file already exists there."
+            )
+        ),
+    ],
+    file_root: Annotated[
+        Optional[str],
+        Field(
+            description=(
+                "Optional absolute root directory the output_path must sit "
+                "inside; defaults to the first entry of ODOO_MCP_FIELD_FILE_ROOTS."
+            )
+        ),
+    ] = None,
+    encoding: Annotated[
+        Optional[str],
+        Field(
+            description=(
+                "Override the encoding for non-binary fields. Defaults to "
+                "'utf-8' for text and 'base64' for binary fields (Odoo "
+                "fields_get reports type='binary')."
+            )
+        ),
+    ] = None,
+    instance: Annotated[
+        Optional[str],
+        Field(description="Optional configured Odoo instance name; uses the default if omitted."),
+    ] = None,
+) -> ReadFieldToFileResponse:
+    """
+    Extract a single field from an Odoo record and stream it to a local file.
+
+    Routes long payloads (HTML, source code, rich text, base64 binaries)
+    through the filesystem instead of the JSON-RPC envelope — the
+    response carries only metadata (path, sha256, byte count), never the
+    field content itself. The agent then reads or edits the file with its
+    ordinary file tools.
+
+    Security:
+    - Path must be absolute and inside ``file_root`` (or the first
+      configured ODOO_MCP_FIELD_FILE_ROOTS entry).
+    - Existing files are never overwritten — both pre-checked and
+      guarded by ``O_CREAT | O_EXCL`` at open time.
+    - The field ACL still applies: redacted fields become a placeholder
+      in the file and ``field_was_redacted=true`` is returned so the
+      agent cannot hallucinate the value.
+    - Symlink escapes are blocked by ``O_NOFOLLOW`` on the create fd.
+
+    No side effects beyond creating the file at ``output_path``.
+    """
+    app_context = ctx.request_context.lifespan_context
+    try:
+        instance_name, odoo = _resolve_odoo(ctx, instance)
+        refusal = check_rate(instance_name, "read_field_to_file")
+        if refusal is not None:
+            return refusal
+        validate_model_name(model)
+        if record_id < 1:
+            raise ValueError("record_id must be greater than 0")
+        if not field or not field.strip():
+            raise ValueError("field must be a non-empty string")
+        cap = max_field_file_bytes()
+
+        # Resolve the path *before* any file system call so a bad path fails
+        # with a clear error, not a low-level OSError.
+        resolved_path, resolved_root = restrict_field_file_path(
+            output_path, file_root
+        )
+        if resolved_path.exists() or resolved_path.is_symlink():
+            raise ValueError(
+                f"{resolved_path} already exists; refusing to overwrite. "
+                "Pick a fresh path or remove the existing file first."
+            )
+
+        # Read the record with only the requested field, then apply field ACL.
+        # We resolve the *list* of redacted field names first so we can still
+        # see whether ``field`` itself was withheld (otherwise redact_record
+        # drops the key from the dict and we cannot tell the difference
+        # between "redacted" and "missing").
+        redacted_names = get_field_policy().restricted_fields(
+            instance_name, model, [field]
+        )
+        field_was_redacted = field in redacted_names
+
+        records = odoo.read_records(model, [record_id], fields=[field])
+        note_single_record_read(instance_name, model)
+        if not records:
+            return {
+                "success": False,
+                "tool": "read_field_to_file",
+                "error": f"Record not found: {model} ID {record_id}",
+            }
+        raw_record = records[0]
+        if field not in raw_record:
+            return {
+                "success": False,
+                "tool": "read_field_to_file",
+                "error": (
+                    f"Field {field!r} not present on {model} — check get_model_fields"
+                ),
+            }
+        raw_value = raw_record[field]
+
+
+
+        # Choose encoding. Binary fields always round-trip via base64-decode;
+        # for text fields the caller may override via ``encoding`` but cannot
+        # force base64 on a non-binary type (caller mistake — see below).
+        fields_metadata = _cached_fields_metadata(
+            app_context, odoo, model, instance_name
+        )
+        field_meta = fields_metadata.get(field) if isinstance(fields_metadata, dict) else None
+        declared_binary = isinstance(field_meta, dict) and field_meta.get("type") == "binary"
+        declared_type = (
+            field_meta.get("type") if isinstance(field_meta, dict) else None
+        )
+        if encoding is None:
+            chosen_encoding = "base64" if declared_binary else "utf-8"
+        else:
+            chosen_encoding = encoding.strip().lower()
+        # Enforce the documented contract: ``encoding="base64"`` is only
+        # legal on fields whose ``fields_get.type`` is ``binary``. Without
+        # this guard, ``base64.b64decode(text, validate=False)`` would
+        # silently produce garbage bytes (and ``validate=False`` makes
+        # even that best-effort). Reject up front with a clear error
+        # naming the field and the metadata-reported type so the agent
+        # knows what to fix.
+        if chosen_encoding == "base64" and not declared_binary:
+            raise ValueError(
+                f"encoding='base64' is only valid on binary fields; "
+                f"field {field!r} on {model} has fields_get.type="
+                f"{declared_type!r}. Pass encoding='utf-8' (or omit it) "
+                "for non-binary fields."
+            )
+
+        if field_was_redacted:
+            payload: bytes = _REDACTED_FIELD_PLACEHOLDER.encode("utf-8")
+        elif raw_value is None or raw_value is False:
+            payload = b""
+        elif chosen_encoding == "base64":
+            if isinstance(raw_value, str):
+                try:
+                    payload = base64.b64decode(raw_value, validate=True)
+                except Exception as exc:
+                    raise ValueError(
+                        f"field {field!r} declared binary but value is not "
+                        f"valid base64: {exc}"
+                    ) from exc
+            else:
+                payload = bytes(raw_value)
+        else:
+            payload = str(raw_value).encode("utf-8")
+
+        if len(payload) > cap:
+            raise ValueError(
+                f"field {field!r} is {len(payload)} bytes; cap is {cap} "
+                "(raise ODOO_MCP_MAX_FIELD_FILE_BYTES to allow it)"
+            )
+
+        # Atomic write: O_CREAT|O_EXCL refuses any path that exists, including
+        # a symlink racing the pre-check. O_NOFOLLOW refuses to follow a
+        # symlink at the final component (defence-in-depth on top of the
+        # containment check, which already collapses .. via resolve()).
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(str(resolved_path), flags, 0o600)
+        try:
+            written = 0
+            with os.fdopen(fd, "wb") as handle:
+                while written < len(payload):
+                    chunk = payload[written : written + 64 * 1024]
+                    handle.write(chunk)
+                    written += len(chunk)
+        except Exception:
+            # Best-effort cleanup so a partial write doesn't leave junk.
+            try:
+                resolved_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
+
+        file_stat = resolved_path.stat()
+        if not stat.S_ISREG(file_stat.st_mode):
+            # Defensive: should be impossible given O_CREAT|O_EXCL|O_NOFOLLOW,
+            # but make the failure mode explicit instead of silently shipping
+            # a symlink or device file.
+            resolved_path.unlink(missing_ok=True)
+            raise ValueError(
+                f"{resolved_path} is not a regular file; refusing to return it"
+            )
+
+        digest = hashlib.sha256(payload).hexdigest()
+        return {
+            "success": True,
+            "tool": "read_field_to_file",
+            "model": model,
+            "record_id": record_id,
+            "field": field,
+            "output_path": str(resolved_path),
+            "file_root": str(resolved_root),
+            "encoding": chosen_encoding,
+            "bytes_written": len(payload),
+            "content_sha256": f"sha256:{digest}:{len(payload)}",
+            "field_was_redacted": field_was_redacted,
+            "redacted_fields": list(redacted_names or []),
+            "metadata_used": {
+                "instance": instance_name,
+                "file_root": str(resolved_root),
+                "encoding": chosen_encoding,
+                "max_bytes": cap,
+                "field_type": field_meta.get("type") if isinstance(field_meta, dict) else None,
+            },
+        }
+    except Exception as e:
+        return {"success": False, "tool": "read_field_to_file", "error": str(e)}
 
 
 @mcp.tool(
@@ -606,22 +928,68 @@ def read_attachment(
 @mcp.tool(
     description=(
         "Aggregate Odoo records server-side using Postgres groupby/sum/count. "
-        "Uses formatted_read_group on Odoo 19+ and read_group on earlier versions."
+        "Uses formatted_read_group on Odoo 19+ and read_group on earlier versions. "
+        "If unsure which ``instance`` to pass, call ``list_instances`` first "
+        "or omit the argument to use the configured default."
     ),
     annotations=READ_ONLY_TOOL,
     structured_output=True,
 )
 def aggregate_records(
     ctx: Context,
-    model: str,
-    group_by: List[str],
-    measures: Optional[List[str]] = None,
-    domain: Optional[Any] = None,
-    lazy: bool = False,
-    limit: Optional[int] = None,
-    offset: int = 0,
-    order: Optional[str] = None,
-    instance: Optional[str] = None,
+    model: Annotated[str, Field(description="Technical Odoo model name, e.g. 'res.partner'.")],
+    group_by: Annotated[
+        List[str],
+        Field(
+            description=(
+                "Fields to group by; suffix a date/datetime field with ':granularity' "
+                "(day, week, month, quarter, year). Must include at least one field."
+            )
+        ),
+    ],
+    measures: Annotated[
+        Optional[List[str]],
+        Field(
+            description=(
+                'Optional list of "field:agg" measure specs. Default aggregator is sum. '
+                "Allowed aggregators: sum, avg, min, max, count, count_distinct, "
+                "array_agg, bool_and, bool_or. "
+                "Note: \"__count\" is the auto-returned row count per group — it "
+                "appears on every row without being requested, so do NOT include "
+                "it as a measure (Odoo will reject it as an unknown field)."
+            )
+        ),
+    ] = None,
+    domain: Annotated[
+        Optional[Any],
+        Field(
+            description=(
+                "Optional Odoo domain filter — same shape as search_records.domain."
+            )
+        ),
+    ] = None,
+    lazy: Annotated[
+        bool,
+        Field(
+            description=(
+                "When true, return only the first groupby level (legacy read_group mode)."
+            )
+        ),
+    ] = False,
+    limit: Annotated[
+        Optional[int], Field(description="Maximum rows to return; default uncapped.")
+    ] = None,
+    offset: Annotated[
+        int, Field(description="Number of rows to skip; default 0.")
+    ] = 0,
+    order: Annotated[
+        Optional[str],
+        Field(description="Optional sort order, e.g. 'date desc' or 'unit_amount desc'."),
+    ] = None,
+    instance: Annotated[
+        Optional[str],
+        Field(description="Optional configured Odoo instance name; uses the default if omitted."),
+    ] = None,
 ) -> AggregateRecordsResponse:
     """Group records server-side and aggregate measures.
 

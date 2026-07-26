@@ -142,6 +142,98 @@ class ReadAttachmentResponse(ToolResponse):
     warnings: Optional[List[str]] = None
 
 
+class ReadFieldToFileResponse(ToolResponse):
+    model: Optional[str] = Field(default=None, description="Source model name.")
+    record_id: Optional[int] = Field(default=None, description="Source record ID.")
+    field: Optional[str] = Field(default=None, description="Field name read.")
+    output_path: Optional[str] = Field(
+        default=None,
+        description=(
+            "Absolute path of the file the value was written to. Never "
+            "overwritten — the call fails if the path already exists."
+        ),
+    )
+    file_root: Optional[str] = Field(
+        default=None,
+        description=(
+            "Resolved root directory the output path sits inside. "
+            "Configured via ODOO_MCP_FIELD_FILE_ROOTS or per-call file_root."
+        ),
+    )
+    encoding: Optional[str] = Field(
+        default=None,
+        description='Encoding used for the on-disk payload: "utf-8" for text, "base64" for binary.',
+    )
+    bytes_written: Optional[int] = Field(
+        default=None, description="Number of bytes written to output_path."
+    )
+    content_sha256: Optional[str] = Field(
+        default=None,
+        description="SHA-256 of the bytes written — matches what the agent can verify locally.",
+    )
+    field_was_redacted: Optional[bool] = Field(
+        default=None,
+        description=(
+            "True when the field ACL withheld the value; output_path then "
+            "contains a placeholder, not the real field content."
+        ),
+    )
+    redacted_fields: Optional[List[str]] = Field(
+        default=None, description="Field names redacted by the field ACL."
+    )
+    metadata_used: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Resolved instance + file_root for auditability.",
+    )
+
+
+class WriteFieldFromFileResponse(ToolResponse):
+    mode: Optional[str] = Field(
+        default=None,
+        description='"preview" (no write performed) or "execute" (write performed).',
+    )
+    model: Optional[str] = Field(default=None, description="Target model name.")
+    record_id: Optional[int] = Field(default=None, description="Target record ID.")
+    field: Optional[str] = Field(default=None, description="Field name written.")
+    input_path: Optional[str] = Field(
+        default=None,
+        description="Absolute path the value was read from.",
+    )
+    file_root: Optional[str] = Field(
+        default=None,
+        description="Resolved root directory the input path sits inside.",
+    )
+    encoding: Optional[str] = Field(
+        default=None,
+        description='Encoding of the source file: "utf-8" for text, "base64" for binary.',
+    )
+    bytes_written: Optional[int] = Field(
+        default=None, description="Bytes streamed into the Odoo field (execute mode only)."
+    )
+    content_sha256: Optional[str] = Field(
+        default=None,
+        description="SHA-256 of the bytes streamed into the Odoo field.",
+    )
+    approval: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Preview-mode payload: re-call with this approval plus "
+            "confirm=true to execute the write."
+        ),
+    )
+    warnings: Optional[List[str]] = Field(
+        default=None,
+        description='Preview-mode guidance, e.g. "re-call with approval + confirm=true".',
+    )
+    result: Optional[Any] = Field(
+        default=None, description="Odoo return value from the write (execute mode only)."
+    )
+    metadata_used: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Resolved instance + file_root + size cap for auditability.",
+    )
+
+
 class AggregateRecordsResponse(ToolResponse):
     method: Optional[str] = Field(
         default=None, description="formatted_read_group (19+) or read_group."

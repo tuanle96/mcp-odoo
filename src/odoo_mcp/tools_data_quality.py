@@ -4,9 +4,10 @@ MCP tools: data-quality domain.
 Includes: data_quality_report.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Optional
 
 from mcp.server.fastmcp import Context
+from pydantic import Field
 
 from .data_quality import ALL_CHECKS, build_data_quality_report
 from .schemas import ToolResponse
@@ -36,11 +37,32 @@ class DataQualityReportResponse(ToolResponse):
 )
 def data_quality_report(
     ctx: Context,
-    model: str,
-    checks: Optional[List[str]] = None,
-    key_fields: Optional[List[str]] = None,
-    sample_limit: int = 500,
-    instance: Optional[str] = None,
+    model: Annotated[str, Field(description="Technical Odoo model name to scan, e.g. 'res.partner'.")],
+    checks: Annotated[
+        Optional[List[str]],
+        Field(
+            description=(
+                "Optional subset of check names to run. Default runs all checks "
+                "(duplicates, missing_required, orphaned_references, format_anomalies)."
+            )
+        ),
+    ] = None,
+    key_fields: Annotated[
+        Optional[List[str]],
+        Field(
+            description=(
+                "Optional field names to use as the duplicate-scan key. Overrides "
+                "the default heuristic (email/vat/ref/...)."
+            )
+        ),
+    ] = None,
+    sample_limit: Annotated[
+        int, Field(description="Maximum records sampled per check; default 500, capped at 2000.")
+    ] = 500,
+    instance: Annotated[
+        Optional[str],
+        Field(description="Optional configured Odoo instance name; uses the default if omitted."),
+    ] = None,
 ) -> DataQualityReportResponse:
     """
     Evidence-first data-quality report for a model (never modifies data).

@@ -62,6 +62,7 @@ unprotected.
 | `get_model_fields` | Denied fields are **marked** `"access": "restricted"` (not hidden) so the agent knows the field exists and can explain the redaction; `restricted_fields` listed. |
 | `index_knowledge` | Denied fields are excluded before BM25 indexing, so their values are never cached or searchable. |
 | `odoo://record/...`, `odoo://search/...` resources | Denied fields removed; `_redacted_fields` noted. |
+| `read_field_to_file` | Denied fields are **not** streamed to disk. The file gets a `[REDACTED by field ACL]` placeholder and the response carries `field_was_redacted: true` plus `redacted_fields: [...]` — so the agent can neither read the value nor hallucinate it. See [field-file-io.md](field-file-io.md). |
 | `health_check` | `runtime.field_acl` reports whether ACL is active and how many instances have rules — never the policy contents. |
 
 `redacted_fields` notes are deliberate: the agent is told *that* fields were

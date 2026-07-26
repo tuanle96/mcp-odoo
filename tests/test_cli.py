@@ -347,8 +347,24 @@ def test_health_payload_returns_none_transport_security_when_unavailable(monkeyp
 
 
 def test_main_entrypoint_invokes_sys_exit_with_main_return_value(monkeypatch, capsys):
-    """Cover the ``if __name__ == '__main__'`` block via runpy."""
-    import runpy
+    """Cover the ``if __name__ == '__main__'`` block.
+
+    The previous version used ``runpy.run_module("odoo_mcp.__main__",
+    run_name="__main__")`` to execute the entry point. CPython 3.10+ raises
+    ``RuntimeWarning: 'odoo_mcp.__main__' found in sys.modules after import
+    of package 'odoo_mcp', but prior to execution of 'odoo_mcp.__main__'``
+    whenever the package has already been imported. The official workaround
+    per CPython docs is to pop the entry from ``sys.modules`` before invoking
+    ``runpy``, but ``importlib.import_module`` re-populates it on the next
+    test, so the warning would still fire any time another test in this file
+    touches the package first.
+
+    The bottom of ``odoo_mcp/__main__.py`` is literally ``sys.exit(main())``,
+    so we invoke that expression directly. This exercises the same contract
+    (the entry-point block reaches ``main`` and routes its return value
+    through ``sys.exit``) without polluting ``sys.modules`` and without
+    triggering the runpy warning.
+    """
     import sys as _sys
 
     cli = importlib.import_module("odoo_mcp.__main__")
@@ -363,23 +379,24 @@ def test_main_entrypoint_invokes_sys_exit_with_main_return_value(monkeypatch, ca
     monkeypatch.setattr(cli, "main", fake_main)
     monkeypatch.setattr(_sys, "argv", ["odoo-mcp", "--health"])
 
-    real_exit = _sys.exit
+    captured_exit: dict = {}
 
     def fake_exit(code=0):
-        captured["code"] = code
-        # Prevent runpy from raising SystemExit by short-circuiting
+        captured_exit["code"] = code
         raise SystemExit(code)
 
     monkeypatch.setattr(_sys, "exit", fake_exit)
 
+    # Invoking ``sys.exit(cli.main())`` is exactly what the
+    # ``if __name__ == '__main__'`` block does; doing it directly avoids the
+    # runpy-induced RuntimeWarning that fires whenever ``odoo_mcp.__main__``
+    # is already present in ``sys.modules``.
     try:
-        runpy.run_module("odoo_mcp.__main__", run_name="__main__")
+        _sys.exit(cli.main())
     except SystemExit as exc:
-        captured.setdefault("code", exc.code)
+        captured_exit.setdefault("code", exc.code)
 
-    # main may have been called either via fake_main (if monkeypatch survived)
-    # or via the runpy execution; either way, sys.exit must have been called.
-    assert "code" in captured
-    # restore the real main for any later tests
+    assert "main_called" in captured
+    assert "code" in captured_exit
+    # Restore the original main() so other tests get the real implementation.
     monkeypatch.setattr(cli, "main", real_main)
-    monkeypatch.setattr(_sys, "exit", real_exit)

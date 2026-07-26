@@ -8,6 +8,8 @@ load_instances_config, resolve_instance_name, resolve_default_instance_name)
 use late-binding via _srv() so monkeypatches applied to the server module work.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import threading
@@ -15,15 +17,16 @@ import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, AsyncIterator, Callable, Dict, List, Optional, cast
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Sequence, cast
 
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.types import Annotations, ToolAnnotations
+from mcp.types import Annotations, ContentBlock, TextContent, ToolAnnotations
 from pydantic import BaseModel, Field
 
+from .error_handling import _format_validation_error
 from .odoo_client import OdooClient
 from .schema_cache import _build_schema_cache
-from .agent_tools import select_smart_fields
+from .agent_tools import _normalized_record_ids, select_smart_fields
 from .tool_helpers import (
     max_smart_fields,
     truthy_env,
@@ -127,12 +130,81 @@ def load_server_instructions() -> str:
     return f"{DEFAULT_SERVER_INSTRUCTIONS}\n\n{text}"
 
 
-mcp = FastMCP(
+class _TranslationAwareFastMCP(FastMCP):
+    """FastMCP subclass that catches Pydantic ``ValidationError`` raised during
+    argument binding and re-emits the friendly ``{"success": False, "tool": …,
+    "error": "Invalid input: …"}`` envelope the rest of the tool surface uses.
+    Subclassing is required because FastMCP's JSON-RPC handler is registered
+    at ``__init__`` time via ``self._mcp_server.call_tool(validate_input=False)
+    (self.call_tool)`` — the bound method is captured by reference. Replacing
+    ``mcp.call_tool`` post-init OR replacing ``mcp._tool_manager.call_tool``
+    both bypass the actual dispatch path. A subclass overrides ``self.call_tool``
+    so the *registered* handler is the wrapper.
+
+    When a tool advertises an ``outputSchema`` (i.e. ``structured_output=True``),
+    FastMCP expects the tool to return a dict matching that schema. Returning a
+    list of ``ContentBlock`` would yield ``Output validation error: outputSchema
+    defined but no structured output returned`` on the MCP transport. We
+    therefore return the envelope as a plain dict when structured output is
+    enabled, and as a ``[TextContent(...)]`` content-block list when it's not
+    (matches how FastMCP itself routes these two return shapes).
+    """
+
+    async def call_tool(  # type: ignore[override]
+        self, name: str, arguments: dict[str, Any]
+    ) -> Any:
+        try:
+            return await super().call_tool(name, arguments)
+        except BaseException as exc:  # noqa: BLE001 — last-line translator
+            translated = _translate_validation_tool_error_to_envelope(
+                exc, tool_name_hint=name
+            )
+            if translated is None:
+                raise
+            tool = self._tool_manager.get_tool(name)
+            structured = bool(getattr(tool, "structured_output", True))
+            if structured:
+                # FastMCP wraps a returned dict into ``structuredContent`` so it
+                # satisfies the tool's ``outputSchema``. Some old callers expect
+                # content blocks; they get the same dict through TextContent.
+                return {
+                    "success": False,
+                    "tool": translated.text and json.loads(translated.text).get("tool", name),
+                    "error": translated.text and json.loads(translated.text).get("error", ""),
+                }
+            return [translated]
+
+
+def _translate_validation_tool_error_to_envelope(
+    exc: BaseException,
+    tool_name_hint: Optional[str] = None,
+) -> Optional[ContentBlock]:
+    """Return a friendly envelope content block, or None if not a validation error."""
+    from mcp.server.fastmcp.exceptions import ToolError
+    from pydantic import ValidationError
+
+    if not isinstance(exc, ToolError):
+        return None
+    cause = exc.__cause__
+    if not isinstance(cause, ValidationError):
+        return None
+
+    tool_name = tool_name_hint or "tool"
+    envelope = {
+        "success": False,
+        "tool": tool_name,
+        "error": f"Invalid input: {_format_validation_error(cause)}",
+    }
+    return TextContent(type="text", text=json.dumps(envelope, sort_keys=True))
+
+
+mcp = _TranslationAwareFastMCP(
     "Odoo MCP Server",
     instructions=load_server_instructions(),
     dependencies=["requests"],
     lifespan=app_lifespan,
 )
+
 
 READ_ONLY_TOOL = ToolAnnotations(
     readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
@@ -244,7 +316,12 @@ def write_approval_payload(approval: Dict[str, Any]) -> Dict[str, Any]:
     payload = {
         "model": approval.get("model"),
         "operation": approval.get("operation"),
-        "record_ids": approval.get("record_ids") or [],
+        # Normalize record_ids to a flat list of int, mirroring
+        # build_write_preview_report / verify_write_approval so the
+        # payload-equality check in _execute_approved_write_gated always
+        # compares canonical shapes (transport- or wrapper-induced nesting
+        # is silently flattened rather than flipping the SHA-256 token).
+        "record_ids": _normalized_record_ids(approval.get("record_ids")),
         "values": approval.get("values") or {},
         "context": approval.get("context") or {},
         "instance": approval.get("instance") or "default",
@@ -408,6 +485,207 @@ def restrict_attachment_upload_path(raw_path: str) -> Path:
 
 
 # ---------------------------------------------------------------------------
+# Field file I/O path helpers (read_field_to_file / write_field_from_file)
+# ---------------------------------------------------------------------------
+
+FIELD_FILE_ROOTS_ENV = "ODOO_MCP_FIELD_FILE_ROOTS"
+
+
+def configured_field_file_roots() -> List[Path]:
+    """Return trusted local roots operators allow field file I/O from.
+
+    Configured by ``ODOO_MCP_FIELD_FILE_ROOTS`` (OS-PATHSEP list of absolute
+    directories). Used by both ``read_field_to_file`` and
+    ``write_field_from_file`` — a value the user can override per call via
+    the ``file_root`` argument on those tools.
+    """
+    roots: List[Path] = []
+    for raw_path in os.environ.get(FIELD_FILE_ROOTS_ENV, "").split(os.pathsep):
+        if not raw_path:
+            continue
+        roots.append(Path(raw_path).expanduser().resolve(strict=False))
+    return roots
+
+
+def _suggest_field_file_roots() -> str:
+    """Build a per-platform hint listing safe default roots.
+
+    The list is a *suggestion*, not an automatic fallback — we still refuse
+    the call without explicit operator consent. ``/tmp`` is *deliberately*
+    not suggested (it is world-readable on most Linux systems and would
+    expose long field payloads to other local users / processes).
+    """
+    home = Path.home()
+    if os.name == "nt":
+        local_app = os.environ.get("LOCALAPPDATA") or str(home / "AppData" / "Local")
+        return (
+            f"  - Windows:  {local_app}\\odoo-mcp\\Cache\\field-files\n"
+            f"               (or any user-owned absolute path)"
+        )
+    # POSIX (Linux + macOS) — XDG_CACHE_HOME defaults to ~/.cache
+    xdg_cache = os.environ.get("XDG_CACHE_HOME") or str(home / ".cache")
+    return (
+        f"  - Linux:    {xdg_cache}/odoo-mcp/field-files\n"
+        f"  - macOS:    {xdg_cache}/odoo-mcp/field-files\n"
+        f"               (or any user-owned absolute path with mode 0700)"
+    )
+
+
+def _no_roots_configured_error() -> ValueError:
+    """Build the fail-closed error for the no-roots-configured case.
+
+    Shared between ``resolve_file_root_override`` and
+    ``restrict_field_file_path`` so every code path that runs without
+    ``ODOO_MCP_FIELD_FILE_ROOTS`` returns the same actionable message:
+    names the env var, lists platform-suggested paths, and warns
+    against ``/tmp``.
+    """
+    return ValueError(
+        f"{FIELD_FILE_ROOTS_ENV} is not configured — refusing all field "
+        "file I/O. To enable read_field_to_file / write_field_from_file, "
+        f"set {FIELD_FILE_ROOTS_ENV} to one or more absolute directories "
+        "(OS-PATHSEP separated):\n"
+        f"{_suggest_field_file_roots()}\n"
+        "\n"
+        "Security: do NOT point these roots at /tmp — /tmp is typically "
+        "world-readable on Linux/macOS, which would expose long field "
+        "payloads (HTML comments, source code, internal notes) to other "
+        "local users and processes. Use a per-user directory with mode "
+        "0700 instead."
+    )
+
+
+def resolve_file_root_override(file_root: Optional[str]) -> Path:
+    """Resolve the ``file_root`` argument as a selector among configured roots.
+
+    The operator's allow-list (``ODOO_MCP_FIELD_FILE_ROOTS``) is the only
+    source of truth — ``file_root`` cannot widen it. The argument is
+    treated as a selector: when supplied, it must equal one of the
+    configured roots after resolve. When omitted, the first configured
+    root is returned.
+
+    Raises ValueError when no root is configured — fail-closed is the
+    only safe default here. The error message names the env var, lists
+    platform-suggested paths, and warns against ``/tmp``.
+    """
+    roots = configured_field_file_roots()
+    if not roots:
+        raise _no_roots_configured_error()
+    if file_root:
+        # Check absolute-ness on the expanduser'd path *before* resolve() —
+        # otherwise a relative path silently gets expanded to cwd and the
+        # check below would let it through on any machine whose cwd happens
+        # to live inside a root.
+        raw = Path(file_root).expanduser()
+        if not raw.is_absolute():
+            raise ValueError(
+                f"file_root override must be an absolute path; got {file_root!r}"
+            )
+        candidate = raw.resolve(strict=False)
+        # ``file_root`` is a *selector* among the configured roots — it
+        # cannot invent a new root that the operator has not approved.
+        # This blocks the prompt-injection bypass where an agent passes
+        # file_root="/" or file_root="/home/user" and then reads / writes
+        # through paths the allow-list would have rejected.
+        if not any(candidate == root for root in roots):
+            raise ValueError(
+                f"file_root {candidate} is not one of the configured "
+                f"{FIELD_FILE_ROOTS_ENV} roots: {[str(r) for r in roots]}. "
+                "The file_root argument can only select among configured "
+                "roots; it cannot widen the operator's allow-list."
+            )
+        return candidate
+    return roots[0]
+
+
+def restrict_field_file_path(
+    raw_path: str, file_root: Optional[str] = None
+) -> tuple[Path, Path]:
+    """Validate a field file I/O path against an allow-listed root.
+
+    Mirrors the hardened pattern from ``restrict_attachment_upload_path``:
+    the path must be **absolute** and must sit inside (or below) one of
+    the configured roots. Returns ``(resolved_path, resolved_root)`` so
+    the caller can echo the exact root it landed in.
+
+    Unlike a ``chroot``, sub-directories of the root are allowed — but no
+    symlink or ``..`` traversal may escape it. The combination of
+    ``Path.resolve(strict=False)`` (which already collapses ``..`` and
+    follows symlinks *before* the containment check) plus the explicit
+    relative-to test is sufficient for this containment guarantee.
+
+    When ``file_root`` is supplied it acts only as a selector among the
+    configured roots (see ``resolve_file_root_override``) — it cannot
+    widen the operator's allow-list. When omitted, the candidate is
+    validated against *all* configured roots and the matching root is
+    returned, so multi-root configs like
+    ``ODOO_MCP_FIELD_FILE_ROOTS=/srv/a:/srv/b`` accept paths under
+    either root.
+
+    Callers MUST additionally use ``O_NOFOLLOW`` / ``O_EXCL`` on the
+    resulting fd to close the TOCTOU window — see ``_read_field_file``
+    in ``tools_write.py`` and the ``O_CREAT|O_EXCL|O_NOFOLLOW`` block in
+    ``read_field_to_file`` (``tools_read.py``).
+    """
+    roots = configured_field_file_roots()
+    if not roots:
+        raise _no_roots_configured_error()
+    # Check absolute-path-ness *before* resolve() — otherwise a relative
+    # path silently gets expanded to cwd and the check below would let it
+    # through on any machine whose cwd happens to live inside a root.
+    raw = Path(raw_path).expanduser()
+    if not raw.is_absolute():
+        raise ValueError(
+            f"field file path must be absolute; got {raw_path!r}"
+        )
+    candidate = raw.resolve(strict=False)
+    if file_root:
+        # Selector semantics: ``file_root`` must equal one of the
+        # configured roots. Re-validate here so a caller cannot sneak a
+        # different root past the containment check by passing a
+        # ``file_root`` we did not previously see.
+        raw_root = Path(file_root).expanduser()
+        if not raw_root.is_absolute():
+            raise ValueError(
+                f"file_root override must be an absolute path; got {file_root!r}"
+            )
+        resolved_root = raw_root.resolve(strict=False)
+        if not any(resolved_root == root for root in roots):
+            raise ValueError(
+                f"file_root {resolved_root} is not one of the configured "
+                f"{FIELD_FILE_ROOTS_ENV} roots: {[str(r) for r in roots]}. "
+                "The file_root argument can only select among configured "
+                "roots; it cannot widen the operator's allow-list."
+            )
+        # Containment check against the selected root only.
+        if not (
+            candidate == resolved_root
+            or _is_relative_to(candidate, resolved_root)
+        ):
+            raise ValueError(
+                f"{candidate} is outside the configured field file root "
+                f"{resolved_root}."
+            )
+        return candidate, resolved_root
+    # No override: validate against ALL configured roots (mirrors the
+    # attachment-upload path which iterates over every root).
+    matching_root = next(
+        (
+            root
+            for root in roots
+            if candidate == root or _is_relative_to(candidate, root)
+        ),
+        None,
+    )
+    if matching_root is None:
+        raise ValueError(
+            f"{candidate} is outside all configured {FIELD_FILE_ROOTS_ENV} "
+            f"roots: {[str(r) for r in roots]}."
+        )
+    return candidate, matching_root
+
+
+# ---------------------------------------------------------------------------
 # N+1 detection
 # ---------------------------------------------------------------------------
 
@@ -530,6 +808,11 @@ def runtime_security_report() -> Dict[str, Any]:
         "audit_log": audit_posture(),
         "oauth": oauth_posture(),
         "field_acl": field_policy_posture(),
+        "field_file_roots": {
+            "env": FIELD_FILE_ROOTS_ENV,
+            "count": len(configured_field_file_roots()),
+            "roots": [str(root) for root in configured_field_file_roots()],
+        },
         "n_plus_one": n_plus_one_report(),
         "notes": [
             "HTTP transports are local-only by default in the CLI entry point.",

@@ -2,6 +2,220 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.4] - 2026-07-26
+
+### Fixed
+- **`execute_approved_write` error envelopes missing `result` key** —
+  `_execute_approved_write_gated` (`tools_write.py`) now routes every
+  return path through a new `_normalize_write_response` helper, which
+  injects `result: None` when the envelope does not already carry the
+  key. Prevents `Output validation error: 'result' is a required
+  property` on FastMCP transports whose inferred `outputSchema` for
+  `execute_approved_write` treats the success-path `result` field as
+  required. The five early-return error paths inside the gate
+  (token mismatch, validation record missing, payload mismatch,
+  missing `confirm`, writes disabled) and the `except Exception` arm
+  all now carry `result: None`. The success path is unchanged
+  (envelope already populated `result`). No change to `success` /
+  `error` semantics — `result: null` simply signals "no Odoo return
+  value because we never reached the execute call".
+
+### Added
+- **`tests/test_batch_write.py`** — 4 new regression tests covering:
+  - `_normalize_write_response` injects `result: None` on error envelopes
+    and is a no-op (same identity) when `result` is already present.
+  - The helper is defensive against non-dict input (returns unchanged).
+  - End-to-end: a token-mismatch execute call returns
+    `{"success": false, "result": null, "error": ...}`.
+
+### Changed
+- No breaking changes. All 954 tests pass (was 946 in 1.3.2; +6 for
+  the v1.3.3 nested-`record_ids` regression tests, +4 for the v1.3.4
+  `_normalize_write_response` tests, −2 net for refactors
+  unrelated to these releases).
+
+## [1.3.3] - 2026-07-26
+
+### Fixed
+- **Write-approval token mismatch when caller-side `record_ids` arrives
+  nested or differently structured** — `verify_write_approval`
+  (`agent_tools.py`) and `write_approval_payload` (`server_core.py`)
+  now route `record_ids` through a new `_normalized_record_ids` helper
+  that flattens any nesting and casts every element to `int`, mirroring
+  the normalization `build_write_preview_report` already performs on
+  the preview side. Previously, a transport- or framework-induced
+  change in list shape (e.g. nested `[[3598, 3594, ...]]` arriving at
+  the execute call instead of flat `[3598, 3594, ...]` from the
+  preview) produced a different SHA-256 than the stored token, surfacing
+  as `"approval token does not match the canonical payload; re-run
+  preview_write and validate_write"`. The new helper also coerces
+  digit-strings (some JSON transports downcast ints) and silently drops
+  non-digit entries instead of coercing them to `0` (which would have
+  silently targeted record id 0 = the Odoo super-user). Booleans are
+  skipped explicitly because `bool` is an `int` subclass in Python.
+  Symmetrical to the existing `_normalize_numbers` int/float drift fix
+  shipped in 1.2.1.
+
+### Added
+- **`tests/test_agent_tools.py`** — 6 new regression tests covering:
+  - `_normalized_record_ids` flattens nested / triple-nested / mixed
+    type input and drops non-digit entries.
+  - `verify_write_approval` accepts nested, triple-nested, and
+    digit-string `record_ids` against a flat-built token (the original
+    bug shape).
+  - `write_approval_payload` normalizes nested input to a flat
+    `list[int]` for the payload-equality check in
+    `_execute_approved_write_gated`.
+
+### Changed
+- No breaking changes. All 108 tests in `tests/test_agent_tools.py`
+  pass; no other public surface affected.
+
+## [1.3.2] - 2026-07-21
+
+### Fixed
+- **Friendly error envelope on Pydantic argument validation** — when
+  FastMCP's binder rejected a tool call (e.g. `measures=""` instead of
+  a list), the server now returns the same `{"success": False, "tool":
+  …, "error": "Invalid input: measures: …"}` envelope the rest of the
+  error path uses, instead of leaking a raw `ValidationError` stack
+  trace. New `safe_tool_call` decorator in `error_handling.py`
+  applied to `aggregate_records` and `search_records`.
+
+- **`normalize_domain_input` no longer silently returns `[]` for garbage
+  strings** — invalid JSON / Python literal input now raises
+  `ValueError` with a message that names both legal forms (JSON list
+  and Python literal), so agents see a clean error path instead of
+  silently querying the wrong record set. Tests updated and
+  `test_tool_helpers` coverage extended.
+
+- **`aggregate_records` description now warns about `__count`** —
+  `__count` is the auto-returned pseudo-column from
+  `read_group`/`formatted_read_group`; passing it explicitly as a
+  measure produces `Invalid field '__count'`. Description and
+  `list_instances` hint tightened on `aggregate_records` and
+  `search_records`.
+
+- **`RuntimeWarning` removed from the CLI test suite** —
+  `runpy.run_module("odoo_mcp.__main__", run_name="__main__")`
+  triggered CPython's `RuntimeWarning` whenever `odoo_mcp.__main__`
+  was already in `sys.modules`. Replaced with a direct invocation of
+  the entry-point expression (`sys.exit(main())`) — same contract
+  tested, no `sys.modules` pollution, no warning.
+
+### Changed
+- No breaking changes to public API. All 946 tests pass.
+
+## [1.3.1] - 2026-07-21
+
+### Fixed
+- **JSON-Schema wrapping bug for list/dict tool parameters** — tool
+  parameters declared as `Optional[List[…]]`, `List[…]`, or
+  `Optional[Dict[…]]` without an `Annotated[…, Field(description=…)]`
+  wrapper were emitted into the JSON schema as a `{"item": […]}` object
+  wrapper instead of a proper array. Clients (MCP inspector, Cline,
+  Claude Desktop) then rejected the call with a `list_type` validation
+  error: `Input should be a valid list [type=list_type, input_value=
+  {'item': [...]}, input_type=dict]`. The fix wraps every affected
+  parameter in `Annotated[…, Field(description=…)]` so Pydantic emits
+  a clean `{"type": "array", "items": …}` (or `{"type": "object"}`)
+  schema. The `domain`, `fields`, `field_names`, `group_by`, `measures`,
+  `checks`, `key_fields`, `args`, `kwargs`, `values`, `values_list`,
+  `record_ids`, `context`, `partner_ids`, `attachment_ids`,
+  `available_models`, `available_fields`, `installed_modules`,
+  `conditions`, `addons_paths`, and `instances` parameters are now all
+  array-safe. Tools fixed: `get_model_fields`, `search_records`,
+  `read_record`, `aggregate_records`, `index_knowledge`,
+  `data_quality_report`, `generate_json2_payload`,
+  `inspect_model_relationships`, `analyze_upgrade_log`,
+  `fit_gap_report`, `scan_addons_source`, `build_domain`,
+  `preview_write`, `validate_write`, `chatter_post`,
+  `search_across_instances`, `aggregate_across_instances`. No behavior
+  change at runtime — only the `tools/list` JSON-Schema surface is
+  corrected, so the existing test suite and all call sites are
+  unchanged.
+
+## [1.3.0] - 2026-07-17
+
+Field-file I/O release: agents can now route single-field payloads
+between Odoo and the local filesystem instead of forcing them through
+the JSON-RPC envelope — useful for HTML, source code, and other long
+rich-text fields where LLMs routinely mistransform JSON-escaped
+content. The destructive write is gated by the same preview/execute +
+two-phase-confirmation flow used by `chatter_post` and
+`execute_approved_write`. 931 tests.
+
+### Added
+- **`read_field_to_file` (read domain)** — read a single field's value
+  straight to a local file. The file content never re-enters the agent's
+  context window; only the SHA-256 fingerprint, byte count, and
+  encoding cross the wire. Honors the field ACL (redacted values become
+  a `[REDACTED by field ACL]` placeholder, response flags it via
+  `field_was_redacted`). Text fields default to UTF-8; binary fields
+  default to base64 (caller can override). Symlink-safe, refuses
+  overwrite, absolute-path-only.
+- **`write_field_from_file` (write domain)** — write a field's value
+  from a local file via the standard two-phase preview/execute flow.
+  Preview returns an approval token carrying only the file's
+  SHA-256 + size fingerprint (no content); execute re-reads the file,
+  re-checks the hash (catches tamper and TOCTOU), fetches live
+  `fields_get` metadata (refuses `readonly=True`), then routes through
+  the same `confirm=true` + `ODOO_MCP_ENABLE_WRITES=1` gates as every
+  other write. Binary round-trip via base64; otherwise UTF-8.
+- **`ODOO_MCP_FIELD_FILE_ROOTS` allow-list** — colon-separated (or
+  `os.pathsep`-separated) absolute directories the two tools are
+  permitted to read from / write into. Hardened pattern lifted from
+  `ODOO_MCP_ATTACHMENT_UPLOAD_ROOTS`: every path is `Path.resolve()`d
+  before the containment check, so `..` traversal and symlink escapes
+  cannot reach outside the operator's allow-list. Per-call override via
+  the `file_root` argument on both tools.
+- **Fail-closed default with actionable error** — with no env var and
+  no per-call override, both tools reject every call. The error names
+  the env var, lists platform-specific safe defaults (`~/.cache/odoo-mcp/field-files`
+  on Linux/macOS, `%LOCALAPPDATA%\odoo-mcp\Cache\field-files` on
+  Windows), and **explicitly warns against `/tmp`** (typically
+  world-readable — long field payloads would leak to other local
+  users / processes).
+- **Runtime posture in `health_check.runtime.field_file_roots`** —
+  non-secret summary of the configured roots (env var name + count +
+  resolved paths), so an operator can audit what is wired up without
+  reading server logs.
+- **`docs/field-file-io.md`** — exhaustive operator guide (config,
+  examples for HTML comments, binary attachments, and long internal
+  notes; full threat-model table).
+
+### Security
+- TOCTOU on read closed via `O_NOFOLLOW` on the create fd plus
+  `O_CREAT | O_EXCL` (no overwrite, no symlink swap race).
+- TOCTOU on write closed via `O_NOFOLLOW` on the input fd: size cap
+  and SHA-256 are derived from the bytes read through that same fd, so
+  a swap between the path check and the read is rejected.
+- File tamper between preview and execute caught by the
+  re-read + SHA-256 re-check on the execute call (the approval token
+  itself includes the expected hash, so any divergence fires either
+  the explicit hash check or the token-mismatch check, whichever runs
+  first — both are equally valid rejections).
+- Field ACL integration for read: redacted values never appear in
+  file content, response payload, or audit-log entry.
+
+### Fixed
+- **`write_field_from_file` `execute_kw` argument shape** — the
+  initial implementation called
+  `odoo.execute_method(model, "write", [[ids], {vals}])`, which
+  `OdooClient.execute_method(self, model, method, *args, **kwargs)`
+  forwarded as `execute_kw("project.task", "write", [[ids], {vals}])`
+  — a **single** positional arg. Odoo's XML-RPC dispatcher then unpacked
+  it as `ProjectTask.write(*[[ids], {vals}])` → `write([ids], {vals})`,
+  and Odoo faulted with
+  `TypeError: ProjectTask.write() missing 1 required positional argument: 'vals'`.
+  Now called as `odoo.execute_method(model, "write", [ids], {vals})` so
+  ids + vals arrive at Odoo as **two separate** positional arguments
+  (mirrors `execute_approved_write`, which always splatted `*args`).
+  New regression test
+  `test_write_field_from_file_does_not_pack_args_into_single_list`
+  (plus the `execute_method` test stub now records the unpacked
+  `*args` form, matching `OdooClient`'s signature) so a re-introduction
+  of the nested-list form fires immediately.
 ## [1.2.3] - 2026-07-22
 
 Metadata-only ownership refresh after the repository transfer to `erpipe-org`.
