@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 from .error_handling import _format_validation_error
 from .odoo_client import OdooClient
 from .schema_cache import _build_schema_cache
-from .agent_tools import select_smart_fields
+from .agent_tools import _normalized_record_ids, select_smart_fields
 from .tool_helpers import (
     max_smart_fields,
     truthy_env,
@@ -316,7 +316,12 @@ def write_approval_payload(approval: Dict[str, Any]) -> Dict[str, Any]:
     payload = {
         "model": approval.get("model"),
         "operation": approval.get("operation"),
-        "record_ids": approval.get("record_ids") or [],
+        # Normalize record_ids to a flat list of int, mirroring
+        # build_write_preview_report / verify_write_approval so the
+        # payload-equality check in _execute_approved_write_gated always
+        # compares canonical shapes (transport- or wrapper-induced nesting
+        # is silently flattened rather than flipping the SHA-256 token).
+        "record_ids": _normalized_record_ids(approval.get("record_ids")),
         "values": approval.get("values") or {},
         "context": approval.get("context") or {},
         "instance": approval.get("instance") or "default",

@@ -2,6 +2,43 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.3] - 2026-07-26
+
+### Fixed
+- **Write-approval token mismatch when caller-side `record_ids` arrives
+  nested or differently structured** — `verify_write_approval`
+  (`agent_tools.py`) and `write_approval_payload` (`server_core.py`)
+  now route `record_ids` through a new `_normalized_record_ids` helper
+  that flattens any nesting and casts every element to `int`, mirroring
+  the normalization `build_write_preview_report` already performs on
+  the preview side. Previously, a transport- or framework-induced
+  change in list shape (e.g. nested `[[3598, 3594, ...]]` arriving at
+  the execute call instead of flat `[3598, 3594, ...]` from the
+  preview) produced a different SHA-256 than the stored token, surfacing
+  as `"approval token does not match the canonical payload; re-run
+  preview_write and validate_write"`. The new helper also coerces
+  digit-strings (some JSON transports downcast ints) and silently drops
+  non-digit entries instead of coercing them to `0` (which would have
+  silently targeted record id 0 = the Odoo super-user). Booleans are
+  skipped explicitly because `bool` is an `int` subclass in Python.
+  Symmetrical to the existing `_normalize_numbers` int/float drift fix
+  shipped in 1.2.1.
+
+### Added
+- **`tests/test_agent_tools.py`** — 6 new regression tests covering:
+  - `_normalized_record_ids` flattens nested / triple-nested / mixed
+    type input and drops non-digit entries.
+  - `verify_write_approval` accepts nested, triple-nested, and
+    digit-string `record_ids` against a flat-built token (the original
+    bug shape).
+  - `write_approval_payload` normalizes nested input to a flat
+    `list[int]` for the payload-equality check in
+    `_execute_approved_write_gated`.
+
+### Changed
+- No breaking changes. All 108 tests in `tests/test_agent_tools.py`
+  pass; no other public surface affected.
+
 ## [1.3.2] - 2026-07-21
 
 ### Fixed

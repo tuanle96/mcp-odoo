@@ -259,13 +259,46 @@ def build_write_preview_report(
     }
 
 
+def _normalized_record_ids(record_ids: Any) -> list[int]:
+    """Flatten + int-cast ``record_ids`` the way ``build_write_preview_report`` does.
+
+    The approval store builds its SHA-256 token from a flat ``list[int]`` of
+    record ids. ``verify_write_approval`` and ``write_approval_payload`` must
+    apply the same normalization before re-hashing, otherwise a
+    transport- or framework-induced shape change (e.g. nested
+    ``[[3598, 3594, ...]]`` arriving at the execute call instead of flat
+    ``[3598, 3594, ...]`` from the preview) flips the SHA-256 and surfaces
+    as ``"approval token does not match the canonical payload"``. Mirrors
+    the int/float drift fix in 1.2.1 (`_normalize_numbers`).
+    """
+    if not record_ids:
+        return []
+    out: list[int] = []
+    for item in record_ids:
+        if isinstance(item, bool):
+            # bool is an int subclass in Python; skip to avoid surprises.
+            continue
+        if isinstance(item, int):
+            out.append(item)
+            continue
+        if isinstance(item, str) and item.lstrip("-").isdigit():
+            out.append(int(item))
+            continue
+        if isinstance(item, (list, tuple)):
+            out.extend(_normalized_record_ids(item))
+    return out
+
 def verify_write_approval(approval: dict[str, Any]) -> tuple[bool, str]:
     """Verify a write approval token against the canonical payload."""
     token = str(approval.get("token", ""))
     payload = {
         "model": approval.get("model"),
         "operation": approval.get("operation"),
-        "record_ids": approval.get("record_ids") or [],
+        # Normalize record_ids to a flat list of int, mirroring
+        # build_write_preview_report so a transport- or wrapper-induced
+        # change in list structure (e.g. nested list) cannot change the
+        # SHA-256 approval token between preview/validate and execute.
+        "record_ids": _normalized_record_ids(approval.get("record_ids")),
         "values": approval.get("values") or {},
         "context": approval.get("context") or {},
         "instance": approval.get("instance") or "default",
