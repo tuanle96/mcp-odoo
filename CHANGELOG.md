@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### Fixed
+
+- Atomically fence an approved write from replay once its outbound Odoo mutation
+  starts, so simultaneous callers produce at most one mutation. If the response
+  is lost, `execute_approved_write` now reports
+  `external_result_uncertain` with `retry_safe: false` and requires destination
+  verification instead of allowing the same approval token to execute again.
+
 ## [1.3.0] - 2026-07-29
 
 ### Changed

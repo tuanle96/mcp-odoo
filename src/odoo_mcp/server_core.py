@@ -66,6 +66,10 @@ class AppContext:
     _clients_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     schema_cache: Any = field(default_factory=_build_schema_cache)
     write_approvals: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    write_approvals_lock: threading.Lock = field(
+        default_factory=threading.Lock,
+        repr=False,
+    )
 
     @property
     def odoo(self) -> OdooClient:
@@ -283,7 +287,10 @@ def _sweep_expired_write_approvals(app_context: AppContext, now: float) -> None:
     expired_tokens = [
         token
         for token, record in app_context.write_approvals.items()
-        if now > float(record.get("expires_at", 0))
+        if (
+            str(record.get("execution_status") or "validated") == "validated"
+            and now > float(record.get("expires_at", 0))
+        )
     ]
     for token in expired_tokens:
         app_context.write_approvals.pop(token, None)
@@ -308,18 +315,33 @@ def register_write_approval(
     if not token:
         return False
     now = time.time()
-    _sweep_expired_write_approvals(app_context, now)
     record: Dict[str, Any] = {
         "approval": dict(approval),
         "payload": write_approval_payload(approval),
         "validated_at": now,
         "expires_at": now + WRITE_APPROVAL_TTL_SECONDS,
+        "execution_status": "validated",
     }
     if resolved_binary_values:
         record["resolved_binary_values"] = dict(resolved_binary_values)
-    app_context.write_approvals[token] = record
-    approval["validated_at"] = now
-    approval["expires_at"] = now + WRITE_APPROVAL_TTL_SECONDS
+    with app_context.write_approvals_lock:
+        _sweep_expired_write_approvals(app_context, now)
+        existing = app_context.write_approvals.get(token)
+        existing_status = (
+            str(existing.get("execution_status") or "validated")
+            if existing is not None
+            else "validated"
+        )
+        if existing is not None and existing_status in {
+            "external_attempt_started",
+            "external_result_uncertain",
+        }:
+            approval["validated_at"] = existing.get("validated_at")
+            approval["expires_at"] = existing.get("expires_at")
+            return True
+        app_context.write_approvals[token] = record
+        approval["validated_at"] = now
+        approval["expires_at"] = now + WRITE_APPROVAL_TTL_SECONDS
     return True
 
 
@@ -328,13 +350,71 @@ def require_validated_write_approval(
 ) -> Dict[str, Any] | None:
     """Return a server-side validation record or None when it is missing/expired."""
     token = str(approval.get("token", ""))
-    record = app_context.write_approvals.get(token)
-    if record is None:
-        return None
-    if time.time() > float(record.get("expires_at", 0)):
-        app_context.write_approvals.pop(token, None)
-        return None
-    return record
+    with app_context.write_approvals_lock:
+        record = app_context.write_approvals.get(token)
+        if record is None:
+            return None
+        execution_status = str(record.get("execution_status") or "validated")
+        if (
+            execution_status == "validated"
+            and time.time() > float(record.get("expires_at", 0))
+        ):
+            app_context.write_approvals.pop(token, None)
+            return None
+        return record
+
+
+def claim_validated_write_approval(
+    app_context: AppContext,
+    approval: Dict[str, Any],
+) -> tuple[Dict[str, Any] | None, str]:
+    """Atomically claim one validated approval for its outbound attempt."""
+    token = str(approval.get("token", ""))
+    with app_context.write_approvals_lock:
+        record = app_context.write_approvals.get(token)
+        if record is None:
+            return None, "missing"
+        execution_status = str(record.get("execution_status") or "validated")
+        if (
+            execution_status == "validated"
+            and time.time() > float(record.get("expires_at", 0))
+        ):
+            app_context.write_approvals.pop(token, None)
+            return None, "missing"
+        if write_approval_payload(approval) != record.get("payload"):
+            return record, "payload_mismatch"
+        if execution_status != "validated":
+            return record, execution_status
+        record["execution_status"] = "external_attempt_started"
+        record["execution_started_at"] = time.time()
+        return record, "claimed"
+
+
+def mark_write_approval_uncertain(
+    app_context: AppContext,
+    token: str,
+    claimed_record: Dict[str, Any],
+    error: Exception,
+) -> None:
+    """Persist an uncertain result without allowing the approval to be reset."""
+    with app_context.write_approvals_lock:
+        current = app_context.write_approvals.get(token)
+        if current is not claimed_record:
+            return
+        current["execution_status"] = "external_result_uncertain"
+        current["execution_error"] = str(error)
+        current.pop("resolved_binary_values", None)
+
+
+def complete_write_approval(
+    app_context: AppContext,
+    token: str,
+    claimed_record: Dict[str, Any],
+) -> None:
+    """Consume the exact claimed record after a confirmed external response."""
+    with app_context.write_approvals_lock:
+        if app_context.write_approvals.get(token) is claimed_record:
+            app_context.write_approvals.pop(token, None)
 
 
 # ---------------------------------------------------------------------------

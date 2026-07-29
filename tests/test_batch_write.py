@@ -1,4 +1,5 @@
 import importlib
+import threading
 
 from odoo_mcp import agent_tools
 
@@ -13,6 +14,7 @@ class FakeLife:
         self.odoo = odoo
         self.schema_cache = {}
         self.write_approvals = {}
+        self.write_approvals_lock = threading.Lock()
 
     def get_client(self, instance=None):
         return "default", self.odoo

@@ -1,6 +1,8 @@
 import asyncio
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import importlib
 import json
+import threading
 import xmlrpc.client
 from pathlib import Path
 
@@ -41,6 +43,7 @@ class FakeLife:
         self.odoo = odoo
         self.schema_cache = {}
         self.write_approvals = {}
+        self.write_approvals_lock = threading.Lock()
         self._named_clients = dict(clients or {})
 
     def get_client(self, instance=None):
@@ -741,6 +744,138 @@ def test_execute_approved_write_runs_only_after_all_gates(monkeypatch):
             {"context": {"lang": "en_US"}},
         )
     ]
+
+
+def test_execute_approved_write_fences_replay_after_ambiguous_success(monkeypatch):
+    server = importlib.import_module("odoo_mcp.server")
+
+    class FakeClient:
+        def __init__(self):
+            self.committed_writes = 0
+
+        def get_model_fields(self, model):
+            return {"name": {"type": "char", "readonly": False}}
+
+        def execute_method(self, *args, **kwargs):
+            self.committed_writes += 1
+            raise TimeoutError("response lost after commit")
+
+    client = FakeClient()
+    ctx = FakeCtx(client)
+    validation = server.validate_write(
+        ctx,
+        "res.partner",
+        "create",
+        values={"name": "Ada"},
+    )
+
+    monkeypatch.setenv("ODOO_MCP_ENABLE_WRITES", "1")
+    first = server.execute_approved_write(ctx, validation["approval"], confirm=True)
+    second = server.execute_approved_write(ctx, validation["approval"], confirm=True)
+
+    assert first["success"] is False
+    assert first["code"] == "external_result_uncertain"
+    assert first["retry_safe"] is False
+    assert second["success"] is False
+    assert second["code"] == "external_result_uncertain"
+    assert second["retry_safe"] is False
+    assert client.committed_writes == 1
+
+
+def test_execute_approved_write_claims_approval_atomically(monkeypatch):
+    server = importlib.import_module("odoo_mcp.server")
+    tools_write = importlib.import_module("odoo_mcp.tools_write")
+    both_callers_ready = threading.Barrier(2)
+    external_attempt_started = threading.Event()
+    release_external_attempt = threading.Event()
+    mutations_lock = threading.Lock()
+
+    class FakeClient:
+        def __init__(self):
+            self.committed_writes = 0
+
+        def get_model_fields(self, model):
+            return {"name": {"type": "char", "readonly": False}}
+
+        def execute_method(self, *args, **kwargs):
+            with mutations_lock:
+                self.committed_writes += 1
+            external_attempt_started.set()
+            if not release_external_attempt.wait(timeout=5):
+                raise AssertionError("test did not release the external attempt")
+            raise TimeoutError("response lost after commit")
+
+    def synchronized_writes_enabled():
+        both_callers_ready.wait(timeout=5)
+        return True
+
+    client = FakeClient()
+    ctx = FakeCtx(client)
+    validation = server.validate_write(
+        ctx,
+        "res.partner",
+        "create",
+        values={"name": "Ada"},
+    )
+    monkeypatch.setattr(
+        tools_write,
+        "writes_enabled",
+        synchronized_writes_enabled,
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(
+                server.execute_approved_write,
+                ctx,
+                validation["approval"],
+                True,
+            )
+            for _ in range(2)
+        ]
+        try:
+            assert external_attempt_started.wait(timeout=5)
+            completed, _ = wait(
+                futures,
+                timeout=5,
+                return_when=FIRST_COMPLETED,
+            )
+            assert len(completed) == 1
+            blocked = next(iter(completed)).result()
+            assert blocked["code"] == "write_execution_in_progress"
+            assert blocked["retry_safe"] is False
+        finally:
+            release_external_attempt.set()
+        results = [future.result(timeout=5) for future in futures]
+
+    uncertain = [
+        result
+        for result in results
+        if result.get("code") == "external_result_uncertain"
+    ]
+    assert len(uncertain) == 1
+    replay = server.execute_approved_write(
+        ctx,
+        validation["approval"],
+        confirm=True,
+    )
+    assert replay["code"] == "external_result_uncertain"
+    assert replay["retry_safe"] is False
+    revalidation = server.validate_write(
+        ctx,
+        "res.partner",
+        "create",
+        values={"name": "Ada"},
+    )
+    assert revalidation["approval"]["token"] == validation["approval"]["token"]
+    after_revalidation = server.execute_approved_write(
+        ctx,
+        revalidation["approval"],
+        confirm=True,
+    )
+    assert after_revalidation["code"] == "external_result_uncertain"
+    assert after_revalidation["retry_safe"] is False
+    assert client.committed_writes == 1
 
 
 def test_schema_catalog_caches_and_business_pack_uses_live_metadata():
