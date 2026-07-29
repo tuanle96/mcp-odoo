@@ -490,6 +490,13 @@ Writes are intentionally boring.
 
 Odoo access rules, record rules, and server-side constraints still decide the final result.
 
+Once execution starts, an approval token is fenced from replay. If Odoo may
+have committed a write but its response is lost, the tool returns
+`code: "external_result_uncertain"` with `retry_safe: false` and refuses a
+second execution with that approval. Verify the destination state in Odoo
+before deliberately creating a new approval. This is duplicate-resistant
+session-local behavior, not an exactly-once guarantee.
+
 Batch creates go through the same gates: pass `values_list` (one dict per
 record, max 100) to `preview_write`/`validate_write` — execution maps to a
 single atomic Odoo `create(vals_list)` call. Per-record differing `write`

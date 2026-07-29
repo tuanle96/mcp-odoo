@@ -743,6 +743,42 @@ def test_execute_approved_write_runs_only_after_all_gates(monkeypatch):
     ]
 
 
+def test_execute_approved_write_fences_replay_after_ambiguous_success(monkeypatch):
+    server = importlib.import_module("odoo_mcp.server")
+
+    class FakeClient:
+        def __init__(self):
+            self.committed_writes = 0
+
+        def get_model_fields(self, model):
+            return {"name": {"type": "char", "readonly": False}}
+
+        def execute_method(self, *args, **kwargs):
+            self.committed_writes += 1
+            raise TimeoutError("response lost after commit")
+
+    client = FakeClient()
+    ctx = FakeCtx(client)
+    validation = server.validate_write(
+        ctx,
+        "res.partner",
+        "create",
+        values={"name": "Ada"},
+    )
+
+    monkeypatch.setenv("ODOO_MCP_ENABLE_WRITES", "1")
+    first = server.execute_approved_write(ctx, validation["approval"], confirm=True)
+    second = server.execute_approved_write(ctx, validation["approval"], confirm=True)
+
+    assert first["success"] is False
+    assert first["code"] == "external_result_uncertain"
+    assert first["retry_safe"] is False
+    assert second["success"] is False
+    assert second["code"] == "external_result_uncertain"
+    assert second["retry_safe"] is False
+    assert client.committed_writes == 1
+
+
 def test_schema_catalog_caches_and_business_pack_uses_live_metadata():
     server = importlib.import_module("odoo_mcp.server")
 

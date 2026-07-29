@@ -83,6 +83,14 @@ flowchart LR
 
 `validate_write` stores an executable approval only when validation used trusted, non-empty live Odoo `fields_get` metadata. Client-provided or shape-only metadata can explain issues, but it does not authorize execution.
 
+Immediately before the outbound mutation, `execute_approved_write` marks the
+approval as `external_attempt_started`. A successful response consumes it. If
+the call raises after it may have reached Odoo, the approval moves to
+`external_result_uncertain` and cannot be replayed in that server session.
+Callers must read back destination state or request human review before
+creating a new approval. This fence prevents a blind duplicate; it cannot
+prove exactly-once execution or reconcile destination state automatically.
+
 ## Local addon scanning
 
 `scan_addons_source` scans files from configured `ODOO_ADDONS_PATHS` roots without importing addon code. Explicit paths must live inside those configured roots. This keeps source inspection deterministic and avoids executing arbitrary addon imports.

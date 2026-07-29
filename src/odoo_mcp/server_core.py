@@ -314,6 +314,7 @@ def register_write_approval(
         "payload": write_approval_payload(approval),
         "validated_at": now,
         "expires_at": now + WRITE_APPROVAL_TTL_SECONDS,
+        "execution_status": "validated",
     }
     if resolved_binary_values:
         record["resolved_binary_values"] = dict(resolved_binary_values)

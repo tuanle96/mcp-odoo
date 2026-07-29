@@ -403,6 +403,12 @@ def execute_approved_write(
 ) -> Dict[str, Any]:
     """Execute create/write/unlink only after token, confirm, and env gates pass."""
     report = _execute_approved_write_gated(ctx, approval, confirm)
+    if report.get("success"):
+        outcome = "success"
+    elif report.get("code") == "external_result_uncertain":
+        outcome = "uncertain"
+    else:
+        outcome = "denied"
     safe_record_ids = [
         int(rid)
         for rid in approval.get("record_ids") or []
@@ -410,7 +416,7 @@ def execute_approved_write(
     ]
     record_write_event(
         "execute",
-        outcome="success" if report.get("success") else "denied",
+        outcome=outcome,
         model=str(approval.get("model") or "") or None,
         operation=str(approval.get("operation") or "") or None,
         record_ids=safe_record_ids,
@@ -447,6 +453,34 @@ def _execute_approved_write_gated(
                 "error": (
                     "approval token has not been validated in this server session "
                     "or has expired; call validate_write first"
+                ),
+            }
+        execution_status = str(
+            validation_record.get("execution_status") or "validated"
+        )
+        if execution_status == "external_attempt_started":
+            return {
+                "success": False,
+                "tool": "execute_approved_write",
+                "code": "write_execution_in_progress",
+                "retry_safe": False,
+                "error": (
+                    "write execution is already in progress for this approval; "
+                    "do not replay it"
+                ),
+            }
+        if execution_status == "external_result_uncertain":
+            original_error = str(validation_record.get("execution_error") or "")
+            detail = f" Original error: {original_error}" if original_error else ""
+            return {
+                "success": False,
+                "tool": "execute_approved_write",
+                "code": "external_result_uncertain",
+                "retry_safe": False,
+                "error": (
+                    "the write may already have completed in Odoo; this approval "
+                    "cannot be replayed. Verify destination state before creating "
+                    f"a new approval.{detail}"
                 ),
             }
         if write_approval_payload(approval) != validation_record.get("payload"):
@@ -504,7 +538,23 @@ def _execute_approved_write_gated(
         else:
             _, odoo = app_context.get_client(approval_instance)
 
-        result = odoo.execute_method(model, operation, *args, **kwargs)
+        validation_record["execution_status"] = "external_attempt_started"
+        try:
+            result = odoo.execute_method(model, operation, *args, **kwargs)
+        except Exception as execution_error:
+            validation_record["execution_status"] = "external_result_uncertain"
+            validation_record["execution_error"] = str(execution_error)
+            return {
+                "success": False,
+                "tool": "execute_approved_write",
+                "code": "external_result_uncertain",
+                "retry_safe": False,
+                "error": (
+                    "the write may already have completed in Odoo; this approval "
+                    "cannot be replayed. Verify destination state before creating "
+                    f"a new approval. Original error: {execution_error}"
+                ),
+            }
         app_context.write_approvals.pop(str(approval.get("token", "")), None)
         return {
             "success": True,
