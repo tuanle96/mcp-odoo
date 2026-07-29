@@ -162,6 +162,10 @@ def _resolve_write_confirmation(
     return Elicit(_write_elicitation_message(approval), WriteConfirmation)
 
 
+# Python 3.10 wraps Annotated defaults of None in Optional, hiding Resolve.
+_DIRECT_CALL_REVIEW = object()
+
+
 async def _elicit_write_confirmation(
     ctx: Context, approval: Dict[str, Any]
 ) -> tuple[str, Optional[str]]:
@@ -359,10 +363,10 @@ async def execute_approved_write_tool(
     confirm: bool = False,
     review: Annotated[
         ElicitationResult[WriteConfirmation], Resolve(_resolve_write_confirmation)
-    ] = None,  # type: ignore[assignment]
+    ] = _DIRECT_CALL_REVIEW,  # type: ignore[assignment]
 ) -> Dict[str, Any]:
     """Tool entry point: era-portable human confirmation, then the sync gates."""
-    if review is None:
+    if review is _DIRECT_CALL_REVIEW:
         # Direct Python callers bypass MCP dependency resolution.
         decision, detail = await _elicit_write_confirmation(ctx, approval)
     else:
