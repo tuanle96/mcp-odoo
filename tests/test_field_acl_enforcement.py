@@ -2,6 +2,7 @@
 
 import importlib
 import json
+import threading
 
 import pytest
 
@@ -122,6 +123,7 @@ class _EchoLife:
         self.odoo = odoo
         self.schema_cache = {}
         self.write_approvals = {}
+        self.write_approvals_lock = threading.Lock()
 
     def get_client(self, instance=None):
         return (instance or "default"), self.odoo

@@ -83,9 +83,10 @@ flowchart LR
 
 `validate_write` stores an executable approval only when validation used trusted, non-empty live Odoo `fields_get` metadata. Client-provided or shape-only metadata can explain issues, but it does not authorize execution.
 
-Immediately before the outbound mutation, `execute_approved_write` marks the
-approval as `external_attempt_started`. A successful response consumes it. If
-the call raises after it may have reached Odoo, the approval moves to
+Immediately before the outbound mutation, `execute_approved_write` atomically
+claims the approval as `external_attempt_started`. Concurrent callers receive
+`write_execution_in_progress`. A successful response consumes the claim. If the
+call raises after it may have reached Odoo, the approval moves to
 `external_result_uncertain` and cannot be replayed in that server session.
 Callers must read back destination state or request human review before
 creating a new approval. This fence prevents a blind duplicate; it cannot
