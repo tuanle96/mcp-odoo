@@ -10,7 +10,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Annotated, Any, Dict, List, Optional
 
-from mcp.server.fastmcp import Context
+from mcp.server.mcpserver import Context
 from pydantic import Field
 
 from .agent_tools import (
@@ -48,6 +48,7 @@ from .server_core import (
     PREVIEW_TOOL,
     mcp,
     plugin_posture,
+    _app_context,
     _cached_fields_metadata,
     _resolve_odoo,
     mcp_surface_counts,
@@ -150,7 +151,7 @@ def schema_catalog(
             for model_name in models:
                 validate_model_name(model_name)
 
-        app_context = ctx.request_context.lifespan_context
+        app_context = _app_context(ctx)
         instance_name = _srv().resolve_instance_name(instance)
         cache_key = json.dumps(
             {
@@ -411,7 +412,7 @@ def search_records(
     and ANDs it with ``domain``, so agents don't have to hand-craft
     fuzzy-match domains.
     """
-    app_context = ctx.request_context.lifespan_context
+    app_context = _app_context(ctx)
     try:
         instance_name, odoo = _resolve_odoo(ctx, instance)
         refusal = check_rate(instance_name, "search_records")
@@ -480,7 +481,7 @@ def read_record(
     (business identifiers + state + relations) to keep LLM context small.
     Pass ``fields=["*"]`` to fetch every available field.
     """
-    app_context = ctx.request_context.lifespan_context
+    app_context = _app_context(ctx)
     try:
         instance_name, odoo = _resolve_odoo(ctx, instance)
         refusal = check_rate(instance_name, "read_record")

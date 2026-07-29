@@ -24,8 +24,8 @@ def test_cli_applies_streamable_http_runtime_settings(monkeypatch):
     cli = importlib.import_module("odoo_mcp.__main__")
     calls = []
 
-    def fake_run(*, transport):
-        calls.append(transport)
+    def fake_run(*, transport, **kwargs):
+        calls.append((transport, kwargs))
 
     monkeypatch.setattr(cli.mcp, "run", fake_run)
     monkeypatch.setattr(
@@ -52,16 +52,18 @@ def test_cli_applies_streamable_http_runtime_settings(monkeypatch):
     )
 
     assert cli.main() == 0
-    assert calls == ["streamable-http"]
-    assert cli.mcp.settings.host == "0.0.0.0"
-    assert cli.mcp.settings.port == 9999
-    assert cli.mcp.settings.streamable_http_path == "/mcp-test"
+    assert len(calls) == 1
+    transport, options = calls[0]
+    assert transport == "streamable-http"
+    assert options["host"] == "0.0.0.0"
+    assert options["port"] == 9999
+    assert options["streamable_http_path"] == "/mcp-test"
     assert cli.mcp.settings.log_level == "WARNING"
-    assert cli.mcp.settings.transport_security.allowed_hosts == [
+    assert options["transport_security"].allowed_hosts == [
         "odoo.example.test",
         "127.0.0.1:*",
     ]
-    assert cli.mcp.settings.transport_security.allowed_origins == [
+    assert options["transport_security"].allowed_origins == [
         "https://agent.example.test"
     ]
 
@@ -245,7 +247,7 @@ def test_is_secret_env_key_recognizes_password_token_and_api_key_suffixes():
 def test_main_handles_keyboard_interrupt_gracefully(monkeypatch, capsys):
     cli = importlib.import_module("odoo_mcp.__main__")
 
-    def raise_keyboard_interrupt(*, transport):
+    def raise_keyboard_interrupt(*, transport, **kwargs):
         raise KeyboardInterrupt
 
     monkeypatch.setattr(cli.mcp, "run", raise_keyboard_interrupt)
@@ -259,7 +261,7 @@ def test_main_handles_keyboard_interrupt_gracefully(monkeypatch, capsys):
 def test_main_handles_unexpected_exception_returns_one(monkeypatch, capsys):
     cli = importlib.import_module("odoo_mcp.__main__")
 
-    def raise_runtime_error(*, transport):
+    def raise_runtime_error(*, transport, **kwargs):
         raise RuntimeError("boom")
 
     monkeypatch.setattr(cli.mcp, "run", raise_runtime_error)
@@ -276,7 +278,7 @@ def test_main_masks_secret_environment_values_in_startup_log(monkeypatch, capsys
 
     monkeypatch.setenv("ODOO_PASSWORD", "supersecret-do-not-print")
     monkeypatch.setenv("ODOO_URL", "https://odoo.example.test")
-    monkeypatch.setattr(cli.mcp, "run", lambda *, transport: None)
+    monkeypatch.setattr(cli.mcp, "run", lambda *, transport, **kwargs: None)
     monkeypatch.setattr(cli.sys, "argv", ["odoo-mcp"])
 
     assert cli.main() == 0
@@ -289,7 +291,7 @@ def test_main_masks_secret_environment_values_in_startup_log(monkeypatch, capsys
 def test_main_logs_streamable_http_bind_and_path(monkeypatch, capsys):
     cli = importlib.import_module("odoo_mcp.__main__")
 
-    monkeypatch.setattr(cli.mcp, "run", lambda *, transport: None)
+    monkeypatch.setattr(cli.mcp, "run", lambda *, transport, **kwargs: None)
     monkeypatch.setattr(
         cli.sys,
         "argv",
@@ -312,33 +314,22 @@ def test_main_logs_streamable_http_bind_and_path(monkeypatch, capsys):
     assert "Path: /mcp" in err
 
 
-def test_configure_mcp_runtime_raises_when_transport_security_missing(monkeypatch):
+def test_configure_mcp_runtime_keeps_safe_local_transport_defaults():
     cli = importlib.import_module("odoo_mcp.__main__")
 
-    monkeypatch.setattr(cli.mcp.settings, "transport_security", None, raising=False)
-    args = cli.parse_args(
-        [
-            "--transport",
-            "streamable-http",
-            "--host",
-            "127.0.0.1",
-            "--allowed-hosts",
-            "odoo.example.test",
-        ]
-    )
+    args = cli.parse_args(["--transport", "streamable-http"])
+    options = cli.configure_mcp_runtime(args)
+    security = options["transport_security"]
 
-    try:
-        cli.configure_mcp_runtime(args)
-    except ValueError as exc:
-        assert "transport security" in str(exc)
-    else:
-        raise AssertionError("missing transport_security must raise")
+    assert security.enable_dns_rebinding_protection is True
+    assert security.allowed_hosts == cli.DEFAULT_ALLOWED_HOSTS
+    assert security.allowed_origins == cli.DEFAULT_ALLOWED_ORIGINS
 
 
 def test_health_payload_returns_none_transport_security_when_unavailable(monkeypatch):
     cli = importlib.import_module("odoo_mcp.__main__")
 
-    monkeypatch.setattr(cli.mcp.settings, "transport_security", None, raising=False)
+    monkeypatch.setattr(cli.mcp, "_odoo_runtime", {}, raising=False)
     args = cli.parse_args(["--health"])
 
     payload = cli.health_payload(args)

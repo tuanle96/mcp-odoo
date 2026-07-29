@@ -75,6 +75,7 @@ Once configured (see [Setup](#setup)), ask your agent things like:
 | Multi-instance | One server, several named Odoo instances — optional `instance` parameter on every tool, `list_instances` discovery, instance-bound approval tokens, per-instance schema caches. |
 | 5 agent prompts | Reusable workflows for failed calls, fit/gap workshops, JSON-2 migration, safe writes, and module audits. |
 | Odoo 16-19 coverage | XML-RPC by default, JSON-2 opt-in for Odoo 19. |
+| MCP 2026-07-28 | Stateless modern protocol with `server/discover`, plus automatic compatibility with legacy `2025-11-25` clients on the same endpoint. |
 | Streamable HTTP | Local HTTP/SSE support for clients that do not use stdio. |
 | Smart field selection | `search_records` and `read_record` curate business-relevant fields when no `fields` argument is supplied — drops audit, message, binary, and unstored compute noise. Pass `fields=["*"]` to opt out. |
 | Server-side aggregation | `aggregate_records` pushes groupby/sum/count/avg into Postgres via `formatted_read_group` (Odoo 19+) or `read_group` (16-18). |

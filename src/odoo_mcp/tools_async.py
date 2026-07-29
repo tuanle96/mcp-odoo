@@ -13,13 +13,14 @@ synchronous and explicit by design.
 from datetime import date
 from typing import Any, Callable, Dict, Optional
 
-from mcp.server.fastmcp import Context
+from mcp.server.mcpserver import Context
 
 from .schemas import AsyncTaskResponse, ListAsyncTasksResponse
 from .accounting_tools import MAX_AGING_LINES, parse_as_of
 from .agent_tools import scan_addons_source_report
 from .server_core import (
     PREVIEW_TOOL,
+    _app_context,
     _resolve_odoo,
     mcp,
     resolve_read_fields,
@@ -81,7 +82,7 @@ def _build_index_knowledge_job(
     # Resolve connection and field selection now, while the request context
     # is alive; the worker thread only fetches and indexes.
     instance_name, odoo = _resolve_odoo(ctx, instance)
-    app_context = ctx.request_context.lifespan_context
+    app_context = _app_context(ctx)
     fields = resolve_read_fields(
         app_context, odoo, model, params.get("fields"), instance_name
     )
@@ -141,7 +142,7 @@ def _build_cross_instance_job(
 ) -> Callable[[], Dict[str, Any]]:
     # The fan-out resolves clients lazily per instance from the app context;
     # capture it now while the request context is alive.
-    app_context = ctx.request_context.lifespan_context
+    app_context = _app_context(ctx)
     runner = _CROSS_INSTANCE_RUNNERS[operation]
 
     def job() -> Dict[str, Any]:

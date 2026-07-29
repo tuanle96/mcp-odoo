@@ -6,7 +6,7 @@ Includes: data_quality_report.
 
 from typing import Any, Dict, List, Optional
 
-from mcp.server.fastmcp import Context
+from mcp.server.mcpserver import Context
 
 from .data_quality import ALL_CHECKS, build_data_quality_report
 from .schemas import ToolResponse

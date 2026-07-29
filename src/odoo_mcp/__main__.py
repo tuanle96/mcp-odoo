@@ -11,12 +11,20 @@ import sys
 import time
 import traceback
 
+from mcp.server.transport_security import TransportSecuritySettings
+
 from .auth import build_auth
 from .server import mcp
 
 SUPPORTED_MCP_TRANSPORTS = {"stdio", "streamable-http", "sse"}
 SECRET_ENV_KEYS = {"ODOO_PASSWORD", "ODOO_API_KEY", "MCP_HTTP_AUTH_TOKEN"}
 LOCAL_HTTP_HOSTS = {"127.0.0.1", "localhost", "::1"}
+DEFAULT_ALLOWED_HOSTS = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+DEFAULT_ALLOWED_ORIGINS = [
+    "http://127.0.0.1:*",
+    "http://localhost:*",
+    "http://[::1]:*",
+]
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 DEFAULT_LOG_FILE_BYTES = 10 * 1024 * 1024
 DEFAULT_LOG_FILE_BACKUPS = 3
@@ -213,8 +221,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def configure_mcp_runtime(args: argparse.Namespace) -> None:
-    """Apply CLI/env runtime settings to the FastMCP instance."""
+def configure_mcp_runtime(args: argparse.Namespace) -> dict[str, object]:
+    """Build MCPServer v2 run options from CLI/env settings."""
     if (
         args.transport in {"streamable-http", "sse"}
         and args.host not in LOCAL_HTTP_HOSTS
@@ -231,27 +239,39 @@ def configure_mcp_runtime(args: argparse.Namespace) -> None:
             "prefer streamable-http (or stdio for local clients).",
             file=sys.stderr,
         )
-    mcp.settings.host = args.host
-    mcp.settings.port = args.port
     mcp.settings.log_level = args.log_level
-    mcp.settings.streamable_http_path = args.path
-    allowed_hosts = parse_csv_env(args.allowed_hosts)
-    allowed_origins = parse_csv_env(args.allowed_origins)
-    security = mcp.settings.transport_security
-    if allowed_hosts or allowed_origins:
-        if security is None:
-            raise ValueError("FastMCP transport security settings are unavailable")
-        if allowed_hosts:
-            security.allowed_hosts = allowed_hosts
-        if allowed_origins:
-            security.allowed_origins = allowed_origins
     configure_oauth(args)
+    if args.transport == "stdio":
+        setattr(mcp, "_odoo_runtime", {"transport": "stdio"})
+        return {}
+
+    security = TransportSecuritySettings(
+        allowed_hosts=parse_csv_env(args.allowed_hosts) or DEFAULT_ALLOWED_HOSTS,
+        allowed_origins=parse_csv_env(args.allowed_origins) or DEFAULT_ALLOWED_ORIGINS,
+    )
+    options: dict[str, object] = {
+        "host": args.host,
+        "port": args.port,
+        "transport_security": security,
+    }
+    if args.transport == "streamable-http":
+        options["streamable_http_path"] = args.path
+    setattr(
+        mcp,
+        "_odoo_runtime",
+        {
+            "transport": args.transport,
+            "streamable_http_path": args.path,
+            **options,
+        },
+    )
+    return options
 
 
 def configure_oauth(args: argparse.Namespace) -> None:
     """Enable the OAuth resource server when ODOO_MCP_AUTH_* env vars are set.
 
-    FastMCP reads settings.auth and the token verifier lazily when it builds
+    MCPServer reads settings.auth and the token verifier lazily when it builds
     the HTTP app, so wiring them here (before run) is sufficient.
     """
     auth = build_auth()
@@ -275,7 +295,7 @@ def configure_oauth(args: argparse.Namespace) -> None:
 
 def health_payload(args: argparse.Namespace) -> dict[str, object]:
     """Build a non-secret process/runtime health payload."""
-    security = mcp.settings.transport_security
+    security = getattr(mcp, "_odoo_runtime", {}).get("transport_security")
     if security is None:
         transport_security = None
     else:
@@ -307,7 +327,7 @@ def main() -> int:
 
             return run_setup()
         setup_logging()
-        configure_mcp_runtime(args)
+        runtime_options = configure_mcp_runtime(args)
         if args.health:
             print(json.dumps(health_payload(args), sort_keys=True))
             return 0
@@ -328,7 +348,7 @@ def main() -> int:
             if args.transport == "streamable-http":
                 print(f"  Path: {args.path}", file=sys.stderr)
         sys.stderr.flush()
-        mcp.run(transport=args.transport)
+        mcp.run(transport=args.transport, **runtime_options)
 
         print("MCP server stopped normally", file=sys.stderr)
         return 0

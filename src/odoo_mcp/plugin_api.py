@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from mcp.server.fastmcp import Context
+from mcp.server.mcpserver import Context
 
 from .field_policy import get_field_policy
 from .server_core import (

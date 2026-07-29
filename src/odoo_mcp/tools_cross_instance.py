@@ -17,7 +17,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Annotated, Any, Callable, Dict, List, Optional
 
-from mcp.server.fastmcp import Context
+from mcp.server.mcpserver import Context
 from pydantic import Field
 
 from .accounting_tools import build_aging_report, fetch_aging_lines, parse_as_of
@@ -39,7 +39,7 @@ from .schemas import (
     AggregateAcrossInstancesResponse,
     SearchAcrossInstancesResponse,
 )
-from .server_core import READ_ONLY_TOOL, mcp
+from .server_core import READ_ONLY_TOOL, _app_context, mcp
 from .tool_helpers import (
     clamp_limit,
     normalize_domain_input,
@@ -242,7 +242,7 @@ def search_across_instances(
     submit_async_task(operation="search_across_instances").
     """
     try:
-        app_context = ctx.request_context.lifespan_context
+        app_context = _app_context(ctx)
         return {
             "tool": "search_across_instances",
             **run_search_across(
@@ -280,7 +280,7 @@ def aggregate_across_instances(
     rows). Denied aggregate fields are rejected per instance.
     """
     try:
-        app_context = ctx.request_context.lifespan_context
+        app_context = _app_context(ctx)
         return {
             "tool": "aggregate_across_instances",
             **run_aggregate_across(
@@ -336,7 +336,7 @@ def accounting_health_across_instances(
     results on per-instance failure.
     """
     try:
-        app_context = ctx.request_context.lifespan_context
+        app_context = _app_context(ctx)
         return {
             "tool": "accounting_health_across_instances",
             **run_accounting_health_across(

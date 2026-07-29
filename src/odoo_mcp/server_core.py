@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional, cast
 
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.mcpserver import Context, MCPServer
 from mcp.types import Annotations, ToolAnnotations
 from pydantic import BaseModel, Field
 
@@ -61,6 +61,7 @@ class AppContext:
         default_factory=lambda: _srv().get_odoo_client
     )
     _odoo: OdooClient | None = None
+    _default_instance_name: str | None = None
     _clients: Dict[str, OdooClient] = field(default_factory=dict)
     _clients_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     schema_cache: Any = field(default_factory=_build_schema_cache)
@@ -85,7 +86,7 @@ class AppContext:
 
 
 @asynccontextmanager
-async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
+async def app_lifespan(server: MCPServer) -> AsyncIterator[AppContext]:
     """Application lifespan for initialization and cleanup."""
     # Validate the field ACL policy at startup so a malformed policy fails
     # closed (aborts) instead of silently running unprotected at first read.
@@ -127,7 +128,7 @@ def load_server_instructions() -> str:
     return f"{DEFAULT_SERVER_INSTRUCTIONS}\n\n{text}"
 
 
-mcp = FastMCP(
+mcp = MCPServer(
     "Odoo MCP Server",
     instructions=load_server_instructions(),
     dependencies=["requests"],
@@ -135,13 +136,22 @@ mcp = FastMCP(
 )
 
 READ_ONLY_TOOL = ToolAnnotations(
-    readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+    read_only_hint=True,
+    destructive_hint=False,
+    idempotent_hint=True,
+    open_world_hint=True,
 )
 PREVIEW_TOOL = ToolAnnotations(
-    readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    read_only_hint=True,
+    destructive_hint=False,
+    idempotent_hint=True,
+    open_world_hint=False,
 )
 DESTRUCTIVE_TOOL = ToolAnnotations(
-    readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=True
+    read_only_hint=False,
+    destructive_hint=True,
+    idempotent_hint=False,
+    open_world_hint=True,
 )
 RESOURCE_HINT = Annotations(audience=["assistant"], priority=0.8)
 
@@ -176,9 +186,14 @@ def resolve_instance_name(instance: Optional[str]) -> str:
     return instance
 
 
+def _app_context(ctx: Context) -> AppContext:
+    """Return this server's typed lifespan state."""
+    return cast(AppContext, ctx.request_context.lifespan_context)
+
+
 def _resolve_odoo(ctx: Context, instance: Optional[str]) -> tuple[str, OdooClient]:
     """Resolve the Odoo client for a tool call, honoring the optional instance name."""
-    app_context = ctx.request_context.lifespan_context
+    app_context = _app_context(ctx)
     if not instance:
         name = getattr(app_context, "_default_instance_name", None)
         if name is None:
@@ -488,7 +503,7 @@ def instance_posture() -> Dict[str, Any]:
 
 
 def mcp_surface_counts() -> Dict[str, int]:
-    """Read current registered MCP surface counts from FastMCP managers."""
+    """Read current registered MCP surface counts from MCPServer managers."""
     tool_manager = getattr(mcp, "_tool_manager", None)
     resource_manager = getattr(mcp, "_resource_manager", None)
     prompt_manager = getattr(mcp, "_prompt_manager", None)
@@ -503,13 +518,14 @@ def mcp_surface_counts() -> Dict[str, int]:
 
 def runtime_security_report() -> Dict[str, Any]:
     """Expose MCP runtime safety posture without including secrets."""
-    security = getattr(mcp.settings, "transport_security", None)
+    runtime = getattr(mcp, "_odoo_runtime", {})
+    security = runtime.get("transport_security")
     broad_unknown_enabled = truthy_env("ODOO_MCP_ALLOW_UNKNOWN_METHODS")
     return {
-        "transport": os.environ.get("MCP_TRANSPORT", "stdio"),
-        "host": getattr(mcp.settings, "host", None),
-        "port": getattr(mcp.settings, "port", None),
-        "streamable_http_path": getattr(mcp.settings, "streamable_http_path", None),
+        "transport": runtime.get("transport", os.environ.get("MCP_TRANSPORT", "stdio")),
+        "host": runtime.get("host"),
+        "port": runtime.get("port"),
+        "streamable_http_path": runtime.get("streamable_http_path"),
         "remote_http_allowed": truthy_env("MCP_ALLOW_REMOTE_HTTP"),
         "write_execution_enabled": writes_enabled(),
         "unknown_execute_method_enabled": broad_unknown_enabled,

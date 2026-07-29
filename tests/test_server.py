@@ -4,12 +4,18 @@ import json
 import xmlrpc.client
 from pathlib import Path
 
-from mcp.server.fastmcp import FastMCP
-from mcp.types import TextContent
+from mcp import Client
+from mcp.server.mcpserver import MCPServer
+from mcp.types import ElicitResult, TextContent
 
 
 def call_tool_json(server, name, arguments):
     content = asyncio.run(server.mcp.call_tool(name, arguments))
+    if hasattr(content, "structured_content"):
+        structured = content.structured_content
+        if isinstance(structured, dict):
+            return structured.get("result", structured)
+        content = content.content
     if isinstance(content, tuple):
         content, structured = content
         if isinstance(structured, dict):
@@ -48,12 +54,67 @@ class FakeLife:
         )
 
 
-def test_server_import_initializes_fastmcp_with_current_sdk_without_lifespan():
+def test_server_import_initializes_mcpserver_with_current_sdk_without_lifespan():
     server = importlib.import_module("odoo_mcp.server")
 
-    assert isinstance(server.mcp, FastMCP)
+    assert isinstance(server.mcp, MCPServer)
     assert server.mcp.name == "Odoo MCP Server"
     assert server.mcp.instructions == "MCP Server for interacting with Odoo ERP systems"
+
+
+def test_server_negotiates_modern_and_legacy_protocol_eras():
+    server = importlib.import_module("odoo_mcp.server")
+
+    async def negotiate(mode):
+        async with Client(server.mcp, mode=mode) as client:
+            tools = await client.list_tools()
+            return client.protocol_version, {tool.name for tool in tools.tools}
+
+    modern_version, modern_tools = asyncio.run(negotiate("auto"))
+    legacy_version, legacy_tools = asyncio.run(negotiate("legacy"))
+
+    assert modern_version == "2026-07-28"
+    assert legacy_version == "2025-11-25"
+    assert modern_tools == legacy_tools
+
+
+def test_modern_and_legacy_protocols_use_write_confirmation(monkeypatch):
+    server = importlib.import_module("odoo_mcp.server")
+    questions = []
+    monkeypatch.setenv(server.ELICIT_WRITES_ENV, "1")
+
+    async def decline(_context, params):
+        questions.append(params.message)
+        return ElicitResult(action="decline")
+
+    async def call(mode):
+        async with Client(
+            server.mcp, mode=mode, elicitation_callback=decline
+        ) as client:
+            result = await client.call_tool(
+                "execute_approved_write",
+                {
+                    "approval": {
+                        "model": "res.partner",
+                        "operation": "write",
+                        "record_ids": [7],
+                        "values": {"name": "Ada"},
+                        "token": "bogus",
+                    },
+                    "confirm": True,
+                },
+            )
+            return client.protocol_version, result
+
+    modern_version, modern_result = asyncio.run(call("auto"))
+    legacy_version, legacy_result = asyncio.run(call("legacy"))
+
+    assert modern_version == "2026-07-28"
+    assert legacy_version == "2025-11-25"
+    assert len(questions) == 2
+    assert all("write on res.partner" in question for question in questions)
+    assert "declined" in modern_result.content[0].text
+    assert "declined" in legacy_result.content[0].text
 
 
 def test_server_registers_expected_tools_and_resources_without_lifespan():
@@ -64,7 +125,7 @@ def test_server_registers_expected_tools_and_resources_without_lifespan():
         str(resource.uri) for resource in asyncio.run(server.mcp.list_resources())
     }
     templates = {
-        str(template.uriTemplate)
+        str(template.uri_template)
         for template in asyncio.run(server.mcp.list_resource_templates())
     }
 
@@ -132,7 +193,8 @@ def test_tools_expose_safety_annotations_and_output_schemas():
     server = importlib.import_module("odoo_mcp.server")
 
     tools = {
-        tool.name: tool.model_dump() for tool in asyncio.run(server.mcp.list_tools())
+        tool.name: tool.model_dump(by_alias=True)
+        for tool in asyncio.run(server.mcp.list_tools())
     }
 
     assert tools["list_models"]["annotations"]["readOnlyHint"] is True
@@ -148,11 +210,11 @@ def test_resources_are_json_with_assistant_annotations():
     server = importlib.import_module("odoo_mcp.server")
 
     resources = {
-        str(resource.uri): resource.model_dump()
+        str(resource.uri): resource.model_dump(by_alias=True)
         for resource in asyncio.run(server.mcp.list_resources())
     }
     templates = {
-        str(template.uriTemplate): template.model_dump()
+        str(template.uri_template): template.model_dump(by_alias=True)
         for template in asyncio.run(server.mcp.list_resource_templates())
     }
 
@@ -1838,7 +1900,8 @@ def test_new_tools_expose_output_schema_and_annotations():
 
     server = importlib.import_module("odoo_mcp.server")
     tools = {
-        tool.name: tool.model_dump() for tool in asyncio.run(server.mcp.list_tools())
+        tool.name: tool.model_dump(by_alias=True)
+        for tool in asyncio.run(server.mcp.list_tools())
     }
 
     aggregate = tools["aggregate_records"]

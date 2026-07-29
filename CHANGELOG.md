@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-07-29
+
+### Changed
+
+- Upgraded to the stable MCP Python SDK 2.x and MCP `2026-07-28`.
+  `MCPServer` now serves the stateless `server/discover` lifecycle and legacy
+  `2025-11-25` clients from the same stdio or Streamable HTTP endpoint.
+- Write confirmation uses the SDK's era-portable resolver: MRTR on modern
+  clients, legacy elicitation on older clients, and the existing approval-token
+  fallback when form elicitation is unavailable.
+- Streamable HTTP settings now pass through `MCPServer.run()` as required by
+  SDK v2; DNS-rebinding host/origin defaults and OAuth introspection remain in
+  place. OAuth HTTP calls use the SDK-provided `httpx2` dependency.
+
 ## [1.2.3] - 2026-07-22
 
 Metadata-only ownership refresh after the repository transfer to `erpipe-org`.

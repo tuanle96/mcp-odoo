@@ -10,7 +10,7 @@ path; the gated write workflow remains the only mutation surface.
 from datetime import date
 from typing import Annotated, Any, Dict, Optional
 
-from mcp.server.fastmcp import Context
+from mcp.server.mcpserver import Context
 from pydantic import Field
 
 from .schemas import (

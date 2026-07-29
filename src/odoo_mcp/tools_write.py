@@ -14,7 +14,8 @@ import xmlrpc.client
 from pathlib import Path
 from typing import Annotated, Any, Dict, List, Optional
 
-from mcp.server.fastmcp import Context
+from mcp.server.elicitation import ElicitationResult
+from mcp.server.mcpserver import Context, Elicit, Resolve
 from pydantic import Field
 
 from .agent_tools import (
@@ -42,6 +43,7 @@ from .server_core import (
     WriteConfirmation,
     ELICIT_WRITES_ENV,
     mcp,
+    _app_context,
     _resolve_odoo,
     register_write_approval,
     require_validated_write_approval,
@@ -141,6 +143,23 @@ def _write_elicitation_message(approval: Dict[str, Any]) -> str:
         lines.append(f"Changes: {changes}")
     lines.append(f"Instance: {instance}")
     return "\n".join(lines)
+
+
+def _resolve_write_confirmation(
+    approval: Dict[str, Any], ctx: Context
+) -> WriteConfirmation | Elicit[WriteConfirmation]:
+    """Use MRTR on modern clients and preserve token fallback elsewhere."""
+    if not truthy_env(ELICIT_WRITES_ENV):
+        return WriteConfirmation(approve=True)
+    capabilities = ctx.client_capabilities
+    elicitation = getattr(capabilities, "elicitation", None)
+    supports_form = elicitation is not None and (
+        getattr(elicitation, "form", None) is not None
+        or getattr(elicitation, "url", None) is None
+    )
+    if not supports_form:
+        return WriteConfirmation(approve=True)
+    return Elicit(_write_elicitation_message(approval), WriteConfirmation)
 
 
 async def _elicit_write_confirmation(
@@ -293,7 +312,7 @@ def validate_write(
         )
         if trusted_live_metadata:
             stored = register_write_approval(
-                ctx.request_context.lifespan_context,
+                _app_context(ctx),
                 report,
                 resolved_binary_values=resolved_binary_values or None,
             )
@@ -338,9 +357,23 @@ async def execute_approved_write_tool(
     ctx: Context,
     approval: Dict[str, Any],
     confirm: bool = False,
+    review: Annotated[
+        ElicitationResult[WriteConfirmation], Resolve(_resolve_write_confirmation)
+    ] = None,  # type: ignore[assignment]
 ) -> Dict[str, Any]:
-    """Tool entry point: optional human elicitation gate, then the sync gates."""
-    decision, detail = await _elicit_write_confirmation(ctx, approval)
+    """Tool entry point: era-portable human confirmation, then the sync gates."""
+    if review is None:
+        # Direct Python callers bypass MCP dependency resolution.
+        decision, detail = await _elicit_write_confirmation(ctx, approval)
+    else:
+        data = getattr(review, "data", None)
+        approved = (
+            getattr(review, "action", None) == "accept"
+            and data is not None
+            and data.approve
+        )
+        decision = "approved" if approved else "declined"
+        detail = str(getattr(review, "action", "declined"))
     if decision == "declined":
         record_write_event(
             "elicit",
@@ -401,7 +434,7 @@ def _execute_approved_write_gated(
                     "re-run preview_write and validate_write"
                 ),
             }
-        app_context = ctx.request_context.lifespan_context
+        app_context = _app_context(ctx)
         validation_record = require_validated_write_approval(app_context, approval)
         if validation_record is None:
             return {

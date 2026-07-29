@@ -33,7 +33,7 @@ import os
 import time
 from typing import Any
 
-import httpx
+import httpx2
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from pydantic import AnyHttpUrl
@@ -105,7 +105,7 @@ class IntrospectionTokenVerifier(TokenVerifier):
         require_iss: bool = False,
         cache_ttl_seconds: float = 0.0,
         timeout_seconds: float = 10.0,
-        transport: httpx.AsyncBaseTransport | None = None,
+        transport: httpx2.AsyncBaseTransport | None = None,
     ) -> None:
         self.introspection_url = introspection_url
         self.resource_url = resource_url
@@ -115,7 +115,7 @@ class IntrospectionTokenVerifier(TokenVerifier):
         self.require_aud = require_aud
         self.require_iss = require_iss
         self.timeout_seconds = timeout_seconds
-        self._transport = transport  # test seam (httpx.MockTransport)
+        self._transport = transport  # test seam (httpx2.MockTransport)
         # Cache introspection verdicts so hot agent loops don't hammer the
         # AS on every MCP request. Verdicts (including rejections) live at
         # most cache_ttl_seconds — that is also the revocation lag bound.
@@ -144,11 +144,11 @@ class IntrospectionTokenVerifier(TokenVerifier):
         return result
 
     async def _verify_token_uncached(self, token: str) -> AccessToken | None:
-        auth: httpx.BasicAuth | None = None
+        auth: httpx2.BasicAuth | None = None
         if self.client_id is not None:
-            auth = httpx.BasicAuth(self.client_id, self.client_secret or "")
+            auth = httpx2.BasicAuth(self.client_id, self.client_secret or "")
         try:
-            async with httpx.AsyncClient(
+            async with httpx2.AsyncClient(
                 timeout=self.timeout_seconds, transport=self._transport, auth=auth
             ) as client:
                 response = await client.post(
@@ -156,7 +156,7 @@ class IntrospectionTokenVerifier(TokenVerifier):
                     data={"token": token},
                     headers={"Accept": "application/json"},
                 )
-        except httpx.HTTPError as exc:
+        except httpx2.HTTPError as exc:
             logger.warning("token introspection failed: %s", exc)
             return None
         if response.status_code != 200:

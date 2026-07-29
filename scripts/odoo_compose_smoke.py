@@ -23,7 +23,7 @@ from typing import Any, cast
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamable_http_client
-from mcp.types import AnyUrl, TextContent
+from mcp.types import TextContent
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE_FILE = ROOT / "docker-compose.integration.yml"
@@ -840,7 +840,7 @@ async def mcp_stdio_smoke(
 
             templates = await session.list_resource_templates()
             template_uris = {
-                str(template.uriTemplate) for template in templates.resourceTemplates
+                str(template.uri_template) for template in templates.resource_templates
             }
             expected_templates = {
                 "odoo://model/{model_name}",
@@ -866,7 +866,7 @@ async def mcp_stdio_smoke(
                     f"Missing MCP prompts: {expected_prompts - prompt_names}"
                 )
 
-            models_resource = await session.read_resource(AnyUrl("odoo://models"))
+            models_resource = await session.read_resource("odoo://models")
             if not models_resource.contents:
                 raise AssertionError("odoo://models returned no content")
 
@@ -1464,7 +1464,7 @@ async def mcp_streamable_http_smoke(
         last_error: Exception | None = None
         while time.monotonic() < deadline:
             try:
-                async with streamable_http_client(url) as (read, write, _):
+                async with streamable_http_client(url) as (read, write):
                     async with ClientSession(read, write) as session:
                         await session.initialize()
                         tools = await session.list_tools()
@@ -1530,14 +1530,16 @@ def run_inspector_stdio_tools_list(
         [
             "npx",
             "--yes",
-            "@modelcontextprotocol/inspector",
+            "@modelcontextprotocol/inspector@2",
             "--cli",
-            "--method",
-            "tools/list",
-            "--",
             sys.executable,
             "-m",
             "odoo_mcp",
+            "--",
+            "--method",
+            "tools/list",
+            "--transport",
+            "stdio",
         ],
         env=env,
         timeout=120,
@@ -1554,11 +1556,14 @@ def run_inspector_http_tools_list(target: VersionTarget) -> dict[str, Any]:
         [
             "npx",
             "--yes",
-            "@modelcontextprotocol/inspector",
+            "@modelcontextprotocol/inspector@2",
             "--cli",
-            f"http://127.0.0.1:{target.mcp_port}/mcp",
             "--method",
             "tools/list",
+            "--transport",
+            "http",
+            "--server-url",
+            f"http://127.0.0.1:{target.mcp_port}/mcp",
         ],
         env=os.environ.copy(),
         timeout=120,

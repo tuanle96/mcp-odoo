@@ -174,7 +174,7 @@ the Host header allowlist.
 ## 3. DNS-rebinding protection
 
 `odoo-mcp` validates the `Host` header on HTTP transports by default
-(via FastMCP's `enable_dns_rebinding_protection` setting). When a reverse
+(via MCPServer's transport security middleware). When a reverse
 proxy is in front, the `Host` header forwarded to the server must match an
 allowed value.
 
@@ -324,9 +324,10 @@ curl -s https://mcp.example.com/mcp/../health  # not a built-in endpoint
 odoo-mcp --transport streamable-http --health
 
 # Inspect tools via MCP Inspector
-npx --yes @modelcontextprotocol/inspector \
-  --transport streamable-http \
-  --url https://mcp.example.com/mcp
+npx --yes @modelcontextprotocol/inspector@2 --cli \
+  --method tools/list \
+  --transport http \
+  --server-url https://mcp.example.com/mcp
 ```
 
 ---

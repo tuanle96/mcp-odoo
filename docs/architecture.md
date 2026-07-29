@@ -22,7 +22,7 @@ flowchart LR
 | `src/odoo_mcp/__main__.py` | CLI entry point, transport selection, HTTP bind safety, non-secret health output. |
 | `src/odoo_mcp/setup_wizard.py` | Interactive `--setup` wizard: prompt, test connection, write config, print client snippets. |
 | `src/odoo_mcp/server.py` | Public re-export surface: imports core + tool modules (registering all tools/resources/prompts) and re-exports every public symbol. |
-| `src/odoo_mcp/server_core.py` | FastMCP instance, `AppContext` + lifespan, shared infra (instance resolution, smart-field selection, write approvals, N+1 tracking), `odoo://` resources. |
+| `src/odoo_mcp/server_core.py` | MCPServer instance, `AppContext` + lifespan, shared infra (instance resolution, smart-field selection, write approvals, N+1 tracking), `odoo://` resources. |
 | `src/odoo_mcp/tools_read.py` | Read-domain tools: search/read/aggregate/schema/profile/health, with rate-limit checks. |
 | `src/odoo_mcp/tools_write.py` | Gated write workflow tools plus `execute_method` and chatter, including elicitation. |
 | `src/odoo_mcp/tools_diagnostics.py` | Diagnostic, migration, and planning tools (access, upgrade risk, fit/gap, addon scan, JSON-2 preview). |

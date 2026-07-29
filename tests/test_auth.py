@@ -2,7 +2,7 @@ import asyncio
 import json
 import time
 
-import httpx
+import httpx2
 import pytest
 
 from odoo_mcp import auth
@@ -15,13 +15,13 @@ def _verifier(handler, **kwargs):
     return auth.IntrospectionTokenVerifier(
         INTROSPECTION,
         resource_url=RESOURCE,
-        transport=httpx.MockTransport(handler),
+        transport=httpx2.MockTransport(handler),
         **kwargs,
     )
 
 
 def _json_response(payload, status_code=200):
-    return httpx.Response(status_code, json=payload)
+    return httpx2.Response(status_code, json=payload)
 
 
 def test_verify_token_accepts_active_token_with_matching_audience():
@@ -62,13 +62,13 @@ def test_verify_token_rejects_inactive_expired_and_wrong_audience():
 def test_verify_token_rejects_http_errors_and_bad_json():
     assert (
         asyncio.run(
-            _verifier(lambda req: httpx.Response(500, text="boom")).verify_token("t")
+            _verifier(lambda req: httpx2.Response(500, text="boom")).verify_token("t")
         )
         is None
     )
     assert (
         asyncio.run(
-            _verifier(lambda req: httpx.Response(200, text="not-json")).verify_token(
+            _verifier(lambda req: httpx2.Response(200, text="not-json")).verify_token(
                 "t"
             )
         )
@@ -76,7 +76,7 @@ def test_verify_token_rejects_http_errors_and_bad_json():
     )
 
     def raise_error(request):
-        raise httpx.ConnectError("refused")
+        raise httpx2.ConnectError("refused")
 
     assert asyncio.run(_verifier(raise_error).verify_token("t")) is None
 
@@ -184,7 +184,9 @@ def _active_payload(**extra):
 
 
 def test_verify_token_rejects_issuer_mismatch():
-    handler = lambda req: _json_response(_active_payload(iss="https://evil.example.com"))  # noqa: E731
+    def handler(req):
+        return _json_response(_active_payload(iss="https://evil.example.com"))
+
     token = asyncio.run(
         _verifier(handler, issuer_url=ISSUER).verify_token("tok-iss-bad")
     )
@@ -192,7 +194,9 @@ def test_verify_token_rejects_issuer_mismatch():
 
 
 def test_verify_token_accepts_matching_issuer_with_trailing_slash():
-    handler = lambda req: _json_response(_active_payload(iss=ISSUER + "/"))  # noqa: E731
+    def handler(req):
+        return _json_response(_active_payload(iss=ISSUER + "/"))
+
     token = asyncio.run(
         _verifier(handler, issuer_url=ISSUER).verify_token("tok-iss-ok")
     )

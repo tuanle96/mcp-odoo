@@ -8,7 +8,7 @@ scan_addons_source, build_domain, business_pack_report.
 
 from typing import Annotated, Any, Dict, List, Optional
 
-from mcp.server.fastmcp import Context
+from mcp.server.mcpserver import Context
 from pydantic import Field
 
 from .access_helpers import (

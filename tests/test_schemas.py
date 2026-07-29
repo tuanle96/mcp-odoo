@@ -105,7 +105,7 @@ def _tools_by_name():
 def test_read_tools_expose_typed_output_schemas():
     tools = _tools_by_name()
     for name, marker_field in TYPED_READ_TOOLS.items():
-        schema = tools[name].outputSchema
+        schema = tools[name].output_schema
         assert schema is not None, name
         props = schema.get("properties", {})
         # Typed = more than a generic object wrapper: envelope + payload field.
@@ -117,7 +117,7 @@ def test_read_tools_expose_typed_output_schemas():
 def test_target_tools_describe_every_input_parameter_and_hide_context():
     tools = _tools_by_name()
     for name, expected_parameters in DESCRIBED_INPUT_TOOLS.items():
-        properties = tools[name].inputSchema.get("properties", {})
+        properties = tools[name].input_schema.get("properties", {})
         assert set(properties) == expected_parameters, name
         assert "ctx" not in properties, name
         for parameter, schema in properties.items():
@@ -127,7 +127,7 @@ def test_target_tools_describe_every_input_parameter_and_hide_context():
 def test_domain_tools_expose_typed_output_schemas():
     tools = _tools_by_name()
     for name, marker_field in TYPED_DOMAIN_TOOLS.items():
-        schema = tools[name].outputSchema
+        schema = tools[name].output_schema
         assert schema is not None, name
         props = schema.get("properties", {})
         assert "success" in props, name

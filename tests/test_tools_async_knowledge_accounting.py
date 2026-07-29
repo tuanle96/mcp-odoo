@@ -187,7 +187,7 @@ def test_async_tools_have_safe_annotations():
     import asyncio
 
     tools = {
-        tool.name: tool.model_dump()
+        tool.name: tool.model_dump(by_alias=True)
         for tool in asyncio.run(server.mcp.list_tools())
     }
     for name in (

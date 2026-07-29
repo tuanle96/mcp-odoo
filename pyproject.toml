@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "odoo-mcp"
-version = "1.2.3"
+version = "1.3.0"
 description = "Odoo MCP for AI agents — 41 tools, gated writes, multi-instance. Free hosted product: ERPipe (mcp.erpipe.com)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -21,7 +21,7 @@ authors = [
     {name = "Lê Anh Tuấn", email = "justin.le.1105@gmail.com"}
 ]
 dependencies = [
-    "mcp>=1.27,<2",
+    "mcp>=2,<3",
     "requests>=2.31.0",
 ]
 
@@ -71,7 +71,7 @@ disallow_untyped_defs = true
 disallow_incomplete_defs = true
 
 # Tool modules annotate protocol-level response models (typed MCP outputSchema)
-# while the functions keep returning the plain-dict envelope FastMCP validates
+# while the functions keep returning the plain-dict envelope MCPServer validates
 # at the MCP layer; the runtime dict/model mismatch is deliberate.
 [[tool.mypy.overrides]]
 module = [

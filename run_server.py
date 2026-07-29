@@ -9,10 +9,7 @@ import logging
 import os
 import sys
 
-import anyio
-from mcp.server.stdio import stdio_server
-
-from odoo_mcp.server import mcp  # FastMCP instance from our code
+from odoo_mcp.server import mcp
 
 SECRET_ENV_KEYS = {"ODOO_PASSWORD", "ODOO_API_KEY"}
 
@@ -70,19 +67,8 @@ def main() -> int:
 
         logger.info(f"MCP object type: {type(mcp)}")
 
-        # Run server in stdio mode like the official examples
-        async def arun():
-            logger.info("Starting Odoo MCP server with stdio transport...")
-            async with stdio_server() as streams:
-                logger.info("Stdio server initialized, running MCP server...")
-                await mcp._mcp_server.run(
-                    streams[0],
-                    streams[1],
-                    mcp._mcp_server.create_initialization_options(),
-                )
-
-        # Run server
-        anyio.run(arun)
+        logger.info("Starting Odoo MCP server with stdio transport...")
+        mcp.run(transport="stdio")
         logger.info("MCP server stopped normally")
         return 0
 

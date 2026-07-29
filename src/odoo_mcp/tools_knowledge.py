@@ -9,7 +9,7 @@ locally with BM25 — no embeddings service and no data leaving the machine.
 
 from typing import Any, Dict, List, Optional
 
-from mcp.server.fastmcp import Context
+from mcp.server.mcpserver import Context
 
 from .field_policy import get_field_policy
 from .knowledge_index import get_knowledge_store
@@ -21,6 +21,7 @@ from .schemas import (
 from .server_core import (
     PREVIEW_TOOL,
     READ_ONLY_TOOL,
+    _app_context,
     _resolve_odoo,
     mcp,
     resolve_read_fields,
@@ -88,7 +89,7 @@ def index_knowledge(
         validate_model_name(model)
         limit = clamp_limit(limit, maximum=MAX_INDEX_FETCH)
         instance_name, odoo = _resolve_odoo(ctx, instance)
-        app_context = ctx.request_context.lifespan_context
+        app_context = _app_context(ctx)
         normalized_domain = normalize_domain_input(domain)
         read_fields = resolve_read_fields(
             app_context, odoo, model, fields, instance_name

@@ -368,7 +368,8 @@ docker run --rm \
 List tools through MCP Inspector over stdio:
 
 ```bash
-npx --yes @modelcontextprotocol/inspector --cli --method tools/list -- python -m odoo_mcp
+npx --yes @modelcontextprotocol/inspector@2 --cli python -m odoo_mcp -- \
+  --method tools/list --transport stdio
 ```
 
 Check HTTP health posture:
