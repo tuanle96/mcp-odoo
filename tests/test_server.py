@@ -4169,3 +4169,156 @@ def test_legacy_names_remain_importable_from_server():
     ]
     missing = [name for name in legacy_names if not hasattr(server, name)]
     assert missing == []
+
+
+class _VersionedChatterClient(_ChatterClient):
+    """Chatter client that also answers the server-version probe."""
+
+    def __init__(self, major=17, post_result=4242):
+        super().__init__(post_result=post_result)
+        self.major = major
+
+    def get_server_version(self):
+        return {"server_version_info": [self.major, 0, 0, "final", 0, ""]}
+
+
+def test_chatter_post_forwards_body_is_html_on_odoo_17(monkeypatch):
+    server = importlib.import_module("odoo_mcp.server")
+    monkeypatch.setenv("MCP_CHATTER_DIRECT", "1")
+    client = _VersionedChatterClient(major=17)
+
+    result = server.chatter_post(
+        FakeCtx(client),
+        model="res.partner",
+        record_id=7,
+        body="<p>Hello <b>world</b></p>",
+        body_is_html=True,
+    )
+
+    assert result["success"] is True
+    assert client.calls[0][3]["body_is_html"] is True
+    assert client.calls[0][3]["body"] == "<p>Hello <b>world</b></p>"
+    # Explicit flag means no second-guessing the caller.
+    assert "warnings" not in result
+
+
+def test_chatter_post_omits_body_is_html_on_odoo_16(monkeypatch):
+    server = importlib.import_module("odoo_mcp.server")
+    monkeypatch.setenv("MCP_CHATTER_DIRECT", "1")
+    client = _VersionedChatterClient(major=16)
+
+    result = server.chatter_post(
+        FakeCtx(client),
+        model="res.partner",
+        record_id=7,
+        body="<p>Hello</p>",
+        body_is_html=True,
+    )
+
+    assert result["success"] is True
+    # 16 has no such parameter and stores bodies verbatim anyway.
+    assert "body_is_html" not in client.calls[0][3]
+
+
+def test_chatter_post_plain_body_is_unchanged(monkeypatch):
+    """Regression guard: the default path must not gain any new kwarg."""
+    server = importlib.import_module("odoo_mcp.server")
+    monkeypatch.setenv("MCP_CHATTER_DIRECT", "1")
+    client = _ChatterClient()
+
+    result = server.chatter_post(
+        FakeCtx(client),
+        model="res.partner",
+        record_id=7,
+        body="Please forward to <a.schmidt@example.com>",
+    )
+
+    assert result["success"] is True
+    assert set(client.calls[0][3]) == {"body", "message_type"}
+    assert client.calls[0][3]["body"] == "Please forward to <a.schmidt@example.com>"
+    # Prose containing angle brackets must not be mistaken for markup.
+    assert "warnings" not in result
+
+
+def test_chatter_post_warns_when_markup_lacks_the_flag(monkeypatch):
+    server = importlib.import_module("odoo_mcp.server")
+    monkeypatch.setenv("MCP_CHATTER_DIRECT", "1")
+    client = _ChatterClient()
+
+    result = server.chatter_post(
+        FakeCtx(client),
+        model="res.partner",
+        record_id=7,
+        body="<p>Hello</p>",
+    )
+
+    assert result["success"] is True
+    assert any("body_is_html" in w for w in result["warnings"])
+    # Advisory only: the body is posted exactly as given.
+    assert client.calls[0][3]["body"] == "<p>Hello</p>"
+    assert "body_is_html" not in client.calls[0][3]
+
+
+def test_chatter_post_preview_warns_before_posting_markup(monkeypatch):
+    server = importlib.import_module("odoo_mcp.server")
+    monkeypatch.delenv("MCP_CHATTER_DIRECT", raising=False)
+    client = _ChatterClient()
+
+    preview = server.chatter_post(
+        FakeCtx(client),
+        model="res.partner",
+        record_id=7,
+        body="<ul><li>one</li></ul>",
+    )
+
+    assert preview["mode"] == "preview"
+    assert any("body_is_html" in w for w in preview["warnings"])
+    assert client.calls == []
+
+
+def test_chatter_post_token_covers_the_html_flag(monkeypatch):
+    """A preview approved as plain text must not execute as markup."""
+    server = importlib.import_module("odoo_mcp.server")
+    monkeypatch.delenv("MCP_CHATTER_DIRECT", raising=False)
+    client = _VersionedChatterClient(major=17)
+    ctx = FakeCtx(client)
+
+    preview = server.chatter_post(
+        ctx, model="res.partner", record_id=7, body="<p>Hi</p>"
+    )
+    smuggled = server.chatter_post(
+        ctx,
+        model="res.partner",
+        record_id=7,
+        body="<p>Hi</p>",
+        body_is_html=True,
+        approval=preview["approval"],
+        confirm=True,
+    )
+
+    assert smuggled["success"] is False
+    assert "token does not match" in smuggled["error"]
+    assert client.calls == []
+
+
+def test_chatter_post_html_roundtrip_through_the_gate(monkeypatch):
+    server = importlib.import_module("odoo_mcp.server")
+    monkeypatch.delenv("MCP_CHATTER_DIRECT", raising=False)
+    client = _VersionedChatterClient(major=17)
+    ctx = FakeCtx(client)
+
+    preview = server.chatter_post(
+        ctx, model="res.partner", record_id=7, body="<p>Hi</p>", body_is_html=True
+    )
+    approved = server.chatter_post(
+        ctx,
+        model="res.partner",
+        record_id=7,
+        body="<p>Hi</p>",
+        body_is_html=True,
+        approval=preview["approval"],
+        confirm=True,
+    )
+
+    assert approved["mode"] == "execute"
+    assert client.calls[0][3]["body_is_html"] is True

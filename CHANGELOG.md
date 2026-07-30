@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### Fixed
+
+- **HTML chatter bodies arrived as visible tags.** A `str` body handed to
+  `message_post` is escaped by Odoo — only a `markupsafe.Markup` survives, and
+  RPC cannot carry one, so markup reached the chatter as literal tags. Odoo 17
+  added `message_post(body_is_html=...)` for exactly this case; `chatter_post`
+  now has a `body_is_html` parameter that forwards it on 17+ and omits it on
+  16, which stores bodies verbatim anyway. Opt-in rather than auto-detected:
+  prose such as `send to <a.schmidt@example.com>` is not distinguishable from
+  markup, and guessing wrong drops the text when Odoo renders the field. A body
+  that looks like markup without the flag returns an advisory warning and is
+  posted unchanged. The flag is part of the canonical payload, so a post
+  previewed as plain text cannot be executed as markup.
+
 ## [1.3.0] - 2026-07-29
 
 ### Changed

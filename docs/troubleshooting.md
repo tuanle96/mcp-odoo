@@ -63,6 +63,7 @@ record rule (Odoo masks unauthorized IDs as missing).
 | Agent loops `read_record` | `health_check` → `runtime.n_plus_one.hot_models` flags it; batch with `search_records` and an `["id", "in", [...]]` domain. |
 | Intermittent `Failed to connect` | Read-only calls retry automatically (`ODOO_MCP_RETRY_ATTEMPTS`, default 2, exponential backoff). Persistent failures: check URL/SSL (`ODOO_VERIFY_SSL`), proxy, and Odoo worker availability. |
 | HTTP transport refuses to start | Non-local binds need `--allow-remote-http` (or `MCP_ALLOW_REMOTE_HTTP=1`) — deliberate, keep it behind your own auth proxy. |
+| HTML in a chatter message shows as `&lt;p&gt;` tags | Odoo escapes any `str` body given to `message_post`; only a `markupsafe.Markup` survives and RPC cannot carry one. Pass `body_is_html=true` to `chatter_post` (Odoo 17+, where the parameter was added for RPC callers). It is opt-in on purpose — prose like `send to <a.schmidt@example.com>` is indistinguishable from markup, so nothing is auto-converted. The same applies to a raw `execute_method(..., "message_post", ...)`: add `body_is_html` to its kwargs yourself. |
 
 ## When opening an issue
 

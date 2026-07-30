@@ -27,7 +27,9 @@ from .agent_tools import (
 from .audit import record_write_event
 from .diagnostics import DESTRUCTIVE_METHODS, classify_method_safety
 from .tool_helpers import (
+    looks_like_html,
     max_attachment_upload_bytes,
+    odoo_major_version,
     normalize_domain_input,
     truthy_env,
     validate_method_name,
@@ -518,6 +520,25 @@ def _execute_approved_write_gated(
         return {"success": False, "tool": "execute_approved_write", "error": str(e)}
 
 
+# Odoo grew ``message_post(body_is_html=...)`` in 17.0 specifically for RPC
+# callers: without it a ``str`` body is escaped (only a ``markupsafe.Markup``
+# passes through, and RPC cannot carry one), so markup would reach the chatter
+# as visible tags. Odoo 16 has no such parameter but also does not escape, so
+# omitting it there is already correct.
+_BODY_IS_HTML_MIN_MAJOR = 17
+
+
+def _supports_body_is_html(odoo: Any) -> bool:
+    """True when this Odoo accepts ``message_post(body_is_html=...)``.
+
+    Version detection is best-effort; an unknown version is treated as
+    supported because every Odoo from 17 on has the parameter and passing it
+    to an older one raises loudly rather than corrupting anything.
+    """
+    major = odoo_major_version(odoo)
+    return major is None or major >= _BODY_IS_HTML_MIN_MAJOR
+
+
 def _build_chatter_payload(
     *,
     model: str,
@@ -528,9 +549,12 @@ def _build_chatter_payload(
     partner_ids: Optional[List[int]],
     attachment_ids: Optional[List[int]],
     instance: str = "default",
+    body_is_html: bool = False,
 ) -> Dict[str, Any]:
     """Build the canonical message_post call payload (deterministic ordering)."""
     kwargs: Dict[str, Any] = {"body": body, "message_type": message_type}
+    if body_is_html:
+        kwargs["body_is_html"] = True
     if subtype_xmlid:
         kwargs["subtype_xmlid"] = subtype_xmlid
     if partner_ids:
@@ -567,6 +591,7 @@ def chatter_post(
     approval: Optional[Dict[str, Any]] = None,
     confirm: bool = False,
     instance: Optional[str] = None,
+    body_is_html: bool = False,
 ) -> Dict[str, Any]:
     """Post a message on the chatter of a mail.thread-derived record.
 
@@ -578,6 +603,16 @@ def chatter_post(
       call without a token.
 
     Allowed ``message_type`` values: ``comment`` (default), ``notification``.
+
+    ``body_is_html``: a body sent over RPC is escaped by Odoo unless this is
+    set, so markup would otherwise arrive as visible tags. It is forwarded to
+    ``message_post`` on Odoo 17+ (which added the parameter for exactly this
+    case) and omitted on 16, which stores bodies verbatim anyway. Left off,
+    the body is treated as plain text — unchanged behaviour — and a warning
+    points this out when the body looks like markup. Deliberately not
+    auto-detected: prose such as ``send to <a.schmidt@example.com>`` is
+    indistinguishable from markup, and guessing wrong silently drops the text
+    when Odoo renders the field.
     """
     try:
         instance_name, odoo = _resolve_odoo(ctx, instance)
@@ -590,6 +625,7 @@ def chatter_post(
         if message_type not in {"comment", "notification"}:
             raise ValueError("message_type must be 'comment' or 'notification'.")
 
+        send_html_flag = body_is_html and _supports_body_is_html(odoo)
         canonical = _build_chatter_payload(
             model=model,
             record_id=record_id,
@@ -599,6 +635,16 @@ def chatter_post(
             partner_ids=partner_ids,
             attachment_ids=attachment_ids,
             instance=instance_name,
+            body_is_html=send_html_flag,
+        )
+        markup_hint = (
+            [
+                "Body looks like HTML but body_is_html is not set, so Odoo will "
+                "escape it and the tags will show as text. Pass "
+                "body_is_html=true to post it as markup."
+            ]
+            if not body_is_html and looks_like_html(body_text)
+            else []
         )
         token = build_approval_token(canonical)
 
@@ -619,7 +665,7 @@ def chatter_post(
                 instance=instance_name,
                 detail="direct mode",
             )
-            return {
+            direct: Dict[str, Any] = {
                 "success": True,
                 "mode": "direct",
                 "model": model,
@@ -627,6 +673,9 @@ def chatter_post(
                 "approval_required": False,
                 "result": result,
             }
+            if markup_hint:
+                direct["warnings"] = markup_hint
+            return direct
 
         if approval is None:
             return {
@@ -638,7 +687,8 @@ def chatter_post(
                 "warnings": [
                     "Preview only. Re-call chatter_post with the returned approval "
                     "and confirm=true to actually post."
-                ],
+                ]
+                + markup_hint,
             }
 
         provided_token = str(approval.get("token", ""))
@@ -666,7 +716,7 @@ def chatter_post(
             instance=instance_name,
             token=provided_token,
         )
-        return {
+        executed: Dict[str, Any] = {
             "success": True,
             "mode": "execute",
             "model": model,
@@ -674,6 +724,9 @@ def chatter_post(
             "approval_required": True,
             "result": result,
         }
+        if markup_hint:
+            executed["warnings"] = markup_hint
+        return executed
     except Exception as e:
         return {"success": False, "error": str(e)}
 

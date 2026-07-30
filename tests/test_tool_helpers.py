@@ -525,3 +525,49 @@ class TestNormalizeDomainInput:
             ["name", "=", "'; DROP TABLE--"]
         )
         assert result == [["name", "=", "'; DROP TABLE--"]]
+
+
+class TestLooksLikeHtml:
+    """Advisory markup detection for chatter bodies."""
+
+    def test_detects_common_chatter_markup(self):
+        """Recognise the tags a formatted chatter message actually uses."""
+        for body in (
+            "<p>Hello</p>",
+            "first line<br/>second",
+            '<a href="https://example.com">Link</a>',
+            "<ul><li>one</li></ul>",
+            "<TABLE><TR><TD>x</TD></TR></TABLE>",
+            "<section>x</section>",
+        ):
+            assert tool_helpers.looks_like_html(body) is True, body
+
+    def test_leaves_prose_with_angle_brackets_alone(self):
+        """Plain prose must not be mistaken for markup.
+
+        These are the cases that make silent auto-conversion unsafe: each
+        one would lose visible text if it were treated as HTML.
+        """
+        for body in (
+            "Please forward to <a.schmidt@example.com>",
+            "<pre-check 2026> is still open",
+            "amount < 100 EUR & rest > 0",
+            "",
+        ):
+            assert tool_helpers.looks_like_html(body) is False, body
+
+    def test_false_positives_are_accepted_and_harmless(self):
+        """Some prose is genuinely indistinguishable from markup.
+
+        ``<b and b>`` is a syntactically valid tag with two valueless
+        attributes, so no pattern can rule it out. This is why the result
+        only ever produces a warning: the cost of being wrong here is one
+        superfluous sentence, never a transformed body. The matching
+        guarantee on the posting side is covered by
+        ``test_chatter_post_plain_body_is_unchanged``.
+        """
+        assert tool_helpers.looks_like_html("if a<b and b>c") is True
+
+    def test_handles_none_body(self):
+        """A missing body is not markup."""
+        assert tool_helpers.looks_like_html(None) is False
