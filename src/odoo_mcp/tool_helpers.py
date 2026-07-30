@@ -324,3 +324,25 @@ def normalize_domain_input(domain: Any) -> List[Any]:
             valid_conditions.append(cond)
 
     return valid_conditions
+
+
+# Advisory only: a false positive costs a superfluous warning, never data.
+# Requires a real tag terminator after the name so prose like
+# "<a.schmidt@example.com>" or "<pre-check 2026>" does not match.
+_HTML_TAG_RE = re.compile(
+    r"</?(?:p|br|b|strong|i|em|u|ul|ol|li|a|div|span|h[1-6]|table|thead|tbody"
+    r"|tr|td|th|blockquote|code|pre|hr|img|dl|dt|dd|section|figure)"
+    r"(?:\s[^>]*)?/?>",
+    re.IGNORECASE,
+)
+
+
+def looks_like_html(text: str) -> bool:
+    """True when ``text`` carries markup a chatter body would realistically use.
+
+    Used only to warn a caller who passed markup without ``body_is_html``;
+    nothing is transformed on the strength of this answer, because prose and
+    markup are not reliably distinguishable (``if a<b and b>c`` reads exactly
+    like a tag with attributes).
+    """
+    return bool(_HTML_TAG_RE.search(text or ""))
