@@ -250,8 +250,12 @@ def build_write_preview_report(
             {
                 "code": "destructive_operation",
                 "message": (
-                    "This preview does not execute. execute_approved_write is "
-                    "destructive and requires the matching approval token plus confirm=true."
+                    "This preview does not execute, and its token is not usable "
+                    "yet. Next: call validate_write with the same payload (that "
+                    "is what registers the approval), then execute_approved_write "
+                    "with the approval it returns plus confirm=true. Going "
+                    "straight to execute_approved_write fails with 'approval "
+                    "token has not been validated'."
                 ),
             }
         ],

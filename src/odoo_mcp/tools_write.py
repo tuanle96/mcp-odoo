@@ -446,7 +446,13 @@ def _execute_approved_write_gated(
                 "tool": "execute_approved_write",
                 "error": (
                     "approval token has not been validated in this server session "
-                    "or has expired; call validate_write first"
+                    f"or has expired (approvals live {WRITE_APPROVAL_TTL_SECONDS}s). "
+                    "validate_write is the step that registers an approval — a "
+                    "preview_write token alone is never executable. Call "
+                    "validate_write, then execute_approved_write with the approval "
+                    "it returns. Re-send any *_from_path argument in its original "
+                    "form; the 'sha256:...' fingerprint echoed back by a previous "
+                    "call is not a usable file value."
                 ),
             }
         if write_approval_payload(approval) != validation_record.get("payload"):

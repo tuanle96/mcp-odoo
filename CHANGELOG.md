@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### Fixed
+
+- **`preview_write` pointed callers at the wrong next step.** Its warning named
+  only `execute_approved_write`, but `validate_write` is what registers the
+  approval, so following the warning verbatim always produced "approval token
+  has not been validated in this server session" — which reads like an
+  infrastructure fault and gets reported as one. The warning now names the
+  missing step, and the error itself states the TTL and warns against
+  re-sending the `sha256:` fingerprint in place of a `*_from_path` argument.
+
 ## [1.3.0] - 2026-07-29
 
 ### Changed
