@@ -1194,3 +1194,21 @@ def test_build_text_query_domain_rejects_blank_query():
 
     with pytest.raises(ValueError):
         agent_tools.build_text_query_domain("   ", {"name": _meta()})
+
+
+def test_preview_warning_names_validate_write_as_the_next_step():
+    """The warning that sent a user straight into the token error.
+
+    It described a two-step flow while the write path is three-step, so
+    following it verbatim always produced "approval token has not been
+    validated". The next tool to call must be named explicitly.
+    """
+    report = agent_tools.build_write_preview_report(
+        model="res.partner",
+        operation="write",
+        record_ids=[7],
+        values={"comment": "x"},
+    )
+    message = report["warnings"][0]["message"]
+    assert "validate_write" in message
+    assert message.index("validate_write") < message.index("execute_approved_write")

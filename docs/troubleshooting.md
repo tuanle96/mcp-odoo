@@ -57,7 +57,7 @@ record rule (Odoo masks unauthorized IDs as missing).
 | Symptom | Cause / fix |
 | --- | --- |
 | `write execution disabled` | Set `ODOO_MCP_ENABLE_WRITES=1` (writes are off by default). |
-| `approval token has not been validated` | Call `validate_write` (with live metadata) before `execute_approved_write`; tokens expire after 10 minutes and are session-bound. |
+| `approval token has not been validated` | The flow is three steps: `preview_write` → `validate_write` (with live metadata — this is the step that registers the approval) → `execute_approved_write`. A preview token alone is never executable. Approvals are held for the life of the server process — they survive across requests but not a restart — and expire after 10 minutes. |
 | `method ... is not allowed` on `execute_method` | Direct `create/write/unlink` are always blocked; side-effect methods need a review entry — see the policy file in [docs/architecture.md](./architecture.md) and `odoo_mcp_policy.json.example`. |
 | Hallucinated model names (`account.invoice`) | `lookup_model_history(name=...)` maps old names to current ones. |
 | Agent loops `read_record` | `health_check` → `runtime.n_plus_one.hot_models` flags it; batch with `search_records` and an `["id", "in", [...]]` domain. |
