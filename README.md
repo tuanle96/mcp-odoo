@@ -1,5 +1,7 @@
 # Odoo MCP
 
+[![MCP Toplist](https://mcptoplist.com/badge/io.github.erpipe-org%2Fmcp-odoo.svg)](https://mcptoplist.com/server/io.github.erpipe-org%2Fmcp-odoo)
+
 <!-- mcp-name: io.github.erpipe-org/mcp-odoo -->
 
 <p align="center">
