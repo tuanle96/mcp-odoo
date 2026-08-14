@@ -26,6 +26,7 @@ from .schema_cache import _build_schema_cache
 from .agent_tools import select_smart_fields
 from .tool_helpers import (
     max_smart_fields,
+    normalize_domain_input,
     truthy_env,
     validate_model_name,
 )
@@ -647,9 +648,7 @@ def search_records_resource(model_name: str, domain: str) -> str:
     odoo_client = _srv().get_odoo_client()
     try:
         validate_model_name(model_name)
-        domain_list = json.loads(domain)
-        if not isinstance(domain_list, list):
-            raise ValueError("domain must decode to an Odoo domain list")
+        domain_list = normalize_domain_input(domain)
         results = odoo_client.search_read(model_name, domain_list, limit=10)
         instance_name = _srv().resolve_default_instance_name()
         filtered, redacted = get_field_policy().redact_records(

@@ -25,7 +25,11 @@ from .agent_tools import (
     verify_write_approval,
 )
 from .audit import record_write_event
-from .diagnostics import DESTRUCTIVE_METHODS, classify_method_safety
+from .diagnostics import (
+    DESTRUCTIVE_METHODS,
+    JSON2_POSITIONAL_ARG_MAP,
+    classify_method_safety,
+)
 from .tool_helpers import (
     max_attachment_upload_bytes,
     normalize_domain_input,
@@ -678,6 +682,25 @@ def chatter_post(
         return {"success": False, "error": str(e)}
 
 
+def _normalize_execute_method_domain(
+    method: str, args: List[Any], kwargs: Dict[str, Any]
+) -> tuple[List[Any], Dict[str, Any]]:
+    """Normalize known Odoo search-domain slots on execute_method before RPC."""
+    names = JSON2_POSITIONAL_ARG_MAP.get(method, ())
+    if "domain" not in names:
+        return args, kwargs
+    index = names.index("domain")
+    if len(args) > index:
+        args = list(args)
+        args[index] = normalize_domain_input(args[index])
+    keys = ("domain", "args") if method == "name_search" else ("domain",)
+    for key in keys:
+        if key in kwargs:
+            kwargs = dict(kwargs)
+            kwargs[key] = normalize_domain_input(kwargs[key])
+    return args, kwargs
+
+
 @mcp.tool(
     description="Execute a custom method on an Odoo model",
     annotations=DESTRUCTIVE_TOOL,
@@ -755,13 +778,7 @@ def execute_method(
             }
         args = args or []
         kwargs = kwargs or {}
-
-        search_methods = ["search", "search_count", "search_read"]
-        if method in search_methods and args:
-            normalized_args = list(args)
-            if len(normalized_args) > 0:
-                normalized_args[0] = normalize_domain_input(normalized_args[0])
-                args = normalized_args
+        args, kwargs = _normalize_execute_method_domain(method, args, kwargs)
 
         instance_name, odoo = _resolve_odoo(ctx, instance)
         refusal = check_rate(instance_name, "execute_method")
