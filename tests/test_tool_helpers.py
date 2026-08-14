@@ -413,6 +413,9 @@ class TestNormalizeDomainInput:
     def test_empty_list_returns_empty(self):
         """Convert empty list to empty domain."""
         assert tool_helpers.normalize_domain_input([]) == []
+        assert tool_helpers.normalize_domain_input([[]]) == []
+        assert tool_helpers.normalize_domain_input("") == []
+        assert tool_helpers.normalize_domain_input("   ") == []
 
     def test_single_condition_list(self):
         """Convert single [field, op, value] condition."""
@@ -445,10 +448,25 @@ class TestNormalizeDomainInput:
         result = tool_helpers.normalize_domain_input(literal_str)
         assert result == [["name", "=", "Ada"]]
 
-    def test_invalid_json_string_returns_empty(self):
-        """Return empty domain on invalid JSON."""
-        result = tool_helpers.normalize_domain_input('{"broken": json}')
-        assert result == []
+    def test_python_tuple_literal_is_normalized(self):
+        """Accept native Odoo tuple leaves instead of dropping them."""
+        result = tool_helpers.normalize_domain_input('[("tag_ids", "in", [7])]')
+        assert result == [["tag_ids", "in", [7]]]
+        assert tool_helpers.normalize_domain_input(("name", "=", "Ada")) == [
+            ["name", "=", "Ada"]
+        ]
+
+    def test_mixed_tuple_and_list_leaves_with_operators(self):
+        """Keep prefix operators and convert tuple leaves in order."""
+        result = tool_helpers.normalize_domain_input(
+            ["|", ("name", "=", "Ada"), ["id", ">", 0]]
+        )
+        assert result == ["|", ["name", "=", "Ada"], ["id", ">", 0]]
+
+    def test_invalid_json_string_raises(self):
+        """Reject unparseable non-empty strings instead of broadening."""
+        with pytest.raises(ValueError, match="domain must be"):
+            tool_helpers.normalize_domain_input('{"broken": json}')
 
     def test_dict_with_conditions(self):
         """Parse dict with conditions key."""
@@ -462,26 +480,29 @@ class TestNormalizeDomainInput:
         assert result == [["name", "=", "Ada"], ["age", ">", 18]]
 
     def test_dict_missing_conditions_key(self):
-        """Return empty domain when conditions key missing."""
-        result = tool_helpers.normalize_domain_input({"other": "data"})
-        assert result == []
+        """Reject objects that are not the documented conditions shape."""
+        with pytest.raises(ValueError, match="conditions"):
+            tool_helpers.normalize_domain_input({"other": "data"})
 
     def test_dict_conditions_not_list(self):
-        """Return empty domain when conditions is not a list."""
-        result = tool_helpers.normalize_domain_input({"conditions": "not_a_list"})
-        assert result == []
+        """Reject a conditions value that is not a list."""
+        with pytest.raises(ValueError, match="conditions"):
+            tool_helpers.normalize_domain_input({"conditions": "not_a_list"})
 
-    def test_filters_invalid_condition_entries(self):
-        """Skip entries missing required keys in dict format."""
+    def test_empty_conditions_list_returns_empty(self):
+        """An explicit empty conditions list is an empty domain."""
+        assert tool_helpers.normalize_domain_input({"conditions": []}) == []
+
+    def test_incomplete_condition_entries_raise(self):
+        """Do not silently drop incomplete structured conditions."""
         domain_dict = {
             "conditions": [
                 {"field": "name", "operator": "=", "value": "Ada"},
                 {"field": "age"},  # Missing operator and value
-                {"operator": "=", "value": 18},  # Missing field
             ]
         }
-        result = tool_helpers.normalize_domain_input(domain_dict)
-        assert result == [["name", "=", "Ada"]]
+        with pytest.raises(ValueError, match="field, operator, and value"):
+            tool_helpers.normalize_domain_input(domain_dict)
 
     def test_nested_single_condition_list(self):
         """Unwrap nested single-condition lists."""
@@ -489,20 +510,22 @@ class TestNormalizeDomainInput:
         assert result == [["name", "=", "Ada"]]
 
     def test_non_list_non_dict_input(self):
-        """Return empty domain for non-list/dict inputs."""
-        assert tool_helpers.normalize_domain_input("string") == []
-        assert tool_helpers.normalize_domain_input(123) == []
+        """Reject scalars and unparseable strings instead of broadening."""
+        with pytest.raises(ValueError, match="domain must be"):
+            tool_helpers.normalize_domain_input("string")
+        with pytest.raises(ValueError, match="domain must be"):
+            tool_helpers.normalize_domain_input(123)
 
-    def test_invalid_conditions_filtered_out(self):
-        """Filter out malformed conditions."""
-        result = tool_helpers.normalize_domain_input(
-            [
-                ["name", "=", "Ada"],
-                "invalid",  # Not a list
-                [1, 2, 3],  # Numbers instead of strings
-            ]
-        )
-        assert result == [["name", "=", "Ada"]]
+    def test_invalid_conditions_raise_instead_of_dropping(self):
+        """Leftover invalid terms must not silently shrink the domain."""
+        with pytest.raises(ValueError, match="invalid domain term"):
+            tool_helpers.normalize_domain_input(
+                [
+                    ["name", "=", "Ada"],
+                    "invalid",  # Not a list
+                    [1, 2, 3],  # Numbers instead of strings
+                ]
+            )
 
     def test_negation_operator(self):
         """Preserve negation operator."""

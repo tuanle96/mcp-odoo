@@ -404,8 +404,11 @@ def search_records(
     """
     Search and read records with bounded read-only semantics.
 
-    Domain accepts standard Odoo domain arrays, a JSON string, or
+    Domain accepts standard Odoo domain arrays (lists or 3-item tuples),
+    a JSON string, a Python domain literal, or
     {"conditions": [{"field": ..., "operator": ..., "value": ...}]}.
+    Non-empty input that cannot be fully parsed is rejected instead of
+    becoming an unfiltered search.
 
     ``query`` is a free-text shortcut: the server builds an OR ``ilike``
     domain over the model's searchable text fields (name, ref, email, ...)

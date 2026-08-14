@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+## [1.3.1] - 2026-08-14
+
+### Fixed
+
+- A search filter that the server cannot understand is now rejected instead of
+  matching every record. Agents that write the usual Odoo tuple form (for
+  example looking up records by tag) get the intended subset back, and a
+  malformed filter no longer silently searches the whole model. The same rule
+  applies when a search is sent as a keyword argument, not only as the first
+  positional argument.
+- If Odoo cannot complete a search or a single-record read, the agent now
+  sees an error instead of an empty result that looks like “no matching
+  records.”
+
 ## [1.3.0] - 2026-07-29
 
 ### Changed

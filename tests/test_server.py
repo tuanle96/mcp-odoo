@@ -239,6 +239,9 @@ def test_domain_normalization_accepts_json_object_and_standard_domain_list():
         ["name", "=", "Ada"],
         ["id", ">", 0],
     ]
+    assert server.normalize_domain_input('[("tag_ids", "in", [7])]') == [
+        ["tag_ids", "in", [7]]
+    ]
 
 
 def test_safety_helpers_reject_bad_model_names_and_bounds_limits():
@@ -614,6 +617,190 @@ def test_execute_method_translates_none_marshal_fault(monkeypatch):
     assert result["success"] is True
     assert result["result"] is None
     assert "committed" in result["warning"]
+
+
+def test_execute_method_rejects_invalid_search_domain_without_rpc():
+    server = importlib.import_module("odoo_mcp.server")
+    calls = []
+
+    class FakeClient:
+        def execute_method(self, *args, **kwargs):
+            calls.append((args, kwargs))
+            return []
+
+    result = server.execute_method(
+        FakeCtx(FakeClient()),
+        "res.partner",
+        "search_read",
+        args=["not-a-domain"],
+    )
+
+    assert result["success"] is False
+    assert "domain must be" in result["error"]
+    assert calls == []
+
+
+def test_execute_method_rejects_invalid_kwargs_domain_without_rpc():
+    server = importlib.import_module("odoo_mcp.server")
+    calls = []
+
+    class FakeClient:
+        def execute_method(self, *args, **kwargs):
+            calls.append((args, kwargs))
+            return []
+
+    result = server.execute_method(
+        FakeCtx(FakeClient()),
+        "res.partner",
+        "search_read",
+        kwargs={"domain": "not-a-domain"},
+    )
+
+    assert result["success"] is False
+    assert "domain must be" in result["error"]
+    assert calls == []
+
+
+def test_execute_method_forwards_kwargs_tuple_domain():
+    server = importlib.import_module("odoo_mcp.server")
+    calls = []
+
+    class FakeClient:
+        def execute_method(self, *args, **kwargs):
+            calls.append((args, kwargs))
+            return []
+
+    result = server.execute_method(
+        FakeCtx(FakeClient()),
+        "res.partner",
+        "search_read",
+        kwargs={"domain": '[("tag_ids", "in", [7])]'},
+    )
+
+    assert result["success"] is True
+    assert calls == [
+        (("res.partner", "search_read"), {"domain": [["tag_ids", "in", [7]]]})
+    ]
+
+
+def test_execute_method_normalizes_name_search_domain_arg():
+    server = importlib.import_module("odoo_mcp.server")
+    calls = []
+
+    class FakeClient:
+        def execute_method(self, *args, **kwargs):
+            calls.append((args, kwargs))
+            return []
+
+    result = server.execute_method(
+        FakeCtx(FakeClient()),
+        "res.partner",
+        "name_search",
+        args=["Ada", '[("is_company", "=", True)]'],
+    )
+
+    assert result["success"] is True
+    assert calls == [
+        (("res.partner", "name_search", "Ada", [["is_company", "=", True]]), {})
+    ]
+
+
+def test_execute_method_rejects_invalid_name_search_args_kwarg_without_rpc():
+    server = importlib.import_module("odoo_mcp.server")
+    calls = []
+
+    class FakeClient:
+        def execute_method(self, *args, **kwargs):
+            calls.append((args, kwargs))
+            return []
+
+    result = server.execute_method(
+        FakeCtx(FakeClient()),
+        "res.partner",
+        "name_search",
+        kwargs={"args": "not-a-domain"},
+    )
+
+    assert result["success"] is False
+    assert "domain must be" in result["error"]
+    assert calls == []
+
+
+def test_execute_method_normalizes_positional_domain_for_mapped_methods(monkeypatch):
+    server = importlib.import_module("odoo_mcp.server")
+    monkeypatch.setenv("ODOO_MCP_ALLOW_UNKNOWN_METHODS", "1")
+    raw = '[("tag_ids", "in", [7])]'
+    expected = [["tag_ids", "in", [7]]]
+    cases = [
+        ("search", [raw], (expected,)),
+        ("search_count", [raw], (expected,)),
+        ("search_read", [raw], (expected,)),
+        ("read_group", [raw], (expected,)),
+        ("formatted_read_group", [raw], (expected,)),
+        ("name_search", ["Ada", raw], ("Ada", expected)),
+    ]
+
+    for method, incoming, expected_tail in cases:
+        calls = []
+
+        class FakeClient:
+            def execute_method(self, *args, **kwargs):
+                calls.append((args, kwargs))
+                return []
+
+        result = server.execute_method(
+            FakeCtx(FakeClient()), "res.partner", method, args=incoming
+        )
+        assert result["success"] is True, method
+        assert calls == [(("res.partner", method, *expected_tail), {})], method
+
+
+def test_execute_method_leaves_unmapped_custom_domain_kwarg_unchanged(monkeypatch):
+    server = importlib.import_module("odoo_mcp.server")
+    monkeypatch.setenv("ODOO_MCP_ALLOW_UNKNOWN_METHODS", "1")
+    calls = []
+
+    class FakeClient:
+        def execute_method(self, *args, **kwargs):
+            calls.append((args, kwargs))
+            return {"ok": True}
+
+    result = server.execute_method(
+        FakeCtx(FakeClient()),
+        "res.partner",
+        "custom_lookup",
+        kwargs={"domain": "example.com"},
+    )
+
+    assert result["success"] is True
+    assert calls == [
+        (("res.partner", "custom_lookup"), {"domain": "example.com"})
+    ]
+
+
+def test_execute_method_forwards_name_search_args_kwarg_tuple_domain():
+    server = importlib.import_module("odoo_mcp.server")
+    calls = []
+
+    class FakeClient:
+        def execute_method(self, *args, **kwargs):
+            calls.append((args, kwargs))
+            return []
+
+    result = server.execute_method(
+        FakeCtx(FakeClient()),
+        "res.partner",
+        "name_search",
+        kwargs={"name": "Ada", "args": '[("tag_ids", "in", [7])]'},
+    )
+
+    assert result["success"] is True
+    assert calls == [
+        (
+            ("res.partner", "name_search"),
+            {"name": "Ada", "args": [["tag_ids", "in", [7]]]},
+        )
+    ]
 
 
 def test_execute_method_surfaces_other_faults(monkeypatch):
@@ -1146,6 +1333,78 @@ def test_search_records_explicit_fields_pass_through():
     assert client.search_read_calls[0]["fields"] == ["name", "email"]
     # No fields_get lookup needed when caller specified fields explicitly.
     assert client.fields_get_calls == 0
+
+
+def test_search_records_forwards_tuple_literal_domain():
+    server = importlib.import_module("odoo_mcp.server")
+    calls = []
+
+    class FakeClient:
+        def search_read(self, model_name, domain, fields=None, **kwargs):
+            calls.append(domain)
+            return [{"id": 1}]
+
+    result = server.search_records(
+        FakeCtx(FakeClient()),
+        "res.partner",
+        domain='[("tag_ids", "in", [7])]',
+        fields=["id"],
+    )
+
+    assert result["success"] is True
+    assert calls == [[["tag_ids", "in", [7]]]]
+
+
+def test_search_records_reports_rpc_failure_instead_of_empty_success():
+    server = importlib.import_module("odoo_mcp.server")
+
+    class FakeClient:
+        def search_read(self, model_name, domain, fields=None, **kwargs):
+            raise RuntimeError("xmlrpc unavailable")
+
+    result = server.search_records(
+        FakeCtx(FakeClient()),
+        "res.partner",
+        domain=[["id", ">", 0]],
+        fields=["id"],
+    )
+
+    assert result["success"] is False
+    assert "xmlrpc unavailable" in result["error"]
+
+
+def test_read_record_reports_rpc_failure_instead_of_not_found():
+    server = importlib.import_module("odoo_mcp.server")
+
+    class FakeClient:
+        def read_records(self, model, ids, fields=None):
+            raise RuntimeError("xmlrpc unavailable")
+
+    result = server.read_record(FakeCtx(FakeClient()), "res.partner", 1, fields=["id"])
+
+    assert result["success"] is False
+    assert "xmlrpc unavailable" in result["error"]
+
+
+def test_search_records_rejects_invalid_nonempty_domain_without_search():
+    server = importlib.import_module("odoo_mcp.server")
+    calls = []
+
+    class FakeClient:
+        def search_read(self, model_name, domain, fields=None, **kwargs):
+            calls.append(domain)
+            return [{"id": 1}]
+
+    result = server.search_records(
+        FakeCtx(FakeClient()),
+        "res.partner",
+        domain="not-a-domain",
+        fields=["id"],
+    )
+
+    assert result["success"] is False
+    assert "domain must be" in result["error"]
+    assert calls == []
 
 
 def test_read_record_applies_smart_fields_and_uses_schema_cache():
@@ -2112,13 +2371,34 @@ def test_resource_search_records_returns_results(monkeypatch):
 
 def test_resource_search_records_returns_error_on_invalid_domain(monkeypatch):
     server = importlib.import_module("odoo_mcp.server")
+    calls = []
 
     class FakeClient:
-        pass
+        def search_read(self, model, domain, limit=10):
+            calls.append(domain)
+            return [{"id": 1}]
 
     monkeypatch.setattr(server, "get_odoo_client", lambda: FakeClient())
     payload = json.loads(server.search_records_resource("res.partner", '"oops"'))
     assert "error" in payload
+    assert calls == []
+
+
+def test_resource_search_records_accepts_tuple_literal_domain(monkeypatch):
+    server = importlib.import_module("odoo_mcp.server")
+    seen = []
+
+    class FakeClient:
+        def search_read(self, model, domain, limit=10):
+            seen.append(domain)
+            return [{"id": 1, "name": "Ada"}]
+
+    monkeypatch.setattr(server, "get_odoo_client", lambda: FakeClient())
+    payload = json.loads(
+        server.search_records_resource("res.partner", '[("name", "=", "Ada")]')
+    )
+    assert payload[0]["name"] == "Ada"
+    assert seen == [[["name", "=", "Ada"]]]
 
 
 # ----- parse_measure_spec error branches ---------------------------------
@@ -2203,26 +2483,48 @@ def test_normalize_domain_input_accepts_search_domain_object():
     assert server.normalize_domain_input(sd) == [["name", "=", "Ada"]]
 
 
-def test_normalize_domain_input_returns_empty_for_invalid_string():
+def test_normalize_domain_input_rejects_invalid_string():
     server = importlib.import_module("odoo_mcp.server")
-    assert server.normalize_domain_input("def x():") == []
+    try:
+        server.normalize_domain_input("def x():")
+    except ValueError as exc:
+        assert "domain must be" in str(exc)
+    else:
+        raise AssertionError("unparseable domain must raise")
 
 
 def test_normalize_domain_input_handles_python_literal_via_ast():
     server = importlib.import_module("odoo_mcp.server")
     # Python tuple literal that json can't parse but ast.literal_eval can
-    assert server.normalize_domain_input("[('name', '=', 'Ada')]") == []
+    assert server.normalize_domain_input("[('name', '=', 'Ada')]") == [
+        ["name", "=", "Ada"]
+    ]
 
 
-def test_normalize_domain_input_returns_empty_for_dict_without_conditions_list():
+def test_normalize_domain_input_rejects_dict_without_conditions_list():
     server = importlib.import_module("odoo_mcp.server")
-    assert server.normalize_domain_input({"foo": "bar"}) == []
-    assert server.normalize_domain_input({"conditions": "not-a-list"}) == []
+    try:
+        server.normalize_domain_input({"foo": "bar"})
+    except ValueError as exc:
+        assert "conditions" in str(exc)
+    else:
+        raise AssertionError("dict without conditions must raise")
+    try:
+        server.normalize_domain_input({"conditions": "not-a-list"})
+    except ValueError as exc:
+        assert "conditions" in str(exc)
+    else:
+        raise AssertionError("non-list conditions must raise")
 
 
-def test_normalize_domain_input_returns_empty_for_non_list_value():
+def test_normalize_domain_input_rejects_non_list_value():
     server = importlib.import_module("odoo_mcp.server")
-    assert server.normalize_domain_input(42) == []
+    try:
+        server.normalize_domain_input(42)
+    except ValueError as exc:
+        assert "domain must be" in str(exc)
+    else:
+        raise AssertionError("scalar domain must raise")
 
 
 def test_normalize_domain_input_returns_empty_for_empty_list():

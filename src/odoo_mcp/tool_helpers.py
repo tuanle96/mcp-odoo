@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import Any, List, Optional, Union
+from typing import Any, List, NoReturn, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -262,8 +262,36 @@ def formatted_read_group_missing(exc: Exception) -> bool:
     return "formatted_read_group" in message and "does not exist" in message
 
 
+_DOMAIN_PREFIX_OPERATORS = frozenset({"&", "|", "!"})
+_REQUIRED_CONDITION_KEYS = ("field", "operator", "value")
+
+
+def _is_domain_leaf(cond: Any) -> bool:
+    """Return whether *cond* is a 3-item [field, operator, value] leaf."""
+    return (
+        isinstance(cond, (list, tuple))
+        and len(cond) == 3
+        and isinstance(cond[0], str)
+        and cond[0] not in _DOMAIN_PREFIX_OPERATORS
+        and isinstance(cond[1], str)
+    )
+
+
+def _as_domain_leaf(cond: Any) -> List[Any]:
+    return [cond[0], cond[1], cond[2]]
+
+
+def _reject_domain(message: str) -> NoReturn:
+    raise ValueError(message)
+
+
 def normalize_domain_input(domain: Any) -> List[Any]:
-    """Normalize common MCP/JSON domain shapes to an Odoo domain list."""
+    """Normalize common MCP/JSON domain shapes to an Odoo domain list.
+
+    Explicit empty input stays ``[]``. Non-empty input that cannot be
+    fully normalized raises ``ValueError`` instead of becoming an
+    unfiltered search.
+    """
     if domain is None:
         return []
     if isinstance(domain, SearchDomain):
@@ -271,6 +299,8 @@ def normalize_domain_input(domain: Any) -> List[Any]:
 
     domain_value = domain
     if isinstance(domain_value, str):
+        if not domain_value.strip():
+            return []
         try:
             domain_value = json.loads(domain_value)
         except json.JSONDecodeError:
@@ -278,49 +308,59 @@ def normalize_domain_input(domain: Any) -> List[Any]:
                 import ast
 
                 domain_value = ast.literal_eval(domain_value)
-            except (SyntaxError, ValueError):
-                return []
+            except (SyntaxError, ValueError) as exc:
+                raise ValueError(
+                    "domain must be a JSON array, a Python domain literal, "
+                    'or {"conditions": [...]}'
+                ) from exc
 
     if isinstance(domain_value, dict):
-        conditions = domain_value.get("conditions")
-        if isinstance(conditions, list):
-            return [
-                [cond["field"], cond["operator"], cond["value"]]
-                for cond in conditions
-                if isinstance(cond, dict)
-                and all(k in cond for k in ["field", "operator", "value"])
-            ]
-        return []
+        if "conditions" not in domain_value:
+            _reject_domain("domain object must include a 'conditions' list")
+        conditions = domain_value["conditions"]
+        if not isinstance(conditions, list):
+            _reject_domain("domain 'conditions' must be a list")
+        normalized: List[Any] = []
+        for cond in conditions:
+            if not (
+                isinstance(cond, dict)
+                and all(key in cond for key in _REQUIRED_CONDITION_KEYS)
+            ):
+                _reject_domain(
+                    "each domain condition must include field, operator, and value"
+                )
+            normalized.append([cond["field"], cond["operator"], cond["value"]])
+        return normalized
+
+    if _is_domain_leaf(domain_value):
+        return [_as_domain_leaf(domain_value)]
 
     if not isinstance(domain_value, list):
-        return []
+        _reject_domain(
+            "domain must be a list, a JSON/Python domain string, "
+            'or {"conditions": [...]}'
+        )
 
-    if len(domain_value) == 1 and isinstance(domain_value[0], list) and domain_value[0]:
+    if len(domain_value) == 1 and isinstance(domain_value[0], list):
+        if not domain_value[0]:
+            return []
         domain_value = domain_value[0]
 
     if not domain_value:
         return []
-    if (
-        len(domain_value) == 3
-        and isinstance(domain_value[0], str)
-        and domain_value[0] not in ["&", "|", "!"]
-        and isinstance(domain_value[1], str)
-    ):
-        domain_list = [domain_value]
-    else:
-        domain_list = domain_value
+
+    domain_list = [domain_value] if _is_domain_leaf(domain_value) else domain_value
 
     valid_conditions: List[Any] = []
     for cond in domain_list:
-        if isinstance(cond, str) and cond in ["&", "|", "!"]:
+        if isinstance(cond, str) and cond in _DOMAIN_PREFIX_OPERATORS:
             valid_conditions.append(cond)
             continue
-        if (
-            isinstance(cond, list)
-            and len(cond) == 3
-            and isinstance(cond[0], str)
-            and isinstance(cond[1], str)
-        ):
-            valid_conditions.append(cond)
-
+        if _is_domain_leaf(cond):
+            valid_conditions.append(_as_domain_leaf(cond))
+            continue
+        _reject_domain(
+            f"invalid domain term {cond!r}; expected '&', '|', '!' "
+            "or a 3-item [field, operator, value] condition"
+        )
     return valid_conditions

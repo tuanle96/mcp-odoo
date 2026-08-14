@@ -1040,7 +1040,7 @@ def test_get_model_fields_handles_execute_failure(monkeypatch, odoo_client_modul
     assert "rpc" in result["error"]
 
 
-def test_search_read_handles_execute_failure_returns_empty_list(
+def test_search_read_propagates_execute_failure(
     monkeypatch, odoo_client_module
 ):
     client, _ = build_client(monkeypatch, odoo_client_module)
@@ -1049,10 +1049,15 @@ def test_search_read_handles_execute_failure_returns_empty_list(
         raise RuntimeError("rpc")
 
     client._models.execute_kw = boom  # type: ignore[attr-defined]
-    assert client.search_read("res.partner", [], offset=1) == []
+    try:
+        client.search_read("res.partner", [], offset=1)
+    except RuntimeError as exc:
+        assert "rpc" in str(exc)
+    else:
+        raise AssertionError("search_read must not hide RPC failures as []")
 
 
-def test_read_records_handles_execute_failure_returns_empty_list(
+def test_read_records_propagates_execute_failure(
     monkeypatch, odoo_client_module
 ):
     client, _ = build_client(monkeypatch, odoo_client_module)
@@ -1061,7 +1066,12 @@ def test_read_records_handles_execute_failure_returns_empty_list(
         raise RuntimeError("rpc")
 
     client._models.execute_kw = boom  # type: ignore[attr-defined]
-    assert client.read_records("res.partner", [1]) == []
+    try:
+        client.read_records("res.partner", [1])
+    except RuntimeError as exc:
+        assert "rpc" in str(exc)
+    else:
+        raise AssertionError("read_records must not hide RPC failures as []")
 
 
 def test_json2_get_server_version_falls_back_to_web_version_on_error(

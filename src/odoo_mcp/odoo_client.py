@@ -604,22 +604,18 @@ class OdooClient:
             >>> print(len(records))
             5
         """
-        try:
-            kwargs: dict[str, Any] = {}
-            if offset:
-                kwargs["offset"] = offset
-            if fields is not None:
-                kwargs["fields"] = fields
-            if limit is not None:
-                kwargs["limit"] = limit
-            if order is not None:
-                kwargs["order"] = order
+        kwargs: dict[str, Any] = {}
+        if offset:
+            kwargs["offset"] = offset
+        if fields is not None:
+            kwargs["fields"] = fields
+        if limit is not None:
+            kwargs["limit"] = limit
+        if order is not None:
+            kwargs["order"] = order
 
-            result = self._execute(model_name, "search_read", domain, **kwargs)
-            return cast(list[dict[str, Any]], result)
-        except Exception as e:
-            print(f"Error in search_read: {str(e)}", file=sys.stderr)
-            return []
+        result = self._execute(model_name, "search_read", domain, **kwargs)
+        return cast(list[dict[str, Any]], result)
 
     def read_records(
         self, model_name: str, ids: list[int], fields: list[str] | None = None
@@ -641,16 +637,12 @@ class OdooClient:
             >>> print(records[0]['name'])
             'YourCompany'
         """
-        try:
-            kwargs: dict[str, Any] = {}
-            if fields is not None:
-                kwargs["fields"] = fields
+        kwargs: dict[str, Any] = {}
+        if fields is not None:
+            kwargs["fields"] = fields
 
-            result = self._execute(model_name, "read", ids, **kwargs)
-            return cast(list[dict[str, Any]], result)
-        except Exception as e:
-            print(f"Error reading records: {str(e)}", file=sys.stderr)
-            return []
+        result = self._execute(model_name, "read", ids, **kwargs)
+        return cast(list[dict[str, Any]], result)
 
 
 class RedirectTransport(xmlrpc.client.Transport):
