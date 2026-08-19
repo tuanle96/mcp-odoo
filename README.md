@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <a href="https://mcp.erpipe.com/"><strong>🚀 ERPipe hosted</strong> — free v1 · live at mcp.erpipe.com</a>
+  <a href="https://erpipe.com/"><strong>🚀 ERPipe hosted</strong> — free v1 · live at erpipe.com</a>
   &nbsp;·&nbsp;
   <a href="https://github.com/erpipe-org/erpipe"><strong>TypeScript open core</strong></a>
   &nbsp;·&nbsp;
@@ -28,14 +28,14 @@
 </p>
 
 > **Want ChatGPT / Claude on a stable remote URL without running a process?**  
-> **[ERPipe](https://mcp.erpipe.com/)** is the hosted product from the same author — free v1 public beta, live in production.  
+> **[ERPipe](https://erpipe.com/)** is the hosted product from the same author — free v1 public beta, live in production.  
 > Sign up → add HTTPS Odoo instance(s) → connect once to `https://mcp.erpipe.com/mcp` (workspace OAuth, multi-instance, gated writes, audit dashboard).  
 > This repo stays the **local / self-host Python server** (full 41-tool surface, stdio, Docker). TypeScript building blocks: [`erpipe`](https://github.com/erpipe-org/erpipe).
 
-| | **This repo (`odoo-mcp`)** | **[ERPipe hosted](https://mcp.erpipe.com/)** |
+| | **This repo (`odoo-mcp`)** | **[ERPipe hosted](https://erpipe.com/)** |
 |--|--|--|
 | Run where | Your laptop / Docker / CI | Cloudflare (managed) |
-| Install | `uvx odoo-mcp --setup` | Sign up at [mcp.erpipe.com](https://mcp.erpipe.com/) |
+| Install | `uvx odoo-mcp --setup` | Sign up at [erpipe.com](https://erpipe.com/) |
 | MCP URL | stdio or local HTTP | `https://mcp.erpipe.com/mcp` |
 | Clients | Claude Code, Cursor, local agents | **ChatGPT** (primary), Claude, Cursor, any remote MCP client |
 | Tool surface | **41 tools** + 11 prompts (full local pack) | **37 tools** + 7 prompts (workspace multi-instance + governance) |

@@ -3,8 +3,8 @@
   "name": "odoo-mcp",
   "display_name": "Odoo MCP",
   "version": "__VERSION__",
-  "description": "Talk to any Odoo 16+ database with zero Odoo-side setup. Local stdio MCP. Hosted free product: ERPipe (mcp.erpipe.com). Requires uv.",
-  "long_description": "Odoo MCP turns any Odoo 16+ database into a Model Context Protocol server using only your existing credentials — no App Store module, no admin access. 41 tools: bounded reads, server-side aggregation, schema discovery, diagnostics, migration helpers, local BM25 knowledge search, accounting reports, cross-instance fan-out, and a gated write workflow with approval tokens and an audit trail. Speaks XML-RPC for Odoo 16-18 and External JSON-2 for Odoo 19+. Prefer ChatGPT/Claude on a remote URL without running a process? Use free hosted ERPipe at https://mcp.erpipe.com/ (same product family).",
+  "description": "Talk to any Odoo 16+ database with zero Odoo-side setup. Local stdio MCP. Hosted free product: ERPipe (erpipe.com). Requires uv.",
+  "long_description": "Odoo MCP turns any Odoo 16+ database into a Model Context Protocol server using only your existing credentials — no App Store module, no admin access. 41 tools: bounded reads, server-side aggregation, schema discovery, diagnostics, migration helpers, local BM25 knowledge search, accounting reports, cross-instance fan-out, and a gated write workflow with approval tokens and an audit trail. Speaks XML-RPC for Odoo 16-18 and External JSON-2 for Odoo 19+. Prefer ChatGPT/Claude on a remote URL without running a process? Use free hosted ERPipe at https://erpipe.com/ (MCP: https://mcp.erpipe.com/mcp).",
   "author": {
     "name": "Lê Anh Tuấn",
     "email": "justin.le.1105@gmail.com",

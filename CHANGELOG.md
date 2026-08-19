@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- PyPI project URL **Hosted (ERPipe)** now points at the product site
+  `https://erpipe.com/`. Added **Hosted MCP** `https://mcp.erpipe.com/mcp`.
+  Live PyPI stays `1.3.0` until the next release (`1.3.2`); do not retag
+  `v1.3.1`.
+
 ## [1.3.1] - 2026-08-14
 
 ### Fixed
