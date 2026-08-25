@@ -2,6 +2,8 @@
 
 <!-- mcp-name: io.github.erpipe-org/mcp-odoo -->
 
+ERPipe is the managed Odoo MCP gateway from the maintainer of [`erpipe-org/mcp-odoo`](https://github.com/erpipe-org/mcp-odoo), formerly [`tuanle96/mcp-odoo`](https://github.com/tuanle96/mcp-odoo); the Python project remains the self-hosted server.
+
 <p align="center">
   <strong>The free AI layer for Odoo — any edition, any version.</strong><br>
   Odoo's built-in AI is Enterprise-only. Odoo MCP gives Community and Enterprise 16+ the same power for $0 with the LLM you already use (Claude, GPT, Gemini, DeepSeek, Ollama).<br>
@@ -38,7 +40,7 @@
 | Install | `uvx odoo-mcp --setup` | Sign up at [erpipe.com](https://erpipe.com/) |
 | MCP URL | stdio or local HTTP | `https://mcp.erpipe.com/mcp` |
 | Clients | Claude Code, Cursor, local agents | **ChatGPT** (primary), Claude, Cursor, any remote MCP client |
-| Tool surface | **41 tools** + 11 prompts (full local pack) | **37 tools** + 7 prompts (workspace multi-instance + governance) |
+| Tool surface | **41 tools** + 11 prompts (full local pack) | **43 tools** + 7 prompts (workspace multi-instance + governance; [catalog](https://erpipe.com/tools)) |
 | Multi-instance | Config file / env on your machine | Dashboard + explicit `instance` key per tool |
 | Writes | Env gate + approval tokens (+ optional MCP elicitation) | Default OFF · HITL inbox · journal · field policy |
 | Audit | Optional JSONL file | Dashboard + D1 audit trail |
