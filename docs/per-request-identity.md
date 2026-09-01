@@ -162,7 +162,26 @@ scripts/identity_client.py --no-identity                                   # exp
 
 # real two-user proof on a disposable Odoo 18 (Docker):
 uv run --python 3.12 --with-editable . scripts/algorithma_identity_smoke.py
+
+# the same proof against an existing Odoo container (dev VM, bauag2):
+uv run python scripts/algorithma_identity_smoke.py --backend container \
+    --container bauag2-odoo --odoo-url http://127.0.0.1:8071 --db bauag2 \
+    --docker-sudo --mcp-port 8010 --save-keys ~/.algorithma-vnext/bauag2-smoke-keys.json
+# ... and remove the fixture again:
+uv run python scripts/algorithma_identity_smoke.py --backend container --docker-sudo --cleanup
 ```
+
+The container backend creates two internal users (`anna@identity-smoke.test`,
+`bob@identity-smoke.test`, with Contact Creation), partners prefixed
+`ZZ Identity-Smoke …`, and one **global** record rule on `res.partner` whose domain is
+`[('user_id', '=', user.id)]` only for logins ending in `@identity-smoke.test` and
+`[(1, '=', 1)]` for everyone else — real users are never restricted. Result on bauag2
+(2026-09-01): **20/20 checks passed** — A and B see disjoint partners, B cannot spend A's
+approval, A's approved create ran as A (`create_uid`), `list_models` returned Odoo's own
+ACL refusal for plain users, no key in audit or server log. Note for anyone scripting
+Odoo fixtures: after `env.cr.commit()` in `odoo shell` call
+`env.registry.signal_changes()`, otherwise the running server keeps stale per-user
+ACL/rule caches.
 
 The server binds `127.0.0.1` unless `--allow-remote-http` is given; inside the Turm
 Docker network LibreChat reaches it as `http://<mcp-container>:8000/mcp`.
