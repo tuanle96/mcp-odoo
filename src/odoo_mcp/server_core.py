@@ -10,17 +10,28 @@ use late-binding via _srv() so monkeypatches applied to the server module work.
 
 import json
 import os
+import sys
 import threading
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, AsyncIterator, Callable, Dict, List, Optional, cast
+from typing import Any, AsyncIterator, Callable, Dict, List, Mapping, Optional, cast
 
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.types import Annotations, ToolAnnotations
 from pydantic import BaseModel, Field
 
+from .identity import (
+    IdentityClientCache,
+    IdentityError,
+    MissingIdentityError,
+    RequestIdentity,
+    identity_mode,
+    identity_posture,
+    request_identity_mode,
+    resolve_request_identity,
+)
 from .odoo_client import OdooClient
 from .schema_cache import _build_schema_cache
 from .agent_tools import select_smart_fields
@@ -67,16 +78,23 @@ class AppContext:
     _clients_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     schema_cache: Any = field(default_factory=_build_schema_cache)
     write_approvals: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    # Request identity mode: clients keyed by (instance, db, login, credential)
+    # digest — never by instance alone, so users can never share a session.
+    identity_clients: IdentityClientCache = field(
+        default_factory=IdentityClientCache, repr=False
+    )
 
     @property
     def odoo(self) -> OdooClient:
         """Resolve the Odoo client only when a live Odoo tool needs it."""
+        _refuse_shared_client()
         if self._odoo is None:
             self._odoo = self.odoo_factory()
         return self._odoo
 
     def get_client(self, instance: Optional[str] = None) -> tuple[str, OdooClient]:
         """Resolve a named Odoo instance, lazily connecting and caching per name."""
+        _refuse_shared_client()
         if not instance:
             return _srv().resolve_default_instance_name(), self.odoo
         with self._clients_lock:
@@ -85,6 +103,48 @@ class AppContext:
                 self._clients[name] = client
             return instance, self._clients[instance]
 
+    def get_identity_client(
+        self, instance_name: str, identity: RequestIdentity
+    ) -> OdooClient:
+        """Resolve a request-scoped client: WHERE (instance) + WHO (identity).
+
+        The instance entry is looked up from the configured instances; its
+        credentials, if any, are ignored (see ``build_identity_client``). The
+        cache key covers instance, database, login, and credential digest.
+        """
+        try:
+            _, instances = _srv().load_instances_config()
+        except FileNotFoundError as exc:
+            raise ValueError(
+                "No Odoo instance configuration found. Set ODOO_URL/ODOO_DB or "
+                "ODOO_CONFIG_FILE (request identity mode needs no credentials)."
+            ) from exc
+        entry = instances.get(instance_name)
+        if entry is None:
+            raise ValueError(
+                f"Unknown Odoo instance {instance_name!r}. "
+                f"Available instances: {sorted(instances)}"
+            )
+        key = identity.cache_key(instance_name, str(entry.get("db") or ""))
+        return cast(
+            OdooClient,
+            self.identity_clients.get_or_create(
+                key,
+                lambda: _srv().build_identity_client(
+                    entry, identity, name=instance_name
+                ),
+            ),
+        )
+
+
+def _refuse_shared_client() -> None:
+    """Fail closed: shared configured clients never serve request-mode calls."""
+    if request_identity_mode():
+        raise MissingIdentityError(
+            "shared configured Odoo credentials are disabled in request identity "
+            "mode; this code path carries no request identity."
+        )
+
 
 @asynccontextmanager
 async def app_lifespan(server: MCPServer) -> AsyncIterator[AppContext]:
@@ -92,6 +152,13 @@ async def app_lifespan(server: MCPServer) -> AsyncIterator[AppContext]:
     # Validate the field ACL policy at startup so a malformed policy fails
     # closed (aborts) instead of silently running unprotected at first read.
     get_field_policy()
+    # Fail closed on an invalid ODOO_MCP_IDENTITY_MODE value before serving.
+    if identity_mode() == "request":
+        print(
+            "Identity mode: request - every Odoo call runs as the user named in "
+            "X-User-Email; configured Odoo credentials are disabled.",
+            file=sys.stderr,
+        )
     yield AppContext()
 
 
@@ -192,9 +259,59 @@ def _app_context(ctx: Context) -> AppContext:
     return cast(AppContext, ctx.request_context.lifespan_context)
 
 
+# ---------------------------------------------------------------------------
+# Request identity (WHO) — resolved once per tool call from the HTTP headers
+# ---------------------------------------------------------------------------
+
+
+def _request_headers(ctx: Any) -> Optional[Mapping[str, Any]]:
+    """Headers the transport attached to this request (None on stdio)."""
+    headers = getattr(ctx, "headers", None)
+    if headers is None:
+        request = getattr(getattr(ctx, "request_context", None), "request", None)
+        headers = getattr(request, "headers", None)
+    return cast("Optional[Mapping[str, Any]]", headers)
+
+
+def request_identity(ctx: Any) -> RequestIdentity:
+    """Resolve the caller's Odoo identity from the request; fails closed."""
+    return resolve_request_identity(_request_headers(ctx))
+
+
+def current_identity(ctx: Any) -> Optional[RequestIdentity]:
+    """The request identity in request mode; ``None`` in configured mode."""
+    if not request_identity_mode():
+        return None
+    return request_identity(ctx)
+
+
+def identity_audit_fields(ctx: Any) -> Dict[str, Optional[str]]:
+    """Non-secret identity fields for audit lines (empty in configured mode)."""
+    try:
+        identity = current_identity(ctx)
+    except IdentityError:
+        return {}
+    return identity.audit_fields() if identity is not None else {}
+
+
+def approval_identity_binding(ctx: Any, instance_name: str) -> Optional[str]:
+    """Server-side binding of a write approval to the requester + instance."""
+    identity = current_identity(ctx)
+    return None if identity is None else identity.approval_binding(instance_name)
+
+
 def _resolve_odoo(ctx: Context, instance: Optional[str]) -> tuple[str, OdooClient]:
-    """Resolve the Odoo client for a tool call, honoring the optional instance name."""
+    """Resolve the Odoo client for a tool call, honoring the optional instance name.
+
+    Every builtin tool and every plugin goes through here. In request identity
+    mode the client is built for WHO (headers) on WHERE (instance); without a
+    usable identity the call fails closed — there is no shared fallback.
+    """
     app_context = _app_context(ctx)
+    if request_identity_mode():
+        identity = request_identity(ctx)
+        instance_name = str(_srv().resolve_instance_name(instance))
+        return instance_name, app_context.get_identity_client(instance_name, identity)
     if not instance:
         name = getattr(app_context, "_default_instance_name", None)
         if name is None:
@@ -267,6 +384,9 @@ def write_approval_payload(approval: Dict[str, Any]) -> Dict[str, Any]:
     }
     if approval.get("values_list") is not None:
         payload["values_list"] = approval.get("values_list")
+    if approval.get("principal") is not None:
+        # Request identity mode: the acting user is part of the canonical payload.
+        payload["principal"] = approval.get("principal")
     return payload
 
 
@@ -294,6 +414,8 @@ def register_write_approval(
     app_context: AppContext,
     report: Dict[str, Any],
     resolved_binary_values: Optional[Dict[str, str]] = None,
+    *,
+    identity_binding: Optional[str] = None,
 ) -> bool:
     """Persist validated write approvals inside the current server lifespan.
 
@@ -301,6 +423,10 @@ def register_write_approval(
     stored only in this server-side record — never in ``report["approval"]``,
     which is what gets echoed back to the caller and hashed into the approval
     token. See ``_resolve_binary_from_path_fields`` in ``tools_write.py``.
+
+    ``identity_binding`` (request identity mode) ties the record to the user
+    and instance that validated it; ``execute_approved_write`` refuses the
+    token under any other identity or instance.
     """
     approval = report.get("approval")
     if not report.get("success") or not isinstance(approval, dict):
@@ -315,6 +441,7 @@ def register_write_approval(
         "payload": write_approval_payload(approval),
         "validated_at": now,
         "expires_at": now + WRITE_APPROVAL_TTL_SECONDS,
+        "identity_binding": identity_binding,
     }
     if resolved_binary_values:
         record["resolved_binary_values"] = dict(resolved_binary_values)
@@ -336,6 +463,18 @@ def require_validated_write_approval(
         app_context.write_approvals.pop(token, None)
         return None
     return record
+
+
+def approval_identity_matches(
+    record: Dict[str, Any], identity_binding: Optional[str]
+) -> bool:
+    """True when the stored approval was validated under this identity/instance.
+
+    Both sides are ``None`` in configured mode (unchanged upstream behavior);
+    in request identity mode a mismatch means another user, another
+    credential, or another instance is trying to spend the approval.
+    """
+    return record.get("identity_binding") == identity_binding
 
 
 # ---------------------------------------------------------------------------
@@ -503,6 +642,34 @@ def instance_posture() -> Dict[str, Any]:
         return {"instance_count": 0, "default_instance": None}
 
 
+def _configured_credentials_present() -> bool:
+    """Whether any shared Odoo credential is configured (never reveals values)."""
+    try:
+        _, instances = _srv().load_instances_config()
+    except Exception:
+        return any(
+            os.environ.get(key) for key in ("ODOO_USERNAME", "ODOO_PASSWORD", "ODOO_API_KEY")
+        )
+    return any(
+        bool(entry.get(key))
+        for entry in instances.values()
+        for key in ("username", "password", "api_key")
+    )
+
+
+def identity_report() -> Dict[str, Any]:
+    """Identity posture for health_check: mode, headers, cache bounds, warnings."""
+    runtime = getattr(mcp, "_odoo_runtime", {})
+    transport = runtime.get("transport", os.environ.get("MCP_TRANSPORT", "stdio"))
+    registry = getattr(getattr(mcp, "_tool_manager", None), "_tools", {})
+    return identity_posture(
+        configured_credentials_present=_configured_credentials_present(),
+        transport=str(transport),
+        registered_tools=list(registry),
+        cache=IdentityClientCache.settings(),
+    )
+
+
 def mcp_surface_counts() -> Dict[str, int]:
     """Read current registered MCP surface counts from MCPServer managers."""
     tool_manager = getattr(mcp, "_tool_manager", None)
@@ -547,6 +714,7 @@ def runtime_security_report() -> Dict[str, Any]:
         "audit_log": audit_posture(),
         "oauth": oauth_posture(),
         "field_acl": field_policy_posture(),
+        "identity": identity_report(),
         "n_plus_one": n_plus_one_report(),
         "notes": [
             "HTTP transports are local-only by default in the CLI entry point.",

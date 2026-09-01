@@ -28,17 +28,23 @@ from .server_core import (
     _single_read_events,
     _single_read_lock,
     app_lifespan,
+    approval_identity_binding,
+    approval_identity_matches,
     configured_addons_roots,
     configured_attachment_upload_roots,
+    current_identity,
     get_model_info,
     get_models,
     get_record,
+    identity_audit_fields,
+    identity_report,
     instance_posture,
     mcp,
     mcp_surface_counts,
     n_plus_one_report,
     note_single_record_read,
     register_write_approval,
+    request_identity,
     require_validated_write_approval,
     resolve_default_instance_name,
     resolve_instance_name,
@@ -53,10 +59,28 @@ from .server_core import (
 # Re-export patchable symbols from odoo_client so monkeypatches on this module work
 from .odoo_client import (
     OdooClient,
+    build_identity_client,
     get_odoo_client,
     get_odoo_client_for,
     list_configured_instances,
     load_instances_config,
+)
+
+# Per-request identity (Algorithma fork): pure core symbols, re-exported for
+# tests and downstream code. INSTANCE = where, IDENTITY = who.
+from .identity import (
+    IDENTITY_MODE_ENV,
+    IdentityAuthenticationError,
+    IdentityClientCache,
+    IdentityError,
+    IdentityOdooUnreachableError,
+    InvalidIdentityError,
+    MissingIdentityError,
+    RequestIdentity,
+    identity_mode,
+    identity_posture,
+    request_identity_mode,
+    resolve_request_identity,
 )
 
 # Re-export build_domain_report so monkeypatches on server.build_domain_report work
@@ -255,10 +279,30 @@ __all__ = [
     "resolve_instance_name",
     # odoo_client re-exports (patchable surface)
     "OdooClient",
+    "build_identity_client",
     "get_odoo_client",
     "get_odoo_client_for",
     "list_configured_instances",
     "load_instances_config",
+    # Per-request identity (Algorithma fork)
+    "IDENTITY_MODE_ENV",
+    "IdentityAuthenticationError",
+    "IdentityClientCache",
+    "IdentityError",
+    "IdentityOdooUnreachableError",
+    "InvalidIdentityError",
+    "MissingIdentityError",
+    "RequestIdentity",
+    "identity_mode",
+    "identity_posture",
+    "request_identity_mode",
+    "resolve_request_identity",
+    "request_identity",
+    "current_identity",
+    "identity_audit_fields",
+    "identity_report",
+    "approval_identity_binding",
+    "approval_identity_matches",
     # agent_tools re-exports (patchable: build_domain_report)
     "build_approval_token",
     "build_domain_report",

@@ -249,6 +249,8 @@ Optional environment variables:
 | `ODOO_MCP_POLICY_FILE` | `./odoo_mcp_policy.json` if present | Version-controllable side-effect allowlist with review metadata (see `odoo_mcp_policy.json.example`); merged with the env allowlist. |
 | `ODOO_MCP_ALLOW_UNKNOWN_METHODS` | `0` | Broad mode for `execute_method`. Prefer the exact allowlist above. |
 | `ODOO_MCP_AUDIT_LOG` | unset | Path → append one JSONL line per write-path event (preview/validate/execute/chatter), tokens stored as digests. |
+| `ODOO_MCP_IDENTITY_MODE` | `configured` | `request` = every call runs as the Odoo user named in the `X-User-Email`/`X-Odoo-Api-Key` request headers (Algorithma fork; HTTP transports only, fails closed, no shared-credential fallback). See `docs/per-request-identity.md`. |
+| `ODOO_MCP_IDENTITY_CACHE_MAX` / `ODOO_MCP_IDENTITY_CACHE_TTL` | `256` / `900` | Bounds of the per-identity client cache in request mode (entries / seconds). |
 | `ODOO_MCP_ELICIT_WRITES` | `0` | Truthy → `execute_approved_write` asks the human via MCP elicitation (native confirm form with a diff summary) before executing; falls back to the token flow when the client cannot elicit. |
 | `ODOO_MCP_RETRY_ATTEMPTS` | `2` | Extra attempts for read-only calls on connection errors (0–5). Writes never retry. |
 | `ODOO_MCP_RETRY_BACKOFF` | `0.5` | Base retry backoff seconds; doubles per retry. |

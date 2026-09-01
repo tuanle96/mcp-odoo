@@ -141,12 +141,16 @@ def _build_cross_instance_job(
     ctx: Context, operation: str, params: Dict[str, Any]
 ) -> Callable[[], Dict[str, Any]]:
     # The fan-out resolves clients lazily per instance from the app context;
-    # capture it now while the request context is alive.
+    # capture it now while the request context is alive. In request identity
+    # mode every instance is resolved under the submitting user's identity.
     app_context = _app_context(ctx)
     runner = _CROSS_INSTANCE_RUNNERS[operation]
 
+    def client_for(name: str) -> Any:
+        return _resolve_odoo(ctx, name)
+
     def job() -> Dict[str, Any]:
-        return runner(app_context, params)
+        return runner(app_context, params, client_for=client_for)
 
     return job
 

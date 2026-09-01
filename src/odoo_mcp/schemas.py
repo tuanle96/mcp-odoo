@@ -64,6 +64,10 @@ class HealthCheckResponse(ToolResponse):
     plugins: Optional[Dict[str, Any]] = Field(
         default=None, description="Opt-in plugin load state and tool filtering."
     )
+    identity: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Identity posture: configured vs per-request mode, warnings.",
+    )
 
 
 class ListInstancesResponse(ToolResponse):

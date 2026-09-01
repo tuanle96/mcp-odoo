@@ -49,6 +49,9 @@ from .server_core import (
     mcp,
     _app_context,
     _resolve_odoo,
+    approval_identity_matches,
+    current_identity,
+    identity_audit_fields,
     register_write_approval,
     require_validated_write_approval,
     restrict_attachment_upload_path,
@@ -211,14 +214,20 @@ def preview_write(
     record_ids: Optional[List[int]] = None,
     context: Optional[Dict[str, Any]] = None,
     instance: Optional[str] = None,
+    ctx: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """Build a canonical approval token for a later approved write.
 
     Batch create: pass ``values_list`` (one dict per record, max 100) —
     executes as a single atomic Odoo ``create(vals_list)`` call.
+
+    In request identity mode the acting user (from the request headers) is
+    part of the token, so previews are per user. ``ctx`` is injected by the
+    MCP server; direct Python callers may omit it.
     """
     try:
         validate_model_name(model)
+        identity = current_identity(ctx) if ctx is not None else None
         report = build_write_preview_report(
             model=model,
             operation=operation,
@@ -227,6 +236,7 @@ def preview_write(
             record_ids=record_ids,
             context=context,
             instance=_srv().resolve_instance_name(instance),
+            principal=identity.principal if identity else None,
         )
         record_write_event(
             "preview",
@@ -236,6 +246,7 @@ def preview_write(
             record_ids=[int(rid) for rid in record_ids or []],
             instance=_srv().resolve_instance_name(instance),
             token=str((report.get("approval") or {}).get("token") or "") or None,
+            identity=identity.audit_fields() if identity else None,
         )
         return report
     except Exception as e:
@@ -263,6 +274,8 @@ def validate_write(
     try:
         validate_model_name(model)
         instance_name = _srv().resolve_instance_name(instance)
+        # Request identity mode: fails closed here if the headers are missing.
+        identity = current_identity(ctx)
 
         resolved_binary_values: Dict[str, Any] = {}
         if values:
@@ -312,6 +325,7 @@ def validate_write(
             fields_metadata=fields_metadata,
             metadata_source=metadata_source,
             instance=instance_name,
+            principal=identity.principal if identity else None,
         )
         trusted_live_metadata = (
             metadata_source == "server"
@@ -323,6 +337,9 @@ def validate_write(
                 _app_context(ctx),
                 report,
                 resolved_binary_values=resolved_binary_values or None,
+                identity_binding=(
+                    identity.approval_binding(instance_name) if identity else None
+                ),
             )
             report["approval_status"] = {
                 "stored": stored,
@@ -349,6 +366,7 @@ def validate_write(
             instance=instance_name,
             token=str((report.get("approval") or {}).get("token") or "") or None,
             detail=None if report.get("success") else "validation issues present",
+            identity=identity.audit_fields() if identity else None,
         )
         return report
     except Exception as e:
@@ -391,6 +409,7 @@ async def execute_approved_write_tool(
             instance=str(approval.get("instance") or "") or None,
             token=str(approval.get("token") or "") or None,
             detail=detail,
+            identity=identity_audit_fields(ctx),
         )
         return {
             "success": False,
@@ -421,6 +440,7 @@ def execute_approved_write(
         instance=str(approval.get("instance") or "") or None,
         token=str(approval.get("token") or "") or None,
         detail=report.get("error"),
+        identity=identity_audit_fields(ctx),
     )
     return report
 
@@ -458,6 +478,34 @@ def _execute_approved_write_gated(
                 "success": False,
                 "tool": "execute_approved_write",
                 "error": "approval payload does not match the stored validation record",
+            }
+        approval_instance = str(approval.get("instance") or "") or None
+        binding_instance = approval_instance or str(
+            _srv().resolve_default_instance_name()
+        )
+        # Request identity mode: the approval must have been issued to, and
+        # validated by, the very user (and instance) executing it now.
+        identity = current_identity(ctx)
+        if identity is not None and approval.get("principal") != identity.principal:
+            return {
+                "success": False,
+                "tool": "execute_approved_write",
+                "error": (
+                    "approval was issued to a different user; re-run "
+                    "preview_write and validate_write as the current user"
+                ),
+            }
+        if not approval_identity_matches(
+            validation_record,
+            identity.approval_binding(binding_instance) if identity else None,
+        ):
+            return {
+                "success": False,
+                "tool": "execute_approved_write",
+                "error": (
+                    "approval token was validated under a different identity or "
+                    "instance; call validate_write again as the current user"
+                ),
             }
         if not confirm:
             return {
@@ -499,8 +547,11 @@ def _execute_approved_write_gated(
         else:
             args = [record_ids]
 
-        approval_instance = str(approval.get("instance") or "") or None
-        if (
+        if identity is not None:
+            # Execute as the same user who validated, on the instance recorded
+            # in the approval — never a tool argument, never a shared account.
+            _, odoo = _resolve_odoo(ctx, approval_instance)
+        elif (
             approval_instance is None
             or approval_instance == _srv().resolve_default_instance_name()
         ):
@@ -532,8 +583,13 @@ def _build_chatter_payload(
     partner_ids: Optional[List[int]],
     attachment_ids: Optional[List[int]],
     instance: str = "default",
+    principal: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Build the canonical message_post call payload (deterministic ordering)."""
+    """Build the canonical message_post call payload (deterministic ordering).
+
+    ``principal`` (request identity mode) binds the chatter token to the
+    acting user; the key is absent in configured mode so tokens stay stable.
+    """
     kwargs: Dict[str, Any] = {"body": body, "message_type": message_type}
     if subtype_xmlid:
         kwargs["subtype_xmlid"] = subtype_xmlid
@@ -541,13 +597,16 @@ def _build_chatter_payload(
         kwargs["partner_ids"] = [int(pid) for pid in partner_ids]
     if attachment_ids:
         kwargs["attachment_ids"] = [int(aid) for aid in attachment_ids]
-    return {
+    payload: Dict[str, Any] = {
         "model": model,
         "method": "message_post",
         "record_ids": [int(record_id)],
         "kwargs": kwargs,
         "instance": instance or "default",
     }
+    if principal is not None:
+        payload["principal"] = principal
+    return payload
 
 
 @mcp.tool(
@@ -585,6 +644,7 @@ def chatter_post(
     """
     try:
         instance_name, odoo = _resolve_odoo(ctx, instance)
+        identity = current_identity(ctx)
         validate_model_name(model)
         if record_id < 1:
             raise ValueError("record_id must be greater than 0")
@@ -603,6 +663,7 @@ def chatter_post(
             partner_ids=partner_ids,
             attachment_ids=attachment_ids,
             instance=instance_name,
+            principal=identity.principal if identity else None,
         )
         token = build_approval_token(canonical)
 
@@ -622,6 +683,7 @@ def chatter_post(
                 record_ids=[record_id],
                 instance=instance_name,
                 detail="direct mode",
+                identity=identity.audit_fields() if identity else None,
             )
             return {
                 "success": True,
@@ -669,6 +731,7 @@ def chatter_post(
             record_ids=[record_id],
             instance=instance_name,
             token=provided_token,
+            identity=identity.audit_fields() if identity else None,
         )
         return {
             "success": True,

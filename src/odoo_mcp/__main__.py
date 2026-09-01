@@ -14,7 +14,8 @@ import traceback
 from mcp.server.transport_security import TransportSecuritySettings
 
 from .auth import build_auth
-from .server import mcp
+from .identity import request_identity_mode
+from .server import identity_report, mcp
 
 SUPPORTED_MCP_TRANSPORTS = {"stdio", "streamable-http", "sse"}
 SECRET_ENV_KEYS = {"ODOO_PASSWORD", "ODOO_API_KEY", "MCP_HTTP_AUTH_TOKEN"}
@@ -223,6 +224,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def configure_mcp_runtime(args: argparse.Namespace) -> dict[str, object]:
     """Build MCPServer v2 run options from CLI/env settings."""
+    if args.transport == "stdio" and request_identity_mode():
+        raise ValueError(
+            "ODOO_MCP_IDENTITY_MODE=request requires an HTTP transport "
+            "(--transport streamable-http): stdio carries no per-request "
+            "headers, so every Odoo call would fail closed."
+        )
     if (
         args.transport in {"streamable-http", "sse"}
         and args.host not in LOCAL_HTTP_HOSTS
@@ -313,6 +320,7 @@ def health_payload(args: argparse.Namespace) -> dict[str, object]:
         "log_level": args.log_level,
         "allow_remote_http": args.allow_remote_http,
         "transport_security": transport_security,
+        "identity": identity_report(),
     }
 
 

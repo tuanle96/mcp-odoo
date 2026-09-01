@@ -1,0 +1,15 @@
+{
+  "comment": "Algorithma vNext prototype: WHERE only. No username/password/api_key on purpose - in request identity mode (ODOO_MCP_IDENTITY_MODE=request) the WHO arrives per request as X-User-Email / X-Odoo-Api-Key. Port 8071 is the loopback-only bauag2 Odoo on the dev VM (~/algorithma-bauag2/docker-compose.yml).",
+  "default": "bauag2",
+  "instances": {
+    "bauag2": {
+      "url": "http://127.0.0.1:8071",
+      "db": "bauag2",
+      "transport": "xmlrpc",
+      "timeout": 30,
+      "verify_ssl": true,
+      "cross_instance": false,
+      "tags": ["algorithma", "dev-vm"]
+    }
+  }
+}

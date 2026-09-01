@@ -80,6 +80,16 @@ class BoundedTTLCache:
         except KeyError:
             return default
 
+    def pop(self, key: str, default: Any = None) -> Any:
+        """Remove ``key`` and return its value (or ``default``), ignoring expiry."""
+        with self._lock:
+            entry = self._entries.pop(key, None)
+        return default if entry is None else entry[1]
+
+    def clear(self) -> None:
+        with self._lock:
+            self._entries.clear()
+
     def __len__(self) -> int:
         with self._lock:
             return len(self._entries)

@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 import difflib
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -126,6 +127,7 @@ def build_write_preview_report(
     record_ids: list[int] | None = None,
     context: dict[str, Any] | None = None,
     instance: str = "default",
+    principal: str | None = None,
 ) -> dict[str, Any]:
     """Build a non-executing preview for standard ORM write operations.
 
@@ -133,6 +135,10 @@ def build_write_preview_report(
     Odoo's native ``create(vals_list)`` — a single atomic call. Per-record
     differing values for ``write`` are deliberately unsupported: they would
     need one RPC call per record without transactional atomicity.
+
+    ``principal`` (request identity mode) is the acting Odoo login; when given
+    it becomes part of the canonical payload, so two users previewing the
+    same write get different tokens.
     """
     normalized_operation = operation.strip().lower()
     issues: list[dict[str, str]] = []
@@ -236,6 +242,10 @@ def build_write_preview_report(
     if normalized_values_list is not None:
         # Key only present for batches so single-write tokens stay unchanged.
         canonical_payload["values_list"] = normalized_values_list
+    if principal is not None:
+        # Key only present in request identity mode; configured-mode tokens
+        # stay byte-identical to upstream.
+        canonical_payload["principal"] = principal
     approval_token = build_approval_token(canonical_payload)
 
     return {
@@ -272,8 +282,10 @@ def verify_write_approval(approval: dict[str, Any]) -> tuple[bool, str]:
     }
     if approval.get("values_list") is not None:
         payload["values_list"] = approval.get("values_list")
+    if approval.get("principal") is not None:
+        payload["principal"] = approval.get("principal")
     expected = build_approval_token(payload)
-    return token == expected, expected
+    return hmac.compare_digest(token, expected), expected
 
 
 def _metadata_issues_for_values(
@@ -338,6 +350,7 @@ def validate_write_report(
     fields_metadata: dict[str, Any] | None = None,
     metadata_source: str = "none",
     instance: str = "default",
+    principal: str | None = None,
 ) -> dict[str, Any]:
     """Validate write payload shape against optional fields_get metadata."""
     preview = build_write_preview_report(
@@ -348,6 +361,7 @@ def validate_write_report(
         record_ids=record_ids,
         context=context,
         instance=instance,
+        principal=principal,
     )
     issues: list[dict[str, str]] = list(preview["issues"])
     field_hints: list[dict[str, str]] = []

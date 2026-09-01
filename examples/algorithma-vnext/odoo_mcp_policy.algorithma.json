@@ -1,0 +1,64 @@
+{
+  "comment": "Algorithma AI data policy (Swiss FADP data minimisation). AI-visible data = Odoo permission INTERSECTION this policy: a field listed under deny is removed from every read tool, odoo:// resource and knowledge index, and aggregating on it is rejected - even when Odoo's ACL lets the human see it. Enforced by ERPipe's field ACL (docs/field-acl.md); activate with ODOO_MCP_FIELD_POLICY_FILE=<this file> or merge the field_acl block into odoo_mcp_policy.json. Keys are instance names: 'bauag2' for the config-file deployment, 'default' for an ODOO_URL/ODOO_DB env deployment - keep both in sync.",
+  "allowed_side_effect_methods": [],
+  "field_acl": {
+    "bauag2": {
+      "hr.employee": {
+        "deny": [
+          "ssnid",
+          "identification_id",
+          "passport_id",
+          "emergency_contact",
+          "emergency_phone"
+        ]
+      },
+      "hr.employee.public": {
+        "deny": ["ssnid", "identification_id", "passport_id"]
+      },
+      "dms.file": {
+        "deny": ["content", "content_binary", "content_file", "image_1920", "access_token"]
+      },
+      "dms.directory": {
+        "deny": ["access_token"]
+      },
+      "res.users": {
+        "allow": ["name", "login", "email", "partner_id", "company_id", "active"]
+      },
+      "res.users.apikeys": {
+        "allow": ["name", "scope", "create_date", "expiration_date"]
+      },
+      "*": {
+        "deny": ["message_ids", "website_message_ids", "access_token"]
+      }
+    },
+    "default": {
+      "hr.employee": {
+        "deny": [
+          "ssnid",
+          "identification_id",
+          "passport_id",
+          "emergency_contact",
+          "emergency_phone"
+        ]
+      },
+      "hr.employee.public": {
+        "deny": ["ssnid", "identification_id", "passport_id"]
+      },
+      "dms.file": {
+        "deny": ["content", "content_binary", "content_file", "image_1920", "access_token"]
+      },
+      "dms.directory": {
+        "deny": ["access_token"]
+      },
+      "res.users": {
+        "allow": ["name", "login", "email", "partner_id", "company_id", "active"]
+      },
+      "res.users.apikeys": {
+        "allow": ["name", "scope", "create_date", "expiration_date"]
+      },
+      "*": {
+        "deny": ["message_ids", "website_message_ids", "access_token"]
+      }
+    }
+  }
+}

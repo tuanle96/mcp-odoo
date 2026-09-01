@@ -4,6 +4,33 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added (Algorithma fork — per-request identity)
+
+- `ODOO_MCP_IDENTITY_MODE=request`: every MCP call authenticates against Odoo as the
+  user named in the `X-User-Email` / `X-Odoo-Api-Key` headers (optional
+  `X-LibreChat-User-Id` for audit). Odoo ACLs and record rules stay authoritative;
+  configured credentials are never used on this path, missing or invalid identities
+  fail closed, and request mode refuses to start over stdio. Default `configured`
+  mode is byte-identical to upstream. New core module `odoo_mcp/identity.py`;
+  `build_identity_client()`; identity-aware `_resolve_odoo()` (builtin tools and
+  plugins alike). Instance (WHERE) and identity (WHO) remain separate concepts.
+- Bounded TTL/LRU cache of per-identity clients keyed by a digest of instance,
+  database, login and credential (`ODOO_MCP_IDENTITY_CACHE_MAX`,
+  `ODOO_MCP_IDENTITY_CACHE_TTL`).
+- Write approvals bound to the requesting user and instance: the canonical payload
+  carries `principal` in request mode and the server-side approval record carries an
+  identity binding; `execute_approved_write` and `chatter_post` refuse tokens from
+  another user, credential, or instance. Token comparison is constant-time.
+- Audit lines gain `principal` and `client_user_id`; `health_check` and
+  `odoo-mcp --health` gain an `identity` posture with warnings for insecure setups.
+- `scripts/identity_client.py` (Streamable HTTP client with identity headers, A/B
+  compare, fail-closed probe), `scripts/run_request_mode.sh`,
+  `scripts/algorithma_identity_smoke.py` (two restricted users + record rule on a
+  disposable Odoo 18), `examples/algorithma-vnext/` (bauag2 instance config without
+  credentials, Algorithma AI data policy as field ACL), docs
+  `algorithma-vnext-architecture.md`, `per-request-identity.md`,
+  `migration-from-algorithma-mcp.md`.
+
 ## [1.3.2] - 2026-08-19
 
 ### Changed

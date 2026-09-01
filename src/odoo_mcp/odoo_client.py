@@ -24,6 +24,13 @@ from .diagnostics import (
     READ_ONLY_METHODS,
     sanitize_odoo_error,
 )
+from .identity import (
+    IdentityAuthenticationError,
+    IdentityOdooUnreachableError,
+    MissingIdentityError,
+    RequestIdentity,
+    request_identity_mode,
+)
 
 SUPPORTED_TRANSPORTS = {"xmlrpc", "json2"}
 
@@ -748,18 +755,31 @@ def normalize_transport(transport: str) -> str:
 INSTANCE_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 LEGACY_ENV_VARS = ("ODOO_URL", "ODOO_DB", "ODOO_USERNAME", "ODOO_PASSWORD")
+# Request identity mode needs only WHERE: credentials arrive per request.
+REQUEST_MODE_ENV_VARS = ("ODOO_URL", "ODOO_DB")
 
 
 def _env_config() -> dict[str, Any] | None:
-    """Build a config entry from legacy environment variables, if complete."""
-    if not all(var in os.environ for var in LEGACY_ENV_VARS):
+    """Build a config entry from legacy environment variables, if complete.
+
+    In request identity mode ``ODOO_URL`` + ``ODOO_DB`` alone define the
+    single ``default`` instance; ``ODOO_USERNAME``/``ODOO_PASSWORD`` are then
+    optional and, when present, never used (health_check warns about them).
+    """
+    config: dict[str, Any]
+    if all(var in os.environ for var in LEGACY_ENV_VARS):
+        config = {
+            "url": os.environ["ODOO_URL"],
+            "db": os.environ["ODOO_DB"],
+            "username": os.environ["ODOO_USERNAME"],
+            "password": os.environ["ODOO_PASSWORD"],
+        }
+    elif request_identity_mode() and all(
+        var in os.environ for var in REQUEST_MODE_ENV_VARS
+    ):
+        config = {"url": os.environ["ODOO_URL"], "db": os.environ["ODOO_DB"]}
+    else:
         return None
-    config: dict[str, Any] = {
-        "url": os.environ["ODOO_URL"],
-        "db": os.environ["ODOO_DB"],
-        "username": os.environ["ODOO_USERNAME"],
-        "password": os.environ["ODOO_PASSWORD"],
-    }
     if "ODOO_TRANSPORT" in os.environ:
         config["transport"] = os.environ["ODOO_TRANSPORT"]
     if "ODOO_API_KEY" in os.environ:
@@ -957,6 +977,99 @@ def build_odoo_client(entry: dict[str, Any], *, name: str = "default") -> OdooCl
     )
 
 
+def _entry_connection_options(entry: dict[str, Any]) -> dict[str, Any]:
+    """Non-credential connection knobs of an instance entry (env as fallback)."""
+    timeout = int(entry.get("timeout") or os.environ.get("ODOO_TIMEOUT", "30"))
+    verify_ssl_raw = entry.get("verify_ssl")
+    if verify_ssl_raw is None:
+        verify_ssl_raw = os.environ.get("ODOO_VERIFY_SSL", "1")
+    verify_ssl = (
+        verify_ssl_raw
+        if isinstance(verify_ssl_raw, bool)
+        else parse_bool(str(verify_ssl_raw))
+    )
+    transport = normalize_transport(str(entry.get("transport") or "xmlrpc"))
+    json2_header_raw = entry.get("json2_database_header")
+    if json2_header_raw is None:
+        json2_header_raw = "1"
+    json2_database_header = (
+        json2_header_raw
+        if isinstance(json2_header_raw, bool)
+        else parse_bool(str(json2_header_raw))
+    )
+    lang = entry.get("lang") or os.environ.get("ODOO_LOCALE") or None
+    return {
+        "timeout": timeout,
+        "verify_ssl": verify_ssl,
+        "transport": transport,
+        "json2_database_header": json2_database_header,
+        "lang": lang,
+    }
+
+
+def build_identity_client(
+    entry: dict[str, Any], identity: RequestIdentity, *, name: str = "default"
+) -> OdooClient:
+    """Build an OdooClient for one request identity on a configured instance.
+
+    The instance entry supplies WHERE (url, db, transport, timeout, ...); the
+    identity supplies WHO (login + personal API key). Any ``username``,
+    ``password``, or ``api_key`` in the entry is ignored on purpose: request
+    mode never falls back to a shared account.
+
+    For XML-RPC the key is the ``authenticate(db, login, key)`` password and is
+    re-sent on every ``execute_kw``; for JSON-2 the same key is the per-call
+    bearer token. Failures are re-raised as sanitized identity errors that
+    never contain the credential.
+    """
+    options = _entry_connection_options(entry)
+    transport = str(options["transport"])
+    print(
+        f"Odoo client configuration [instance: {name}, identity: request-scoped]:",
+        file=sys.stderr,
+    )
+    print(f"  URL: {entry['url']}", file=sys.stderr)
+    print(f"  Database: {entry['db']}", file=sys.stderr)
+    print(f"  User: {identity.email}", file=sys.stderr)
+    print(f"  Transport: {transport}", file=sys.stderr)
+    try:
+        return OdooClient(
+            url=entry["url"],
+            db=entry["db"],
+            username=identity.email,
+            password=identity.api_key,
+            timeout=int(options["timeout"]),
+            verify_ssl=bool(options["verify_ssl"]),
+            transport=transport,
+            api_key=identity.api_key if transport == "json2" else None,
+            json2_database_header=bool(options["json2_database_header"]),
+            lang=options["lang"],
+        )
+    except ConnectionError as exc:
+        raise IdentityOdooUnreachableError(
+            f"Odoo instance {name!r} is unreachable: {exc}"
+        ) from exc
+    except ValueError as exc:
+        if "Authentication failed" in str(exc):
+            reason = "invalid login or API key"
+        else:
+            reason = "Odoo returned an error during authentication (check the database name and the Odoo log)"
+        raise IdentityAuthenticationError(
+            f"Odoo instance {name!r} rejected the credentials supplied for "
+            f"{identity.email!r}: {reason}."
+        ) from exc
+
+
+def _refuse_configured_credentials() -> None:
+    """Fail closed: configured-credential clients are unavailable in request mode."""
+    if request_identity_mode():
+        raise MissingIdentityError(
+            "configured-credential Odoo clients are disabled in request identity "
+            "mode (ODOO_MCP_IDENTITY_MODE=request); this code path carries no "
+            "request identity."
+        )
+
+
 def get_odoo_client() -> OdooClient:
     """
     Get a configured Odoo client instance for the default instance
@@ -964,6 +1077,7 @@ def get_odoo_client() -> OdooClient:
     Returns:
         OdooClient: A configured Odoo client instance
     """
+    _refuse_configured_credentials()
     default_name, instances = load_instances_config()
     return build_odoo_client(instances[default_name], name=default_name)
 
@@ -976,6 +1090,7 @@ def get_odoo_client_for(instance: str | None = None) -> tuple[str, OdooClient]:
         ValueError: If the instance name is not configured. The message lists
             available instance names only — never URLs or credentials.
     """
+    _refuse_configured_credentials()
     default_name, instances = load_instances_config()
     name = instance or default_name
     if name not in instances:

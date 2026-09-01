@@ -51,6 +51,7 @@ from .server_core import (
     _app_context,
     _cached_fields_metadata,
     _resolve_odoo,
+    identity_report,
     mcp_surface_counts,
     note_single_record_read,
     resolve_read_fields,
@@ -242,6 +243,7 @@ def health_check() -> HealthCheckResponse:
         "runtime": runtime_security_report(),
         "rate_limits": rate_report(),
         "plugins": plugin_posture(),
+        "identity": identity_report(),
     }
 
 

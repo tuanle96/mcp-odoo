@@ -18,7 +18,7 @@ import logging
 import os
 import threading
 import time
-from typing import Any
+from typing import Any, Mapping, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -54,11 +54,24 @@ def record_write_event(
     instance: str | None = None,
     token: str | None = None,
     detail: str | None = None,
+    principal: str | None = None,
+    client_user_id: str | None = None,
+    identity: Optional[Mapping[str, Optional[str]]] = None,
 ) -> bool:
-    """Append one audit line; returns True when a line was written."""
+    """Append one audit line; returns True when a line was written.
+
+    ``principal`` is the acting Odoo login and ``client_user_id`` the opaque
+    front-end user id when the server runs in request identity mode; both are
+    None in configured mode. ``identity`` is a convenience mapping with those
+    two keys (see ``RequestIdentity.audit_fields``). Credentials are never
+    accepted here by design.
+    """
     path = audit_log_path()
     if path is None:
         return False
+    if identity:
+        principal = principal or identity.get("principal")
+        client_user_id = client_user_id or identity.get("client_user_id")
     entry = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "event": event,
@@ -67,6 +80,8 @@ def record_write_event(
         "operation": operation,
         "record_ids": list(record_ids or []),
         "instance": instance or "default",
+        "principal": principal,
+        "client_user_id": client_user_id,
         "token_sha256": _token_digest(token),
         "detail": detail,
     }

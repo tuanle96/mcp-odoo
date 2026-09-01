@@ -39,7 +39,7 @@ from .schemas import (
     AggregateAcrossInstancesResponse,
     SearchAcrossInstancesResponse,
 )
-from .server_core import READ_ONLY_TOOL, _app_context, mcp
+from .server_core import READ_ONLY_TOOL, _app_context, _resolve_odoo, mcp
 from .tool_helpers import (
     clamp_limit,
     normalize_domain_input,
@@ -99,7 +99,20 @@ def _guard_rate(instance: str, tool: str) -> None:
 # --- shared operations (used by sync tools and async jobs) -----------------
 
 
-def run_search_across(app_context: Any, params: Dict[str, Any]) -> Dict[str, Any]:
+def _client_resolver(
+    app_context: Any, client_for: Optional[Callable[[str], Any]]
+) -> Callable[[str], Any]:
+    """Per-instance client lookup: the request-scoped resolver when given
+    (request identity mode), else the app context's configured clients."""
+    return client_for if client_for is not None else app_context.get_client
+
+
+def run_search_across(
+    app_context: Any,
+    params: Dict[str, Any],
+    *,
+    client_for: Optional[Callable[[str], Any]] = None,
+) -> Dict[str, Any]:
     model = str(params["model"])
     validate_model_name(model)
     domain = normalize_domain_input(params.get("domain"))
@@ -109,9 +122,10 @@ def run_search_across(app_context: Any, params: Dict[str, Any]) -> Dict[str, Any
         maximum=MAX_LIMIT_PER_INSTANCE,
     )
     selection = _resolve_selection(app_context, params.get("instances"))
+    resolve_client = _client_resolver(app_context, client_for)
 
     def worker(instance: str) -> List[Dict[str, Any]]:
-        name, client = app_context.get_client(instance)
+        name, client = resolve_client(instance)
         _guard_rate(name, "search_across_instances")
         records = client.search_read(model, domain, fields=fields, limit=limit)
         records, _ = get_field_policy().redact_records(name, model, list(records))
@@ -138,7 +152,12 @@ def run_search_across(app_context: Any, params: Dict[str, Any]) -> Dict[str, Any
     return payload
 
 
-def run_aggregate_across(app_context: Any, params: Dict[str, Any]) -> Dict[str, Any]:
+def run_aggregate_across(
+    app_context: Any,
+    params: Dict[str, Any],
+    *,
+    client_for: Optional[Callable[[str], Any]] = None,
+) -> Dict[str, Any]:
     model = str(params["model"])
     validate_model_name(model)
     group_by = list(params.get("group_by") or [])
@@ -150,12 +169,13 @@ def run_aggregate_across(app_context: Any, params: Dict[str, Any]) -> Dict[str, 
     measure_fields = [field for field, _ in parsed]
     normalized_measures = [f"{field}:{agg}" for field, agg in parsed]
     selection = _resolve_selection(app_context, params.get("instances"))
+    resolve_client = _client_resolver(app_context, client_for)
 
     policy = get_field_policy()
     referenced = [entry.split(":", 1)[0] for entry in group_by] + measure_fields
 
     def worker(instance: str) -> List[Dict[str, Any]]:
-        name, client = app_context.get_client(instance)
+        name, client = resolve_client(instance)
         _guard_rate(name, "aggregate_across_instances")
         block = policy.check_aggregate(name, model, referenced)
         if block is not None:
@@ -185,7 +205,10 @@ def run_aggregate_across(app_context: Any, params: Dict[str, Any]) -> Dict[str, 
 
 
 def run_accounting_health_across(
-    app_context: Any, params: Dict[str, Any]
+    app_context: Any,
+    params: Dict[str, Any],
+    *,
+    client_for: Optional[Callable[[str], Any]] = None,
 ) -> Dict[str, Any]:
     direction = str(params.get("direction", "receivable"))
     if direction not in ("receivable", "payable"):
@@ -193,9 +216,10 @@ def run_accounting_health_across(
     as_of = parse_as_of(params.get("as_of"))
     top_partners = clamp_limit(int(params.get("top_partners", 10)), maximum=100)
     selection = _resolve_selection(app_context, params.get("instances"))
+    resolve_client = _client_resolver(app_context, client_for)
 
     def worker(instance: str) -> Dict[str, Any]:
-        name, client = app_context.get_client(instance)
+        name, client = resolve_client(instance)
         _guard_rate(name, "accounting_health_across_instances")
         lines = fetch_aging_lines(client, direction)
         return build_aging_report(lines, direction, as_of, top_partners=top_partners)
@@ -254,6 +278,7 @@ def search_across_instances(
                     "limit_per_instance": limit_per_instance,
                     "instances": instances,
                 },
+                client_for=lambda name: _resolve_odoo(ctx, name),
             ),
         }
     except Exception as e:
@@ -292,6 +317,7 @@ def aggregate_across_instances(
                     "domain": domain,
                     "instances": instances,
                 },
+                client_for=lambda name: _resolve_odoo(ctx, name),
             ),
         }
     except Exception as e:
@@ -347,6 +373,7 @@ def accounting_health_across_instances(
                     "top_partners": top_partners,
                     "instances": instances,
                 },
+                client_for=lambda name: _resolve_odoo(ctx, name),
             ),
         }
     except Exception as e:

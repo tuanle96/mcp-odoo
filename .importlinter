@@ -23,6 +23,7 @@ source_modules =
     odoo_mcp.auth
     odoo_mcp.schemas
     odoo_mcp.data_quality
+    odoo_mcp.identity
 forbidden_modules =
     odoo_mcp.server
     odoo_mcp.server_core
