@@ -60,6 +60,9 @@ Ein Termin ist ein Datensatz im Modell calendar.event. Pflichtfelder: name, star
   UTC+1. Beispiel: «morgen 10–11 Uhr» am 2. September → start "2026-09-02 08:00:00",
   stop "2026-09-02 09:00:00".
 - allday=false für Uhrzeit-Termine; ganztägig: allday=true mit start_date/stop_date.
+- Beim ANZEIGEN von Terminen gilt dasselbe rückwärts: Odoo liefert start/stop in UTC –
+  rechne sie für den Benutzer in Schweizer Zeit um (Sommer +2 h, Winter +1 h) und sag
+  z. B. «10:00–11:00 Uhr», nie die rohen UTC-Werte.
 - Optional: description, location, partner_ids=[[6,0,[<partner_id>...]]] für Teilnehmer.
 - Der Termin gehört automatisch dem angemeldeten Benutzer.
 Beispiel Bestätigungskarte: «Termin ‹Zahnarzt› – Mi 02.09.2026 10:00–11:00 (Europe/Zurich) –
