@@ -1,0 +1,31 @@
+# Algorithma vNext image: the upstream odoo-mcp core plus the Algorithma
+# workflow plugin. Mirrors ./Dockerfile (kept untouched for upstream merges);
+# only the last pip line differs. Activate the plugin at runtime with
+#   ODOO_MCP_PLUGINS=algorithma_workflows
+FROM python:3.10-slim
+
+LABEL io.modelcontextprotocol.server.name="io.github.erpipe-org/mcp-odoo"
+LABEL org.opencontainers.image.title="Algorithma Odoo MCP vNext"
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY . /app/
+
+RUN mkdir -p /app/logs && chmod 777 /app/logs
+
+# Core first (declared constraints), then the plugin against the installed core.
+RUN pip install --no-cache-dir . && pip install --no-cache-dir ./plugins/algorithma_workflows
+
+ENV ODOO_TIMEOUT="30"
+ENV ODOO_VERIFY_SSL="1"
+ENV DEBUG="0"
+ENV PYTHONUNBUFFERED=1
+
+EXPOSE 8000
+
+ENTRYPOINT ["odoo-mcp"]

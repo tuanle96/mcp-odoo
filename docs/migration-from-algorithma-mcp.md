@@ -34,15 +34,25 @@ Legend: **REPLACE WITH ERPIPE** = the generic core already does it (better) ·
 | `VERSION` file / `_component_version()` | **REPLACE WITH ERPIPE** | package version (`pyproject.toml`) + `health_check.server` |
 | Tests `test_server_document_tools.py`, `test_server_fsm_tools.py`, `test_documents.py` | **PORT AS PLUGIN** | move with their plugins; the FSM tests encode Odoo-specific behaviour worth keeping |
 
-## Order of porting (proposal — nothing ported yet)
+## Order of porting
 
-1. **`algorithma_documents`** first: self-contained, already well tested, no Odoo write of
+0. **Done (2026-09-01, `plugins/algorithma_workflows`):** the intent tools users ask
+   for in sentences — `termin_buchen`, `create_partner`, `get_account_by_code`,
+   `bericht_link`, `auftrag_monteur_zuweisen`, `auftrag_abschliessen`, `create_invoice`,
+   `post_journal_entry`, `pay_invoice`, `einsatzrapport_erstellen`. Same names, German
+   confirmation card, second call with `bestaetigen=true` + `freigabe_code`; underneath
+   every write is `validate_write` → `execute_approved_write` (identity-bound approval,
+   audit) and every method call is `execute_method` (side-effect allowlist:
+   `fsm.order.action_complete`, `account.move.action_post`,
+   `account.payment.register.action_create_payments`). The first LibreChat test showed
+   why this had to come first: without intent tools the model would not compose the
+   generic three-step write for "Termin eintragen". Two old bugs fixed on the way:
+   appointments now convert Europe/Zurich → UTC and default to one hour.
+1. **`algorithma_documents`** next: self-contained, already well tested, no Odoo write of
    its own except the final DMS save, and it exercises the plugin ↔ identity contract
    (per-user drafts) end to end.
 2. `algorithma_dms` (needed by documents' save step).
-3. `algorithma_fieldservice`.
-4. `algorithma_accounting_ch`.
-5. `algorithma_tax_ai`, `algorithma_deep_analysis`.
+3. `algorithma_tax_ai`, `algorithma_deep_analysis`.
 
 ## Plugin structure (future)
 

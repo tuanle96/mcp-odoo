@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "algorithma-workflows"
+version = "0.1.0"
+description = "Algorithma intent tools (appointments, contacts, field service, Swiss accounting) as an odoo-mcp plugin on top of the gated write flow"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+  "odoo-mcp",
+  "tzdata",
+]
+
+[project.entry-points."odoo_mcp.tools"]
+algorithma_workflows = "algorithma_workflows.plugin:register"
+
+[tool.setuptools.packages.find]
+include = ["algorithma_workflows*"]
