@@ -248,6 +248,35 @@ def fsm_person_id(ctx: Any, odoo: Any, name: str, *, instance: Optional[str] = N
 
 # --- tools -----------------------------------------------------------------------
 
+WEEKDAYS_DE = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+
+
+def aktuelles_datum(ctx: Context) -> Dict[str, Any]:
+    """Aktuelles Datum und Uhrzeit in Schweizer Zeit (Europe/Zurich) inkl. Wochentag, «morgen» und «uebermorgen».
+
+    Fuer relative Angaben wie «morgen», «naechsten Montag» oder «in einer Woche» immer zuerst
+    dieses Werkzeug aufrufen statt den Benutzer nach dem Datum zu fragen.
+    """
+    tool = "aktuelles_datum"
+    try:
+        now = datetime.now(_local_tz())
+        def day(offset: int) -> Dict[str, str]:
+            d = now + timedelta(days=offset)
+            return {"datum": d.strftime("%Y-%m-%d"), "wochentag": WEEKDAYS_DE[d.weekday()]}
+        return {
+            "success": True,
+            "tool": tool,
+            "jetzt": now.strftime("%Y-%m-%d %H:%M"),
+            "zeitzone": str(_local_tz().key),
+            "utc_offset": now.strftime("%z"),
+            "heute": day(0),
+            "morgen": day(1),
+            "uebermorgen": day(2),
+            "kalenderwoche": now.isocalendar()[1],
+        }
+    except Exception as exc:  # noqa: BLE001
+        return _fail(tool, exc)
+
 
 def termin_buchen(
     ctx: Context,
@@ -744,6 +773,7 @@ def einsatzrapport_erstellen(
 # --- registration --------------------------------------------------------------
 
 READ_TOOLS: List[tuple[Callable[..., Any], str]] = [
+    (aktuelles_datum, "Heutiges Datum/Uhrzeit in Schweizer Zeit mit Wochentag, morgen, uebermorgen - fuer relative Datumsangaben zuerst aufrufen"),
     (get_account_by_code, "Konto im Schweizer KMU-Kontenrahmen nachschlagen (nur lesen)"),
     (bericht_link, "Adresse des PDF-Berichts zu einem Datensatz liefern (nur lesen, kein Download)"),
 ]

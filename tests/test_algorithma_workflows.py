@@ -280,6 +280,15 @@ def test_einsatzrapport_creates_all_records_through_the_gate(workflow_env):
     assert done["rapport_url"].startswith("http://localhost:8071/report/pdf/")
 
 
+def test_aktuelles_datum_reports_zurich_time_and_relative_days(workflow_env):
+    app_context, _ = workflow_env
+    result = plugin.aktuelles_datum(Ctx(app_context, ANNA))
+    assert result["success"] and result["zeitzone"] == "Europe/Zurich"
+    assert result["morgen"]["datum"] > result["heute"]["datum"]
+    assert result["heute"]["wochentag"] in plugin.WEEKDAYS_DE
+    assert result["utc_offset"] in {"+0100", "+0200"}
+
+
 def test_register_uses_plugin_api_and_destructive_annotations():
     registered = []
 
@@ -295,6 +304,6 @@ def test_register_uses_plugin_api_and_destructive_annotations():
 
     plugin.register(Api())
     names = [name for name, _ in registered]
-    assert names == ["get_account_by_code", "bericht_link", "termin_buchen", "create_partner", "auftrag_monteur_zuweisen", "auftrag_abschliessen", "create_invoice", "post_journal_entry", "pay_invoice", "einsatzrapport_erstellen"]
+    assert names == ["aktuelles_datum", "get_account_by_code", "bericht_link", "termin_buchen", "create_partner", "auftrag_monteur_zuweisen", "auftrag_abschliessen", "create_invoice", "post_journal_entry", "pay_invoice", "einsatzrapport_erstellen"]
     assert dict(registered)["termin_buchen"] != "read-only"
     assert dict(registered)["get_account_by_code"] == "read-only"

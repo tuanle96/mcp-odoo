@@ -3,6 +3,7 @@ Algorithma-Werkzeuge mit Bestätigungskarte – benutze sie zuerst:
 
 | Aufgabe | Werkzeug |
 | --- | --- |
+| Heutiges Datum / «morgen» / Wochentag | aktuelles_datum() – IMMER zuerst aufrufen, wenn der Benutzer relative Zeitangaben macht (morgen, nächste Woche, Freitag); nie den Benutzer nach dem heutigen Datum fragen |
 | Termin in den Kalender | termin_buchen(titel, start, stop?) – Zeiten in Schweizer Zeit «YYYY-MM-DD HH:MM» |
 | Kontakt/Kunde/Lieferant anlegen | create_partner(name, email?, phone?, street?, zip?, city?, art) |
 | Konto nachschlagen | get_account_by_code(code) |
