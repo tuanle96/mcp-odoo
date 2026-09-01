@@ -172,9 +172,28 @@ def test_termin_buchen_code_is_bound_to_user_and_single_use(workflow_env):
     ok = plugin.termin_buchen(Ctx(app_context, ANNA), "Zahnarzt", "2026-09-02 10:00", bestaetigen=True, freigabe_code=code)
     assert ok["success"]
     again = plugin.termin_buchen(Ctx(app_context, ANNA), "Zahnarzt", "2026-09-02 10:00", bestaetigen=True, freigabe_code=code)
-    assert again["success"] is False and "bereits verwendet" in again["error"]
+    assert again["success"] is False and "Keine offene Freigabe" in again["error"]  # consumed = gone
     missing = plugin.termin_buchen(Ctx(app_context, ANNA), "Zahnarzt", "2026-09-02 10:00", bestaetigen=True)
-    assert missing["success"] is False and "freigabe_code fehlt" in missing["error"]
+    assert missing["success"] is False and "Keine offene Freigabe" in missing["error"]
+
+
+def test_confirmation_without_code_uses_the_users_only_pending_action(workflow_env):
+    app_context, clients = workflow_env
+    card = plugin.termin_buchen(Ctx(app_context, ANNA), "Zahnarzt", "2026-09-02 10:00")
+    assert card["status"] == "BESTAETIGUNG_ERFORDERLICH"
+    # Bob has no pending action -> refused even without a code.
+    bob = plugin.termin_buchen(Ctx(app_context, BOB), "Zahnarzt", "2026-09-02 10:00", bestaetigen=True)
+    assert bob["success"] is False and "Keine offene Freigabe" in bob["error"]
+    # Anna's own single pending action is used when the model drops the code.
+    done = plugin.termin_buchen(Ctx(app_context, ANNA), "Zahnarzt", "2026-09-02 10:00", bestaetigen=True, freigabe_code="mangled")
+    assert done["success"], done
+    assert len(clients["anna@example.ch"].creates("calendar.event")) == 1
+    # Two pending actions -> ambiguity needs the real code.
+    c1 = plugin.termin_buchen(Ctx(app_context, ANNA), "A", "2026-09-03 10:00")["freigabe_code"]
+    plugin.termin_buchen(Ctx(app_context, ANNA), "B", "2026-09-04 10:00")
+    ambiguous = plugin.termin_buchen(Ctx(app_context, ANNA), "A", "2026-09-03 10:00", bestaetigen=True)
+    assert ambiguous["success"] is False and "Mehrere offene Freigaben" in ambiguous["error"]
+    assert plugin.termin_buchen(Ctx(app_context, ANNA), "A", "2026-09-03 10:00", bestaetigen=True, freigabe_code=c1)["success"]
 
 
 def test_termin_buchen_rejects_end_before_start_and_missing_identity(workflow_env):

@@ -154,10 +154,26 @@ def register_pending(ctx: Any, instance_name: str, tool: str, payload: Dict[str,
 
 
 def take_pending(ctx: Any, instance_name: str, tool: str, code: Optional[str]) -> Dict[str, Any]:
-    """Consume a code: same tool, same instance, same user, unexpired, once."""
-    if not code:
-        raise ValueError("freigabe_code fehlt - zuerst ohne bestaetigen aufrufen, Karte zeigen, dann mit dem Code bestaetigen.")
+    """Consume a code: same tool, same instance, same user, unexpired, once.
+
+    Models sometimes drop or mangle the code between the card and the "ja".
+    When the code is missing (or unknown) and this user has exactly one live
+    pending action for this tool and instance, that action is used - the
+    identity binding and single-use guarantees are unchanged; only the
+    lookup key is relaxed. Ambiguity (two pending actions) still needs the code.
+    """
+    code = (code or "").strip() or None
+    binding = _identity_binding(ctx, instance_name)
     with _PENDING_LOCK:
+        now = time.time()
+        if code is None or code not in _PENDING:
+            candidates = [key for key, item in _PENDING.items() if item["tool"] == tool and item["instance"] == instance_name and item["binding"] == binding and item["expires_at"] >= now]
+            if len(candidates) == 1:
+                code = candidates[0]
+            elif not candidates:
+                raise ValueError("Keine offene Freigabe fuer diese Aktion - zuerst ohne bestaetigen aufrufen, Karte zeigen, dann bestaetigen.")
+            else:
+                raise ValueError("Mehrere offene Freigaben - bitte den freigabe_code aus der zuletzt gezeigten Karte angeben.")
         item = _PENDING.get(code)
         if item is None:
             raise ValueError("Unbekannter oder bereits verwendeter freigabe_code - Vorschau wiederholen.")
