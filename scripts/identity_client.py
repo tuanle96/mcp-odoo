@@ -24,6 +24,10 @@ Examples::
     A_EMAIL=anna@example.ch A_API_KEY=... B_EMAIL=bob@example.ch B_API_KEY=... \\
         uv run python scripts/identity_client.py --compare --model res.partner
 
+    # same, but with the users the smoke proof saved (0600 JSON, never committed)
+    uv run python scripts/identity_client.py --keys-file ~/.algorithma-vnext/bauag2-smoke-keys.json \\
+        --compare --model res.partner --domain '[["name","ilike","Identity-Smoke"]]'
+
     # prove the server fails closed without an identity
     uv run python scripts/identity_client.py --no-identity --model res.partner
 """
@@ -32,11 +36,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import builtins
 import getpass
 import json
 import os
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import httpx2
@@ -75,6 +81,19 @@ def load_identity(prefix: str, label: str) -> Who:
     return Who(label, email, key, os.environ.get(f"{prefix}_USER_ID") or None)
 
 
+def identities_from_file(path: str) -> tuple[dict[str, Who], dict[str, Any]]:
+    """Load A/B identities from the JSON written by algorithma_identity_smoke.py --save-keys."""
+    data = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
+    found: dict[str, Who] = {}
+    for tag, label in (("A", "User A"), ("B", "User B")):
+        entry = data.get(tag) or {}
+        if entry.get("email") and entry.get("api_key"):
+            found[tag] = Who(label, entry["email"], entry["api_key"], entry.get("user_id"))
+    if not found:
+        raise SystemExit(f"{path}: no A/B entries with email + api_key")
+    return found, data
+
+
 def _decode(result: Any) -> Any:
     """Turn a CallToolResult into the tool's JSON envelope."""
     structured = getattr(result, "structured_content", None) or getattr(
@@ -96,7 +115,7 @@ def _decode(result: Any) -> Any:
     return {"raw": str(result)}
 
 
-async def call_tool(
+async def _call_tool(
     url: str, headers: dict[str, str] | None, tool: str, arguments: dict[str, Any]
 ) -> Any:
     async with httpx2.AsyncClient(headers=headers or {}, timeout=120) as http:
@@ -107,6 +126,26 @@ async def call_tool(
                     tools = await session.list_tools()
                     return sorted(t.name for t in tools.tools)
                 return _decode(await session.call_tool(tool, arguments=arguments))
+
+
+async def call_tool(
+    url: str, headers: dict[str, str] | None, tool: str, arguments: dict[str, Any]
+) -> Any:
+    """Like _call_tool, but a transport failure becomes one readable line."""
+    try:
+        return await _call_tool(url, headers, tool, arguments)
+    except BaseException as exc:
+        # anyio task groups wrap transport errors in (Base)ExceptionGroup.
+        leaf: BaseException = exc
+        group_type = getattr(builtins, "BaseExceptionGroup", None)
+        while group_type and isinstance(leaf, group_type) and leaf.exceptions:
+            leaf = leaf.exceptions[0]
+        if isinstance(leaf, (httpx2.ConnectError, httpx2.ConnectTimeout, ConnectionError)):
+            raise SystemExit(
+                f"cannot reach the MCP server at {url} ({type(leaf).__name__}). "
+                "Is it running? Start it with scripts/run_request_mode.sh"
+            ) from None
+        raise
 
 
 def summarize(label: str, payload: Any) -> None:
@@ -142,10 +181,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--args", default=None, help="raw JSON arguments (overrides model/fields/...)")
     parser.add_argument("--health", action="store_true", help="call health_check and print the identity posture")
     parser.add_argument("--list-tools", action="store_true")
-    parser.add_argument("--compare", action="store_true", help="run as user A and user B (A_*/B_* env vars)")
+    parser.add_argument("--compare", action="store_true", help="run as user A and user B (A_*/B_* env vars or --keys-file)")
+    parser.add_argument("--keys-file", default=None, help="JSON from algorithma_identity_smoke.py --save-keys (supplies A/B; single-user mode uses A)")
     parser.add_argument("--no-identity", action="store_true", help="send no identity headers (expect refusal)")
     parser.add_argument("--json", action="store_true", help="print the raw JSON envelope")
     args = parser.parse_args(argv)
+
+    file_identities: dict[str, Who] = {}
+    if args.keys_file:
+        file_identities, saved = identities_from_file(args.keys_file)
+        if args.url == DEFAULT_URL and saved.get("mcp_url"):
+            args.url = str(saved["mcp_url"])
 
     if args.args:
         arguments = json.loads(args.args)
@@ -173,11 +219,16 @@ def main(argv: list[str] | None = None) -> int:
         print("fail-closed:", "OK" if refused else "BROKEN - the server answered without an identity!")
         return 0 if refused else 2
 
-    users = (
-        [load_identity("A", "User A"), load_identity("B", "User B")]
-        if args.compare
-        else [load_identity("ODOO_MCP_USER", "User")]
-    )
+    if file_identities:
+        if args.compare and "B" not in file_identities:
+            raise SystemExit(f"{args.keys_file}: --compare needs both A and B")
+        users = [file_identities["A"], file_identities["B"]] if args.compare else [file_identities["A"]]
+    else:
+        users = (
+            [load_identity("A", "User A"), load_identity("B", "User B")]
+            if args.compare
+            else [load_identity("ODOO_MCP_USER", "User")]
+        )
     exit_code = 0
     for who in users:
         payload = asyncio.run(call_tool(args.url, who.headers(), args.tool, arguments))
