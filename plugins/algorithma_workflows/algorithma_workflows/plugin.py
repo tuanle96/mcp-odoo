@@ -593,14 +593,16 @@ def create_invoice(
             invoice_lines.append([0, 0, lvals])
         partner = odoo.read_records("res.partner", [int(partner_id)], fields=["name"])
         partner_name = partner[0]["name"] if partner else f"ID {partner_id}"
+        # move_type is read-only in fields_get (Odoo sets it from the context, like
+        # its own UI does), so it travels as default_move_type in the context.
         values = {
-            "move_type": move_type,
             "partner_id": int(partner_id),
             "invoice_date": invoice_date or date.today().isoformat(),
             "invoice_line_ids": invoice_lines,
         }
+        move_context = {"default_move_type": move_type}
         if not bestaetigen:
-            code = register_pending(ctx, instance_name, tool, {"values": values, "partner": partner_name, "total": round(total, 2), "mwst": sorted(tax_notes)})
+            code = register_pending(ctx, instance_name, tool, {"values": values, "context": move_context, "partner": partner_name, "total": round(total, 2), "mwst": sorted(tax_notes)})
             return _card(
                 tool,
                 "Rechnung erstellen (Entwurf)",
@@ -609,7 +611,7 @@ def create_invoice(
                 code,
             )
         payload = take_pending(ctx, instance_name, tool, freigabe_code)
-        move_id = gated_create(ctx, "account.move", payload["values"], instance=instance_name)
+        move_id = gated_create(ctx, "account.move", payload["values"], instance=instance_name, context=payload.get("context"))
         info = odoo.read_records("account.move", [move_id], fields=["name", "state", "amount_total"])
         info0 = info[0] if info else {"name": "/", "state": "draft", "amount_total": payload["total"]}
         label = info0["name"] if info0.get("name") and info0["name"] != "/" else f"#{move_id}"

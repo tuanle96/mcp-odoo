@@ -261,8 +261,10 @@ def test_create_invoice_applies_swiss_vat_and_stays_draft(workflow_env):
     assert card["karte"]["details"]["betrag_chf"] == 250.0 and "8.1% MWST" in card["karte"]["details"]["mwst"]
     done = plugin.create_invoice(ctx, 3, lines, bestaetigen=True, freigabe_code=card["freigabe_code"])
     assert done["success"], done
-    created = clients["anna@example.ch"].creates("account.move")[0]
-    assert created["move_type"] == "out_invoice" and created["partner_id"] == 3
+    create_call = next(c for c in clients["anna@example.ch"].calls if c[0] == "create" and c[1] == "account.move")
+    created = create_call[2][0]
+    assert "move_type" not in created and created["partner_id"] == 3
+    assert create_call[3].get("context", {}).get("default_move_type") == "out_invoice"
     assert created["invoice_line_ids"][0][2]["tax_ids"] == [[6, 0, [11]]]
     assert created["invoice_line_ids"][1][2]["tax_ids"] == [[6, 0, []]]
     assert "NICHT gebucht" in done["summary"]
