@@ -12,7 +12,7 @@ import os
 import stat
 import xmlrpc.client
 from pathlib import Path
-from typing import Annotated, Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Optional, Union
 
 from mcp.server.elicitation import ElicitationResult
 from mcp.server.mcpserver import Context, Elicit, Resolve
@@ -201,6 +201,79 @@ async def _elicit_write_confirmation(
     return "declined", str(getattr(result, "action", "declined"))
 
 
+def _coerce_approval_json(
+    approval: Optional[Dict[str, Any]],
+    approval_json: Optional[Union[str, Dict[str, Any]]],
+) -> Optional[Dict[str, Any]]:
+    """Same reasoning as _coerce_values_json, for the approval token payload.
+
+    Echoing a received object back through a free-form ``object`` parameter is
+    unreliable across the chat -> LLM -> MCP hop; a JSON string is not. Accept
+    both, so a caller that already has the dict is unaffected.
+    """
+    if approval is not None:
+        return approval
+    if approval_json is None:
+        return None
+    if isinstance(approval_json, dict):
+        return approval_json
+    try:
+        parsed = json.loads(approval_json)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"approval_json is not valid JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError("approval_json must decode to a JSON object")
+    return parsed
+
+
+def _coerce_values_json(
+    values: Optional[Dict[str, Any]],
+    values_list: Optional[List[Dict[str, Any]]],
+    values_json: Optional[Union[str, Dict[str, Any]]],
+    values_list_json: Optional[Union[str, List[Dict[str, Any]]]],
+) -> tuple[Optional[Dict[str, Any]], Optional[List[Dict[str, Any]]]]:
+    """Accept the write payload as a JSON string as well as a real object.
+
+    Why this exists: the object parameters are typed ``Optional[Dict[str, Any]]``,
+    which becomes ``anyOf[{object, additionalProperties}, null]`` in the tool
+    schema. Language models are unreliable at authoring a free-form object with
+    no declared properties through that union - measured on 2026-09-02 against a
+    real tower, every generic write (crm.lead, project.task, account.analytic.line,
+    chatter note) arrived with ``values: {}`` while the flat-parameter tools
+    (termin_buchen, create_partner, create_invoice) worked every time. A plain
+    string is something models emit reliably, so callers may send the same payload
+    as JSON text. The object form keeps working unchanged for direct callers.
+    """
+    if values is None and values_json:
+        # The MCP layer pre-parses arguments that look like JSON, so the same
+        # field arrives as a str from one caller and as a dict from another.
+        # Both are accepted on purpose; rejecting either would only move the
+        # failure somewhere the model cannot see it.
+        if isinstance(values_json, dict):
+            return values_json, values_list
+        try:
+            parsed = json.loads(values_json)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"values_json is not valid JSON: {exc}") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("values_json must decode to a JSON object")
+        values = parsed
+    if values_list is None and values_list_json:
+        if isinstance(values_list_json, list):
+            return values, values_list_json
+        try:
+            parsed_list = json.loads(values_list_json)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"values_list_json is not valid JSON: {exc}") from exc
+        if not isinstance(parsed_list, list) or not all(
+            isinstance(item, dict) for item in parsed_list
+        ):
+            raise ValueError("values_list_json must decode to a JSON array of objects")
+        values_list = parsed_list
+    return values, values_list
+
+
+
 @mcp.tool(
     description="Preview create, write, or unlink without executing it",
     annotations=PREVIEW_TOOL,
@@ -211,6 +284,8 @@ def preview_write(
     operation: str,
     values: Optional[Dict[str, Any]] = None,
     values_list: Optional[List[Dict[str, Any]]] = None,
+    values_json: Optional[Union[str, Dict[str, Any]]] = None,
+    values_list_json: Optional[Union[str, List[Dict[str, Any]]]] = None,
     record_ids: Optional[List[int]] = None,
     context: Optional[Dict[str, Any]] = None,
     instance: Optional[str] = None,
@@ -227,6 +302,9 @@ def preview_write(
     """
     try:
         validate_model_name(model)
+        values, values_list = _coerce_values_json(
+            values, values_list, values_json, values_list_json
+        )
         identity = current_identity(ctx) if ctx is not None else None
         report = build_write_preview_report(
             model=model,
@@ -264,6 +342,8 @@ def validate_write(
     operation: str,
     values: Optional[Dict[str, Any]] = None,
     values_list: Optional[List[Dict[str, Any]]] = None,
+    values_json: Optional[Union[str, Dict[str, Any]]] = None,
+    values_list_json: Optional[Union[str, List[Dict[str, Any]]]] = None,
     record_ids: Optional[List[int]] = None,
     context: Optional[Dict[str, Any]] = None,
     fields_metadata: Optional[Dict[str, Any]] = None,
@@ -273,6 +353,9 @@ def validate_write(
     """Validate write shape and return an approval payload when safe."""
     try:
         validate_model_name(model)
+        values, values_list = _coerce_values_json(
+            values, values_list, values_json, values_list_json
+        )
         instance_name = _srv().resolve_instance_name(instance)
         # Request identity mode: fails closed here if the headers are missing.
         identity = current_identity(ctx)
@@ -628,6 +711,7 @@ def chatter_post(
     partner_ids: Optional[List[int]] = None,
     attachment_ids: Optional[List[int]] = None,
     approval: Optional[Dict[str, Any]] = None,
+    approval_json: Optional[Union[str, Dict[str, Any]]] = None,
     confirm: bool = False,
     instance: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -643,6 +727,7 @@ def chatter_post(
     Allowed ``message_type`` values: ``comment`` (default), ``notification``.
     """
     try:
+        approval = _coerce_approval_json(approval, approval_json)
         instance_name, odoo = _resolve_odoo(ctx, instance)
         identity = current_identity(ctx)
         validate_model_name(model)
