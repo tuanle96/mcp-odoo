@@ -31,6 +31,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import threading
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -38,6 +39,29 @@ from typing import Any, Callable, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 from mcp.server.mcpserver import Context
+
+
+def _eigene_partner_id(odoo: Any) -> Optional[int]:
+    """partner_id des gerade handelnden Odoo-Benutzers, oder None.
+
+    Wird gebraucht, damit ein Termin im Kalender des Erstellers auftaucht:
+    Odoo zeigt Termine anhand der Teilnehmer an. Faellt still auf None zurueck,
+    wenn die Abfrage nicht moeglich ist - ein Termin ohne Selbst-Teilnahme ist
+    schlechter als keiner, aber besser als ein Fehler beim Buchen.
+    """
+    try:
+        uid = getattr(odoo, "uid", None)
+        if not uid:
+            return None
+        rows = odoo.read_records("res.users", [int(uid)], fields=["partner_id"])
+        partner = rows[0].get("partner_id") if rows else None
+        if partner:
+            # Odoo liefert many2one als [id, name]
+            return int(partner[0]) if isinstance(partner, (list, tuple)) else int(partner)
+    except Exception:
+        return None
+    return None
+
 
 PLUGIN_NAME = "algorithma_workflows"
 PENDING_TTL_SECONDS = 10 * 60
@@ -203,7 +227,54 @@ def _card(tool: str, aktion: str, details: Dict[str, Any], frage: str, code: str
     }
 
 
+# Odoo model -> module that provides it. Only the models the intent tools touch;
+# anything else falls back to the model's first segment (e.g. "hr.leave" -> "hr").
+MODULE_HINTS: Dict[str, str] = {
+    "calendar.event": "calendar",
+    "account.move": "account",
+    "account.payment": "account",
+    "account.account": "account",
+    "account.tax": "account",
+    "fsm.order": "fieldservice",
+    "fsm.person": "fieldservice",
+    "fsm.location": "fieldservice",
+    "hr.employee": "hr",
+}
+_MISSING_MODEL_RE = re.compile(r"Object ([a-z0-9_.]+) doesn't exist")
+
+
+def _missing_model(error: Any) -> Optional[str]:
+    """Return the model name when ``error`` is Odoo's 'Object X doesn't exist' fault.
+
+    Odoo raises this fault when the module that defines the model is not
+    installed on the tenant. The core's ``validate_write`` passes the raw
+    fault text through as ``error``; without this check the tools reported
+    generic validation failures and the agent kept retrying with different
+    data (four rounds observed on 2026-09-01 for calendar.event).
+    """
+    match = _MISSING_MODEL_RE.search(str(error or ""))
+    return match.group(1) if match else None
+
+
 def _fail(tool: str, error: Any, **extra: Any) -> Dict[str, Any]:
+    model = _missing_model(error)
+    if model:
+        module = MODULE_HINTS.get(model, model.split(".")[0])
+        return {
+            "success": False,
+            "tool": tool,
+            "error": (
+                f"Das Odoo-Modell '{model}' ist auf diesem Mandanten nicht verfuegbar - "
+                f"das Modul '{module}' ist nicht installiert. Nicht erneut versuchen, "
+                "auch nicht mit anderen Angaben: dem Benutzer melden, dass ein Administrator "
+                f"das Modul '{module}' installieren muss."
+            ),
+            "grund": "modul_fehlt",
+            "modell": model,
+            "modul": module,
+            "erneut_versuchen": False,
+            **extra,
+        }
     return {"success": False, "tool": tool, "error": str(error), **extra}
 
 
@@ -236,6 +307,18 @@ def gated_write(ctx: Any, model: str, record_ids: List[int], values: Dict[str, A
     result = core.execute_approved_write(ctx, report["approval"], confirm=True)
     if not result.get("success"):
         raise ValueError(f"{model} aendern fehlgeschlagen: {result.get('error')}")
+
+
+def gated_unlink(ctx: Any, model: str, record_ids: List[int], *, instance: Optional[str] = None) -> None:
+    core = _core()
+    report = core.validate_write(ctx, model, "unlink", record_ids=record_ids, instance=instance)
+    if not report.get("success") or not (report.get("approval_status") or {}).get("stored"):
+        issues = report.get("issues") or []
+        detail = "; ".join(str(issue.get("message")) for issue in issues if isinstance(issue, dict)) or report.get("error")
+        raise ValueError(f"{model} loeschen abgelehnt: {detail}")
+    result = core.execute_approved_write(ctx, report["approval"], confirm=True)
+    if not result.get("success"):
+        raise ValueError(f"{model} loeschen fehlgeschlagen: {result.get('error')}")
 
 
 def gated_method(ctx: Any, model: str, method: str, args: List[Any], kwargs: Optional[Dict[str, Any]] = None, *, instance: Optional[str] = None) -> Any:
@@ -330,8 +413,19 @@ def termin_buchen(
             values["description"] = beschreibung
         if ort:
             values["location"] = ort
-        if teilnehmer_ids:
-            values["partner_ids"] = [[6, 0, [int(pid) for pid in teilnehmer_ids]]]
+        # Der anmeldende Benutzer ist IMMER Teilnehmer - auch wenn niemand
+        # sonst genannt wurde. Odoos Kalenderansicht filtert nach Teilnehmern,
+        # nicht nach Eigentuemer: ein Termin, in dessen partner_ids der Ersteller
+        # fehlt, ist in seinem eigenen Kalender unsichtbar. Genau das passierte
+        # am 2026-09-02 zweimal - Event 17 (nur Abigail Peterson als Teilnehmerin)
+        # und Event 18 (gar keine Teilnehmer): der Termin stand korrekt in Odoo,
+        # der Benutzer sah ihn nur nirgends.
+        gaeste = [int(pid) for pid in (teilnehmer_ids or [])]
+        eigener = _eigene_partner_id(odoo)
+        if eigener and eigener not in gaeste:
+            gaeste.insert(0, eigener)
+        if gaeste:
+            values["partner_ids"] = [[6, 0, gaeste]]
         anzeige = {
             "titel": values["name"],
             "von": format_local(begin),
@@ -342,7 +436,10 @@ def termin_buchen(
         if not bestaetigen:
             report = api.validate_write(ctx, "calendar.event", "create", values=values, instance=instance_name)
             if not report.get("success"):
-                return _fail(tool, "Termin-Daten ungueltig", issues=report.get("issues"), details=anzeige)
+                # Pass the core's reason through: a missing model (module not
+                # installed) must not read like invalid input.
+                reason = report.get("error") or "Termin-Daten ungueltig"
+                return _fail(tool, reason, issues=report.get("issues"), details=anzeige)
             code = register_pending(ctx, instance_name, tool, {"values": values, "anzeige": anzeige})
             return _card(
                 tool,
@@ -388,9 +485,13 @@ def create_partner(
         api = _core()
         instance_name, odoo = api._resolve_odoo(ctx, instance)
         values: Dict[str, Any] = {"name": name.strip(), "is_company": bool(is_company)}
-        if art == "kunde":
+        # [PERF-UX 2026-09-03] customer_rank/supplier_rank only exist on
+        # res.partner when Sales/Purchase are installed; guard via fields_get
+        # instead of assuming, so this tool doesn't crash on a leaner Odoo.
+        partner_fields = odoo.get_model_fields("res.partner")
+        if art == "kunde" and "customer_rank" in partner_fields:
             values["customer_rank"] = 1
-        elif art == "lieferant":
+        elif art == "lieferant" and "supplier_rank" in partner_fields:
             values["supplier_rank"] = 1
         for key, value in (("email", email), ("phone", phone), ("street", street), ("city", city), ("zip", zip)):
             if value:
@@ -408,6 +509,56 @@ def create_partner(
         payload = take_pending(ctx, instance_name, tool, freigabe_code)
         partner_id = gated_create(ctx, "res.partner", payload["values"], instance=instance_name)
         return {"success": True, "tool": tool, "partner_id": partner_id, "summary": f"Kontakt '{payload['values']['name']}' angelegt (ID {partner_id})."}
+    except Exception as exc:  # noqa: BLE001
+        return _fail(tool, exc)
+
+
+def notiz_hinterlassen(
+    ctx: Context,
+    model: str,
+    record_id: int,
+    notiz: str,
+    message_type: str = "comment",
+    bestaetigen: bool = False,
+    freigabe_code: Optional[str] = None,
+    instance: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Hinterlaesst eine interne Notiz im Chatter eines Datensatzes (res.partner, account.move, ...).
+
+    Ersetzt den geerbten ``chatter_post`` aus dem Basis-MCP, dessen Bestaetigungs-Contract
+    (``approval``-Objekt + ``confirm``) vom Format aller uebrigen Tools abweicht und beim Agenten
+    zu wiederholten Fehlversuchen fuehrt. Erster Aufruf = Karte, zweiter Aufruf mit
+    bestaetigen=true + freigabe_code = posten.
+    """
+    tool = "notiz_hinterlassen"
+    try:
+        api = _core()
+        instance_name, odoo = api._resolve_odoo(ctx, instance)
+        text = (notiz or "").strip()
+        if not text:
+            raise ValueError("notiz darf nicht leer sein.")
+        if message_type not in {"comment", "notification"}:
+            raise ValueError("message_type muss 'comment' oder 'notification' sein.")
+        if not bestaetigen:
+            rows = odoo.read_records(model, [int(record_id)], fields=["display_name"])
+            if not rows:
+                raise ValueError(f"{model} #{record_id} gibt es nicht.")
+            code = register_pending(ctx, instance_name, tool, {
+                "model": model, "record_id": int(record_id), "notiz": text, "message_type": message_type,
+            })
+            return _card(
+                tool, "Notiz hinterlassen",
+                {"datensatz": rows[0].get("display_name"), "model": model, "id": int(record_id), "notiz": text},
+                f"Notiz '{text}' bei {rows[0].get('display_name')} hinterlassen?",
+                code,
+            )
+        payload = take_pending(ctx, instance_name, tool, freigabe_code)
+        result = gated_method(
+            ctx, payload["model"], "message_post", [[payload["record_id"]]],
+            kwargs={"body": payload["notiz"], "message_type": payload["message_type"]},
+            instance=instance_name,
+        )
+        return {"success": True, "tool": tool, "result": result, "summary": "Notiz hinterlassen."}
     except Exception as exc:  # noqa: BLE001
         return _fail(tool, exc)
 
@@ -628,6 +779,246 @@ def create_invoice(
         return _fail(tool, exc)
 
 
+def create_project(
+    ctx: Context,
+    name: str,
+    bestaetigen: bool = False,
+    freigabe_code: Optional[str] = None,
+    instance: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Legt ein neues Projekt (project.project) an.
+
+    Erster Aufruf zeigt die Karte, zweiter Aufruf mit bestaetigen=true + freigabe_code legt an.
+    """
+    tool = "create_project"
+    try:
+        api = _core()
+        instance_name, odoo = api._resolve_odoo(ctx, instance)
+        project_name = (name or "").strip()
+        if not project_name:
+            raise ValueError("name darf nicht leer sein.")
+        values = {"name": project_name}
+        if not bestaetigen:
+            existing = odoo.search_read("project.project", [["name", "=", project_name]], fields=["id"], limit=3)
+            code = register_pending(ctx, instance_name, tool, {"values": values})
+            details: Dict[str, Any] = {"name": project_name}
+            if existing:
+                details["hinweis_bestehende"] = existing
+            return _card(tool, "Projekt ANLEGEN", details, f"Projekt '{project_name}' anlegen?", code)
+        payload = take_pending(ctx, instance_name, tool, freigabe_code)
+        project_id = gated_create(ctx, "project.project", payload["values"], instance=instance_name)
+        return {"success": True, "tool": tool, "project_id": project_id, "summary": f"Projekt '{payload['values']['name']}' angelegt (ID {project_id})."}
+    except Exception as exc:  # noqa: BLE001
+        return _fail(tool, exc)
+
+
+def create_task(
+    ctx: Context,
+    title: str,
+    project_id: Optional[int] = None,
+    project_name: Optional[str] = None,
+    bestaetigen: bool = False,
+    freigabe_code: Optional[str] = None,
+    instance: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Legt eine neue Aufgabe (project.task) in einem Projekt an.
+
+    Entweder project_id oder project_name angeben (project_name wird nachgeschlagen).
+    Erster Aufruf zeigt die Karte, zweiter Aufruf mit bestaetigen=true + freigabe_code legt an.
+    """
+    tool = "create_task"
+    try:
+        api = _core()
+        instance_name, odoo = api._resolve_odoo(ctx, instance)
+        task_title = (title or "").strip()
+        if not task_title:
+            raise ValueError("title darf nicht leer sein.")
+        if not bestaetigen:
+            resolved_project_id = project_id
+            resolved_project_name = None
+            if resolved_project_id:
+                rows = odoo.read_records("project.project", [int(resolved_project_id)], fields=["name"])
+                if not rows:
+                    raise ValueError(f"Projekt #{resolved_project_id} gibt es nicht.")
+                resolved_project_name = rows[0].get("name")
+            elif project_name:
+                rows = odoo.search_read("project.project", [["name", "=", project_name.strip()]], fields=["id", "name"], limit=5)
+                if not rows:
+                    raise ValueError(f"Kein Projekt mit dem Namen '{project_name}' gefunden.")
+                if len(rows) > 1:
+                    raise ValueError(f"Mehrere Projekte mit dem Namen '{project_name}' gefunden (IDs {[r['id'] for r in rows]}) - bitte project_id angeben.")
+                resolved_project_id = int(rows[0]["id"])
+                resolved_project_name = rows[0].get("name")
+            else:
+                raise ValueError("project_id oder project_name muss angegeben werden.")
+            values = {"name": task_title, "project_id": resolved_project_id}
+            code = register_pending(ctx, instance_name, tool, {"values": values, "projekt": resolved_project_name})
+            return _card(
+                tool, "Aufgabe ANLEGEN",
+                {"titel": task_title, "projekt": resolved_project_name, "projekt_id": resolved_project_id},
+                f"Aufgabe '{task_title}' im Projekt '{resolved_project_name}' anlegen?",
+                code,
+            )
+        payload = take_pending(ctx, instance_name, tool, freigabe_code)
+        task_id = gated_create(ctx, "project.task", payload["values"], instance=instance_name)
+        return {"success": True, "tool": tool, "task_id": task_id, "summary": f"Aufgabe '{payload['values']['name']}' im Projekt '{payload['projekt']}' angelegt (ID {task_id})."}
+    except Exception as exc:  # noqa: BLE001
+        return _fail(tool, exc)
+
+
+def create_quotation(
+    ctx: Context,
+    partner_id: int,
+    lines: List[Dict[str, Any]],
+    bestaetigen: bool = False,
+    freigabe_code: Optional[str] = None,
+    instance: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Erstellt eine Offerte / Angebot (sale.order) als ENTWURF.
+
+    lines: [{"description", "quantity", "price_unit", "tax_percent"?}].
+    Ohne tax_percent bekommt jede Zeile den Schweizer Normalsatz 8.1 %; tax_percent 0 = ohne MwSt.
+    Immer: Karte zuerst, dann bestaetigen=true + freigabe_code.
+    """
+    tool = "create_quotation"
+    try:
+        api = _core()
+        instance_name, odoo = api._resolve_odoo(ctx, instance)
+        if not lines:
+            raise ValueError("Mindestens eine Position noetig.")
+        total = 0.0
+        order_lines: List[Any] = []
+        tax_notes: set[str] = set()
+        tax_cache: Dict[float, Optional[int]] = {}
+        for line in lines:
+            qty = float(line.get("quantity", 1) or 1)
+            price = float(line.get("price_unit", 0) or 0)
+            total += qty * price
+            lvals: Dict[str, Any] = {"name": str(line.get("description", "Position")), "product_uom_qty": qty, "price_unit": price}
+            percent = line.get("tax_percent")
+            percent = 8.1 if percent is None else float(percent)
+            if percent > 0:
+                if percent not in tax_cache:
+                    tax_cache[percent] = _find_tax_id(odoo, percent, "out_invoice")
+                if tax_cache[percent]:
+                    lvals["tax_id"] = [[6, 0, [tax_cache[percent]]]]
+                    tax_notes.add(f"{percent}% MWST")
+                else:
+                    tax_notes.add(f"ACHTUNG: kein {percent}%-Steuersatz in Odoo gefunden - Zeile OHNE MwSt")
+            else:
+                lvals["tax_id"] = [[6, 0, []]]
+                tax_notes.add("ohne MwSt (explizit)")
+            order_lines.append([0, 0, lvals])
+        partner = odoo.read_records("res.partner", [int(partner_id)], fields=["name"])
+        partner_name = partner[0]["name"] if partner else f"ID {partner_id}"
+        values = {"partner_id": int(partner_id), "order_line": order_lines}
+        if not bestaetigen:
+            code = register_pending(ctx, instance_name, tool, {"values": values, "partner": partner_name, "total": round(total, 2), "mwst": sorted(tax_notes)})
+            return _card(
+                tool,
+                "Offerte erstellen (Entwurf)",
+                {"partner": partner_name, "betrag_chf": round(total, 2), "zeilen": len(order_lines), "mwst": sorted(tax_notes)},
+                f"Offerte ueber CHF {total:,.2f} an {partner_name} als Entwurf anlegen?",
+                code,
+            )
+        payload = take_pending(ctx, instance_name, tool, freigabe_code)
+        order_id = gated_create(ctx, "sale.order", payload["values"], instance=instance_name)
+        info = odoo.read_records("sale.order", [order_id], fields=["name", "amount_total"])
+        info0 = info[0] if info else {"name": f"#{order_id}", "amount_total": payload["total"]}
+        return {
+            "success": True,
+            "tool": tool,
+            "order_id": order_id,
+            "name": info0.get("name"),
+            "amount_total": info0.get("amount_total"),
+            "summary": f"Offerte {info0.get('name')} ueber CHF {float(info0.get('amount_total') or 0):,.2f} an {payload['partner']} erstellt (Entwurf).",
+        }
+    except Exception as exc:  # noqa: BLE001
+        return _fail(tool, exc)
+
+
+def update_record(
+    ctx: Context,
+    model: str,
+    record_id: int,
+    values: Dict[str, Any],
+    bestaetigen: bool = False,
+    freigabe_code: Optional[str] = None,
+    instance: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Aendert Feldwerte eines bestehenden Datensatzes (beliebiges Modell).
+
+    Fuer alles, wofuer es kein eigenes Werkzeug gibt - z.B. einen Termin
+    verschieben (calendar.event: start/stop), einen Teilnehmer hinzufuegen
+    (calendar.event: partner_ids = [[4, partner_id]]), die Phase einer
+    Aufgabe aendern (project.task: stage_id) usw.
+    many2one: record-ID als Zahl. one2many/many2many: Odoo-Befehlsliste,
+    z.B. [[4, ID]] zum Hinzufuegen, [[3, ID]] zum Entfernen, [[6, 0, [IDs]]]
+    zum Ersetzen. Erster Aufruf zeigt die Karte, zweiter Aufruf mit
+    bestaetigen=true + freigabe_code schreibt.
+    """
+    tool = "update_record"
+    try:
+        api = _core()
+        instance_name, odoo = api._resolve_odoo(ctx, instance)
+        if not values:
+            raise ValueError("values darf nicht leer sein.")
+        rows = odoo.read_records(model, [int(record_id)], fields=["display_name"])
+        if not rows:
+            raise ValueError(f"{model} #{record_id} gibt es nicht.")
+        label = rows[0].get("display_name") or f"#{record_id}"
+        if not bestaetigen:
+            code = register_pending(ctx, instance_name, tool, {"model": model, "record_id": int(record_id), "values": values, "label": label})
+            return _card(
+                tool, "Datensatz AENDERN",
+                {"datensatz": label, "model": model, "id": int(record_id), "neue_werte": values},
+                f"'{label}' ({model}) mit diesen Werten aendern: {values}?",
+                code,
+            )
+        payload = take_pending(ctx, instance_name, tool, freigabe_code)
+        gated_write(ctx, payload["model"], [payload["record_id"]], payload["values"], instance=instance_name)
+        return {"success": True, "tool": tool, "model": payload["model"], "record_id": payload["record_id"], "summary": f"'{payload['label']}' ({payload['model']}) aktualisiert."}
+    except Exception as exc:  # noqa: BLE001
+        return _fail(tool, exc)
+
+
+def delete_record(
+    ctx: Context,
+    model: str,
+    record_id: int,
+    bestaetigen: bool = False,
+    freigabe_code: Optional[str] = None,
+    instance: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Loescht einen bestehenden Datensatz unwiderruflich (beliebiges Modell).
+
+    IMMER zuerst die Karte zeigen und explizit bestaetigen lassen - das ist
+    nicht rueckgaengig zu machen. Erster Aufruf zeigt die Karte, zweiter
+    Aufruf mit bestaetigen=true + freigabe_code loescht wirklich.
+    """
+    tool = "delete_record"
+    try:
+        api = _core()
+        instance_name, odoo = api._resolve_odoo(ctx, instance)
+        rows = odoo.read_records(model, [int(record_id)], fields=["display_name"])
+        if not rows:
+            raise ValueError(f"{model} #{record_id} gibt es nicht.")
+        label = rows[0].get("display_name") or f"#{record_id}"
+        if not bestaetigen:
+            code = register_pending(ctx, instance_name, tool, {"model": model, "record_id": int(record_id), "label": label})
+            return _card(
+                tool, "Datensatz LOESCHEN",
+                {"datensatz": label, "model": model, "id": int(record_id)},
+                f"'{label}' ({model}) UNWIDERRUFLICH loeschen?",
+                code,
+            )
+        payload = take_pending(ctx, instance_name, tool, freigabe_code)
+        gated_unlink(ctx, payload["model"], [payload["record_id"]], instance=instance_name)
+        return {"success": True, "tool": tool, "model": payload["model"], "record_id": payload["record_id"], "summary": f"'{payload['label']}' ({payload['model']}) geloescht."}
+    except Exception as exc:  # noqa: BLE001
+        return _fail(tool, exc)
+
+
 def post_journal_entry(ctx: Context, move_id: int, bestaetigen: bool = False, freigabe_code: Optional[str] = None, instance: Optional[str] = None) -> Dict[str, Any]:
     """Bucht einen Beleg (Entwurf -> gebucht) ueber account.move.action_post. Immer mit Karte."""
     tool = "post_journal_entry"
@@ -798,6 +1189,12 @@ READ_TOOLS: List[tuple[Callable[..., Any], str]] = [
 WRITE_TOOLS: List[tuple[Callable[..., Any], str]] = [
     (termin_buchen, "Kalender-Termin anlegen: 1. Aufruf = Karte + freigabe_code, 2. Aufruf mit bestaetigen=true + freigabe_code = anlegen. Zeiten in Schweizer Zeit."),
     (create_partner, "Kontakt (Kunde/Lieferant) anlegen: Karte, dann bestaetigen=true + freigabe_code."),
+    (notiz_hinterlassen, "Interne Notiz im Chatter eines Datensatzes hinterlassen: Karte, dann bestaetigen=true + freigabe_code."),
+    (create_project, "Projekt anlegen: Karte, dann bestaetigen=true + freigabe_code."),
+    (create_task, "Aufgabe in einem Projekt anlegen: Karte, dann bestaetigen=true + freigabe_code."),
+    (create_quotation, "Offerte/Angebot als Entwurf erstellen (CH-MwSt 8.1 % Standard): Karte, dann bestaetigen=true + freigabe_code."),
+    (update_record, "Beliebigen bestehenden Datensatz aendern (Termin verschieben, Teilnehmer hinzufuegen, Aufgaben-Phase, Offerte/Rechnung-Felder usw.): Karte, dann bestaetigen=true + freigabe_code."),
+    (delete_record, "Beliebigen bestehenden Datensatz unwiderruflich loeschen: Karte, dann bestaetigen=true + freigabe_code."),
     (auftrag_monteur_zuweisen, "Field-Service-Auftrag einem Monteur zuteilen: Karte, dann bestaetigen=true + freigabe_code."),
     (auftrag_abschliessen, "Field-Service-Auftrag abschliessen (action_complete): Karte, dann bestaetigen=true + freigabe_code."),
     (create_invoice, "Rechnung als Entwurf anlegen (CH-MwSt 8.1 % Standard): Karte, dann bestaetigen=true + freigabe_code."),

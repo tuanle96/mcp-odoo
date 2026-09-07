@@ -325,6 +325,16 @@ def test_register_uses_plugin_api_and_destructive_annotations():
 
     plugin.register(Api())
     names = [name for name, _ in registered]
-    assert names == ["aktuelles_datum", "get_account_by_code", "bericht_link", "termin_buchen", "create_partner", "auftrag_monteur_zuweisen", "auftrag_abschliessen", "create_invoice", "post_journal_entry", "pay_invoice", "einsatzrapport_erstellen"]
+    assert names == [
+        "aktuelles_datum", "get_account_by_code", "bericht_link",
+        "termin_buchen", "create_partner", "notiz_hinterlassen",
+        "create_project", "create_task", "create_quotation",
+        "update_record", "delete_record",
+        "auftrag_monteur_zuweisen", "auftrag_abschliessen", "create_invoice",
+        "post_journal_entry", "pay_invoice", "einsatzrapport_erstellen",
+    ]
+    # every write tool is annotated destructive, none of them read-only
+    for write_tool in names[3:]:
+        assert dict(registered)[write_tool] != "read-only"
     assert dict(registered)["termin_buchen"] != "read-only"
     assert dict(registered)["get_account_by_code"] == "read-only"
