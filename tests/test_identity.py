@@ -115,13 +115,13 @@ def test_cache_key_separates_instance_database_user_and_credential():
     anna = identity.RequestIdentity("anna@example.ch", KEY_A)
     anna_rotated = identity.RequestIdentity("anna@example.ch", KEY_B)
     bob = identity.RequestIdentity("bob@example.ch", KEY_A)
-    base = anna.cache_key("bauag2", "bauag2")
-    assert base != anna.cache_key("sanitaer", "bauag2")  # other instance
-    assert base != anna.cache_key("bauag2", "other_db")  # other database
-    assert base != bob.cache_key("bauag2", "bauag2")  # other user
-    assert base != anna_rotated.cache_key("bauag2", "bauag2")  # rotated key
+    base = anna.cache_key("demo", "demo")
+    assert base != anna.cache_key("demo2", "demo")  # other instance
+    assert base != anna.cache_key("demo", "other_db")  # other database
+    assert base != bob.cache_key("demo", "demo")  # other user
+    assert base != anna_rotated.cache_key("demo", "demo")  # rotated key
     assert base == identity.RequestIdentity("ANNA@example.ch", KEY_A).cache_key(
-        "bauag2", "bauag2"
+        "demo", "demo"
     )  # logins are case-insensitive, keys are not
     assert KEY_A not in base
 
@@ -129,9 +129,9 @@ def test_cache_key_separates_instance_database_user_and_credential():
 def test_approval_binding_separates_user_and_instance():
     anna = identity.RequestIdentity("anna@example.ch", KEY_A)
     bob = identity.RequestIdentity("bob@example.ch", KEY_B)
-    assert anna.approval_binding("bauag2") != bob.approval_binding("bauag2")
-    assert anna.approval_binding("bauag2") != anna.approval_binding("sanitaer")
-    assert KEY_A not in anna.approval_binding("bauag2")
+    assert anna.approval_binding("demo") != bob.approval_binding("demo")
+    assert anna.approval_binding("demo") != anna.approval_binding("demo2")
+    assert KEY_A not in anna.approval_binding("demo")
 
 
 # --- bounded client cache ---------------------------------------------------
@@ -266,7 +266,7 @@ def test_build_identity_client_uses_request_credentials_only(monkeypatch, capsys
     monkeypatch.setattr(odoo_client, "OdooClient", _RecordingClient)
     entry = {
         "url": "http://127.0.0.1:8071",
-        "db": "bauag2",
+        "db": "demo",
         "username": "shared-bot",  # must be ignored
         "password": "shared-secret",  # must be ignored
         "api_key": "shared-api-key",  # must be ignored
@@ -274,11 +274,11 @@ def test_build_identity_client_uses_request_credentials_only(monkeypatch, capsys
         "verify_ssl": False,
     }
     who = identity.RequestIdentity("anna@example.ch", KEY_A, "lc-1")
-    client = odoo_client.build_identity_client(entry, who, name="bauag2")
+    client = odoo_client.build_identity_client(entry, who, name="demo")
     assert client.kwargs["username"] == "anna@example.ch"
     assert client.kwargs["password"] == KEY_A
     assert client.kwargs["api_key"] is None  # xmlrpc: key is the password
-    assert client.kwargs["db"] == "bauag2"
+    assert client.kwargs["db"] == "demo"
     assert client.kwargs["timeout"] == 7
     assert client.kwargs["verify_ssl"] is False
     assert "shared" not in str(client.kwargs.values())
@@ -291,7 +291,7 @@ def test_build_identity_client_uses_request_credentials_only(monkeypatch, capsys
 def test_build_identity_client_json2_uses_key_as_bearer(monkeypatch):
     _RecordingClient.instances.clear()
     monkeypatch.setattr(odoo_client, "OdooClient", _RecordingClient)
-    entry = {"url": "http://odoo19.local", "db": "bauag2", "transport": "json2"}
+    entry = {"url": "http://odoo19.local", "db": "demo", "transport": "json2"}
     who = identity.RequestIdentity("anna@example.ch", KEY_A)
     client = odoo_client.build_identity_client(entry, who)
     assert client.kwargs["transport"] == "json2"
@@ -307,7 +307,7 @@ def test_build_identity_client_json2_uses_key_as_bearer(monkeypatch):
             "invalid login or API key",
         ),
         (
-            ValueError("Failed to authenticate with Odoo: database bauag9 not found"),
+            ValueError("Failed to authenticate with Odoo: database demo9 not found"),
             identity.IdentityAuthenticationError,
             "check the database name",
         ),
@@ -327,37 +327,37 @@ def test_build_identity_client_sanitizes_failures(monkeypatch, raised, expected,
     who = identity.RequestIdentity("anna@example.ch", KEY_A)
     with pytest.raises(expected) as info:
         odoo_client.build_identity_client(
-            {"url": "http://127.0.0.1:8071", "db": "bauag2"}, who, name="bauag2"
+            {"url": "http://127.0.0.1:8071", "db": "demo"}, who, name="demo"
         )
     message = str(info.value)
     assert fragment in message
     assert KEY_A not in message
-    assert "bauag2" in message
+    assert "demo" in message
 
 
 def test_request_mode_env_config_needs_only_url_and_db(monkeypatch):
     monkeypatch.setenv(identity.IDENTITY_MODE_ENV, "request")
     monkeypatch.setenv("ODOO_URL", "http://127.0.0.1:8071")
-    monkeypatch.setenv("ODOO_DB", "bauag2")
+    monkeypatch.setenv("ODOO_DB", "demo")
     monkeypatch.delenv("ODOO_USERNAME", raising=False)
     monkeypatch.delenv("ODOO_PASSWORD", raising=False)
     default, instances = odoo_client.load_instances_config()
     assert default == "default"
-    assert instances["default"] == {"url": "http://127.0.0.1:8071", "db": "bauag2"}
+    assert instances["default"] == {"url": "http://127.0.0.1:8071", "db": "demo"}
     assert "username" not in instances["default"]
 
 
 def test_configured_mode_env_config_still_needs_all_four(monkeypatch):
     monkeypatch.delenv(identity.IDENTITY_MODE_ENV, raising=False)
     monkeypatch.setenv("ODOO_URL", "http://127.0.0.1:8071")
-    monkeypatch.setenv("ODOO_DB", "bauag2")
+    monkeypatch.setenv("ODOO_DB", "demo")
     assert odoo_client._env_config() is None
 
 
 def test_configured_credential_clients_refuse_request_mode(monkeypatch):
     monkeypatch.setenv(identity.IDENTITY_MODE_ENV, "request")
     monkeypatch.setenv("ODOO_URL", "http://127.0.0.1:8071")
-    monkeypatch.setenv("ODOO_DB", "bauag2")
+    monkeypatch.setenv("ODOO_DB", "demo")
     with pytest.raises(identity.MissingIdentityError, match="disabled in request"):
         odoo_client.get_odoo_client()
     with pytest.raises(identity.MissingIdentityError, match="disabled in request"):

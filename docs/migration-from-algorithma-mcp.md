@@ -1,7 +1,7 @@
 # Migration: from `A-Odoo-MCP` (v3.3.x) to vNext
 
 The current Algorithma MCP (`A-Odoo-MCP`, one `server.py` on fastmcp 2 with 19 tools plus
-`documents.py`) stays **untouched and in production for sanitaer** during this phase. It is
+`documents.py`) stays **untouched and in production for demo2** during this phase. It is
 the behavioural and security reference; vNext is the structural base. This page classifies
 every feature of the current MCP and says where it goes.
 
@@ -93,7 +93,7 @@ Rule: **no plugin creates its own privileged Odoo connection.** A plugin that in
 
 ## What stays where during the transition
 
-- `A-Odoo-MCP` keeps serving sanitaer (image `algorithma-agent-mcp:3.3.x`) unchanged.
-- vNext serves **bauag2 only** (per Parwiz, 2026-09-01), first on the VM loopback
-  (`scripts/run_request_mode.sh`), later as the `mcp` service of the bauag2 Turm stack.
+- `A-Odoo-MCP` keeps serving demo2 (image `algorithma-agent-mcp:3.3.x`) unchanged.
+- vNext serves **demo only** (per Parwiz, 2026-09-01), first on the VM loopback
+  (`scripts/run_request_mode.sh`), later as the `mcp` service of the demo Turm stack.
 - The LibreChat side needs no change: it already sends the three headers.

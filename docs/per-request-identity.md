@@ -52,7 +52,7 @@ to the caller and never contain a credential.
 
 ## How the credential reaches Odoo
 
-**XML-RPC (Odoo 16–19, the bauag2 path).** `common.authenticate(db, login, api_key, {})`
+**XML-RPC (Odoo 16–19, the demo path).** `common.authenticate(db, login, api_key, {})`
 returns the uid once; every subsequent `object.execute_kw(db, uid, api_key, model, method,
 …)` carries the key again, so Odoo re-checks the credential on **every** call. A revoked
 key stops working at the next call, independent of any cache on our side.
@@ -89,7 +89,7 @@ TTL): bounded, expiring, instance-aware, and it never stores the raw key as a ke
 ## Approvals are bound to the user and the instance
 
 ```text
-validate_write (as Anna, instance bauag2)
+validate_write (as Anna, instance demo)
    token     = sha256(model, operation, record_ids, values, context, instance, principal=anna)
    record    = { payload, expires_at, identity_binding = sha256(instance ‖ anna ‖ key) }
 
@@ -121,7 +121,7 @@ Audit lines (`ODOO_MCP_AUDIT_LOG`) gain `principal` (the login) and `client_user
 
 ```json
 {"ts": "2026-09-01T16:40:12Z", "event": "execute", "outcome": "success",
- "instance": "bauag2", "model": "res.partner", "operation": "create",
+ "instance": "demo", "model": "res.partner", "operation": "create",
  "principal": "anna@example.ch", "client_user_id": "lc-42",
  "token_sha256": "5b2c…", "record_ids": [], "detail": null}
 ```
@@ -154,7 +154,7 @@ uv run python -m ruff check .
 uv run python -m mypy src
 PYTHONPATH=src uv run --with import-linter lint-imports
 
-scripts/run_request_mode.sh        # request mode, 127.0.0.1:8010, bauag2 instance config
+scripts/run_request_mode.sh        # request mode, 127.0.0.1:8010, demo instance config
 scripts/identity_client.py --health
 ODOO_MCP_USER_EMAIL=… scripts/identity_client.py --model res.partner     # key prompted
 A_EMAIL=… A_API_KEY=… B_EMAIL=… B_API_KEY=… scripts/identity_client.py --compare
@@ -163,10 +163,10 @@ scripts/identity_client.py --no-identity                                   # exp
 # real two-user proof on a disposable Odoo 18 (Docker):
 uv run --python 3.12 --with-editable . scripts/algorithma_identity_smoke.py
 
-# the same proof against an existing Odoo container (dev VM, bauag2):
+# the same proof against an existing Odoo container (dev VM, demo):
 uv run python scripts/algorithma_identity_smoke.py --backend container \
-    --container bauag2-odoo --odoo-url http://127.0.0.1:8071 --db bauag2 \
-    --docker-sudo --mcp-port 8010 --save-keys ~/.algorithma-vnext/bauag2-smoke-keys.json
+    --container demo-odoo --odoo-url http://127.0.0.1:8071 --db demo \
+    --docker-sudo --mcp-port 8010 --save-keys ~/.algorithma-vnext/demo-smoke-keys.json
 # ... and remove the fixture again:
 uv run python scripts/algorithma_identity_smoke.py --backend container --docker-sudo --cleanup
 ```
@@ -175,7 +175,7 @@ The container backend creates two internal users (`anna@identity-smoke.test`,
 `bob@identity-smoke.test`, with Contact Creation), partners prefixed
 `ZZ Identity-Smoke …`, and one **global** record rule on `res.partner` whose domain is
 `[('user_id', '=', user.id)]` only for logins ending in `@identity-smoke.test` and
-`[(1, '=', 1)]` for everyone else — real users are never restricted. Result on bauag2
+`[(1, '=', 1)]` for everyone else — real users are never restricted. Result on demo
 (2026-09-01): **20/20 checks passed** — A and B see disjoint partners, B cannot spend A's
 approval, A's approved create ran as A (`create_uid`), `list_models` returned Odoo's own
 ACL refusal for plain users, no key in audit or server log. Note for anyone scripting

@@ -21,8 +21,8 @@ KEY_B = "b-key-0123456789abcdef0123456789abcdef02"
 ANNA = {"x-user-email": "anna@example.ch", "x-odoo-api-key": KEY_A, "x-librechat-user-id": "lc-a"}
 BOB = {"x-user-email": "bob@example.ch", "x-odoo-api-key": KEY_B, "x-librechat-user-id": "lc-b"}
 INSTANCES = {
-    "bauag2": {"url": "http://127.0.0.1:8071", "db": "bauag2"},
-    "sanitaer": {"url": "http://127.0.0.1:8069", "db": "sanitaer"},
+    "demo": {"url": "http://127.0.0.1:8071", "db": "demo"},
+    "demo2": {"url": "http://127.0.0.1:8069", "db": "demo2"},
 }
 
 
@@ -65,7 +65,7 @@ class FakeUserClient:
 def request_mode(monkeypatch):
     monkeypatch.setenv(identity.IDENTITY_MODE_ENV, "request")
     monkeypatch.setenv("ODOO_MCP_RATE_LIMIT_MODE", "off")
-    monkeypatch.setattr(server, "load_instances_config", lambda: ("bauag2", dict(INSTANCES)))
+    monkeypatch.setattr(server, "load_instances_config", lambda: ("demo", dict(INSTANCES)))
     built = []
 
     def build(entry, identity_, *, name="default"):
@@ -94,7 +94,7 @@ def test_request_a_runs_as_a_and_request_b_runs_as_b(request_mode):
     assert result_a["result"][0]["name"] == "res.partner visible to anna@example.ch"
     assert result_b["result"][0]["name"] == "res.partner visible to bob@example.ch"
     assert [c.identity.email for c in built] == ["anna@example.ch", "bob@example.ch"]
-    assert all(c.instance == "bauag2" for c in built)
+    assert all(c.instance == "demo" for c in built)
 
 
 # --- Test 3: A's cached client is never returned for B ----------------------
@@ -114,8 +114,8 @@ def test_cached_client_is_per_identity_not_per_instance(request_mode):
     server.search_records(Ctx(app_context, rotated), "res.partner", fields=["name"])
     assert len(built) == 3
     # Another instance -> another entry for the same user
-    server.search_records(ctx_a, "res.partner", fields=["name"], instance="sanitaer")
-    assert len(built) == 4 and built[3].instance == "sanitaer"
+    server.search_records(ctx_a, "res.partner", fields=["name"], instance="demo2")
+    assert len(built) == 4 and built[3].instance == "demo2"
     assert len(app_context.identity_clients) == 4
 
 
@@ -138,7 +138,7 @@ def test_missing_headers_fail_closed_without_shared_fallback(request_mode, monke
     with pytest.raises(identity.MissingIdentityError):
         _ = app_context.odoo
     with pytest.raises(identity.MissingIdentityError):
-        app_context.get_client("bauag2")
+        app_context.get_client("demo")
     # odoo:// resources have no request context at all: the real factory
     # refuses them in request mode before any configuration is read.
     monkeypatch.setattr(server, "get_odoo_client", real_get_odoo_client)
@@ -231,11 +231,11 @@ def test_approval_is_bound_to_the_validating_instance(request_mode, monkeypatch)
     monkeypatch.setenv("ODOO_MCP_ENABLE_WRITES", "1")
     ctx = Ctx(app_context, ANNA)
     approval = server.validate_write(
-        ctx, "res.partner", "create", values={"name": "Neu"}, instance="bauag2"
+        ctx, "res.partner", "create", values={"name": "Neu"}, instance="demo"
     )["approval"]
-    assert approval["instance"] == "bauag2"
+    assert approval["instance"] == "demo"
 
-    moved = dict(approval, instance="sanitaer")
+    moved = dict(approval, instance="demo2")
     result = server.execute_approved_write(ctx, moved, confirm=True)
     assert result["success"] is False
     assert "token does not match" in result["error"]
@@ -243,9 +243,9 @@ def test_approval_is_bound_to_the_validating_instance(request_mode, monkeypatch)
     # Even with a recomputed token the server-side binding refuses it.
     record = app_context.write_approvals[approval["token"]]
     who = identity.RequestIdentity("anna@example.ch", KEY_A)
-    assert server.approval_identity_matches(record, who.approval_binding("bauag2"))
-    assert not server.approval_identity_matches(record, who.approval_binding("sanitaer"))
-    assert not any(c.instance == "sanitaer" for c in built)
+    assert server.approval_identity_matches(record, who.approval_binding("demo"))
+    assert not server.approval_identity_matches(record, who.approval_binding("demo2"))
+    assert not any(c.instance == "demo2" for c in built)
 
 
 # --- preview tokens are per user in request mode ----------------------------
@@ -293,7 +293,7 @@ def test_health_check_warns_about_shared_credentials_in_request_mode(request_mod
     monkeypatch.setattr(
         server,
         "load_instances_config",
-        lambda: ("bauag2", {"bauag2": {**INSTANCES["bauag2"], "username": "bot", "password": "x"}}),
+        lambda: ("demo", {"demo": {**INSTANCES["demo"], "username": "bot", "password": "x"}}),
     )
     posture = server.health_check()["identity"]
     assert posture["configured_credentials_present"] is True
@@ -332,7 +332,7 @@ def test_plugin_api_resolves_identity_clients(request_mode):
 
     app_context, built = request_mode
     name, client = plugin_api.resolve_odoo(Ctx(app_context, BOB))
-    assert name == "bauag2"
+    assert name == "demo"
     assert client.identity.email == "bob@example.ch"
     with pytest.raises(identity.MissingIdentityError):
         plugin_api.resolve_odoo(Ctx(app_context, None))

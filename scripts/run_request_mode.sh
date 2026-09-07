@@ -5,14 +5,14 @@
 # WHO comes from the X-User-Email / X-Odoo-Api-Key headers on every request.
 # Writes stay OFF unless you export ODOO_MCP_ENABLE_WRITES=1 yourself.
 #
-#   scripts/run_request_mode.sh                 # bauag2 config, port 8010
+#   scripts/run_request_mode.sh                 # demo config, port 8010
 #   MCP_HTTP_PORT=8020 scripts/run_request_mode.sh
 #   ODOO_CONFIG_FILE=/path/odoo_config.json scripts/run_request_mode.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 export ODOO_MCP_IDENTITY_MODE=request
-export ODOO_CONFIG_FILE="${ODOO_CONFIG_FILE:-examples/algorithma-vnext/odoo_config.bauag2.json}"
+export ODOO_CONFIG_FILE="${ODOO_CONFIG_FILE:-examples/algorithma-vnext/odoo_config.example.json}"
 export ODOO_MCP_FIELD_POLICY_FILE="${ODOO_MCP_FIELD_POLICY_FILE:-examples/algorithma-vnext/odoo_mcp_policy.algorithma.json}"
 export ODOO_MCP_AUDIT_LOG="${ODOO_MCP_AUDIT_LOG:-$PWD/audit-request-mode.jsonl}"
 # Tools whose state is shared process-wide across users stay off in request

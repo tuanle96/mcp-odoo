@@ -19,7 +19,7 @@ Two backends:
 ``--backend compose`` (default) boots a disposable Odoo through the same
 Docker Compose harness as ``odoo_compose_smoke.py`` and tears it down.
 
-``--backend container`` targets an *existing* Odoo container (e.g. the bauag2
+``--backend container`` targets an *existing* Odoo container (e.g. the demo
 tenant on the dev VM). The fixture is created with ``odoo shell`` inside that
 container. It is deliberately harmless for real users: the record rule is
 global but only restricts logins ending in ``@identity-smoke.test``; test
@@ -28,8 +28,8 @@ removes it again.
 
     uv run --python 3.12 --with-editable . scripts/algorithma_identity_smoke.py
     uv run python scripts/algorithma_identity_smoke.py --backend container \\
-        --container bauag2-odoo --odoo-url http://127.0.0.1:8071 --db bauag2 \\
-        --docker-sudo --mcp-port 8010 --save-keys ~/.algorithma-vnext/bauag2-smoke-keys.json
+        --container demo-odoo --odoo-url http://127.0.0.1:8071 --db demo \\
+        --docker-sudo --mcp-port 8010 --save-keys ~/.algorithma-vnext/demo-smoke-keys.json
 """
 
 from __future__ import annotations
@@ -373,10 +373,10 @@ def main() -> int:
     parser.add_argument("--backend", choices=("compose", "container"), default="compose")
     parser.add_argument("--version", default="18.0", help="compose: Odoo image version")
     parser.add_argument("--port", type=int, default=18369, help="compose: host port for Odoo")
-    parser.add_argument("--container", default="bauag2-odoo", help="container: running Odoo container name")
+    parser.add_argument("--container", default="demo-odoo", help="container: running Odoo container name")
     parser.add_argument("--odoo-conf", default="/etc/odoo/odoo.conf", help="container: odoo.conf inside the container")
     parser.add_argument("--odoo-url", default="http://127.0.0.1:8071", help="container: Odoo URL as seen from this host")
-    parser.add_argument("--db", default="bauag2", help="container: database name")
+    parser.add_argument("--db", default="demo", help="container: database name")
     parser.add_argument("--docker-sudo", action="store_true", help="container: prefix docker with sudo -n")
     parser.add_argument("--name-prefix", default=None, help="fixture name prefix (default: 'ZZ Identity-Smoke ' for container, none for compose)")
     parser.add_argument("--mcp-port", type=int, default=19369)

@@ -22,7 +22,7 @@ KEY_A = "a-key-0123456789abcdef0123456789abcdef01"
 KEY_B = "b-key-0123456789abcdef0123456789abcdef02"
 ANNA = {"x-user-email": "anna@example.ch", "x-odoo-api-key": KEY_A}
 BOB = {"x-user-email": "bob@example.ch", "x-odoo-api-key": KEY_B}
-INSTANCES = {"bauag2": {"url": "http://127.0.0.1:8071", "db": "bauag2"}}
+INSTANCES = {"demo": {"url": "http://127.0.0.1:8071", "db": "demo"}}
 
 FIELD_TYPES = {
     "name": "char", "start": "datetime", "stop": "datetime", "allday": "boolean",
@@ -120,7 +120,7 @@ def workflow_env(monkeypatch):
     monkeypatch.chdir("/")
     monkeypatch.setenv("ALGORITHMA_TZ", "Europe/Zurich")
     monkeypatch.setenv("ODOO_PUBLIC_URL", "http://localhost:8071")
-    monkeypatch.setattr(server, "load_instances_config", lambda: ("bauag2", dict(INSTANCES)))
+    monkeypatch.setattr(server, "load_instances_config", lambda: ("demo", dict(INSTANCES)))
     clients = {}
     monkeypatch.setattr(server, "build_identity_client", lambda entry, identity_, name="default": clients.setdefault(identity_.email, FakeOdoo(identity_, name)))
     plugin._PENDING.clear()

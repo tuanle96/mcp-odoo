@@ -25,7 +25,7 @@ Examples::
         uv run python scripts/identity_client.py --compare --model res.partner
 
     # same, but with the users the smoke proof saved (0600 JSON, never committed)
-    uv run python scripts/identity_client.py --keys-file ~/.algorithma-vnext/bauag2-smoke-keys.json \\
+    uv run python scripts/identity_client.py --keys-file ~/.algorithma-vnext/demo-smoke-keys.json \\
         --compare --model res.partner --domain '[["name","ilike","Identity-Smoke"]]'
 
     # prove the server fails closed without an identity
